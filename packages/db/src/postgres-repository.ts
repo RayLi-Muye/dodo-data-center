@@ -39,6 +39,41 @@ export type PostgresDodoRepositoryOptions = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const withLegacyMatchDefaults = (value: unknown): unknown => {
+  if (!isRecord(value)) return value;
+  const players = Array.isArray(value.players)
+    ? value.players.map((player) => {
+        if (!isRecord(player)) return player;
+        return {
+          ...player,
+          denies: player.denies ?? null,
+          heroHealing: player.heroHealing ?? null,
+          towerDamage: player.towerDamage ?? null,
+          level: player.level ?? null,
+          netWorth: player.netWorth ?? null,
+          backpackItemIds: player.backpackItemIds ?? [],
+          neutralItemId: player.neutralItemId ?? null,
+          abilityBuild: player.abilityBuild ?? [],
+          abilityBuildStatus: player.abilityBuildStatus ?? "unavailable",
+          itemTimeline: player.itemTimeline ?? [],
+          itemTimelineStatus: player.itemTimelineStatus ?? "unavailable",
+        };
+      })
+    : value.players;
+  return {
+    ...value,
+    players,
+    detailStatus: value.detailStatus ?? "summary",
+    lobbyType: value.lobbyType ?? null,
+    cluster: value.cluster ?? null,
+    radiantScore: value.radiantScore ?? null,
+    direScore: value.direScore ?? null,
+  };
+};
+
+const parseStoredMatchDetail = (value: unknown): MatchDetail =>
+  matchDetailSchema.parse(withLegacyMatchDefaults(value));
+
 const toJson = (value: unknown): postgres.JSONValue =>
   JSON.parse(JSON.stringify(value)) as postgres.JSONValue;
 
@@ -500,7 +535,7 @@ export class PostgresDodoRepository implements DodoRepository {
     const importedAt = asTimestamp(row.imported_at);
     if (!importedAt) throw new Error("Stored match timestamp is missing");
     return {
-      detail: matchDetailSchema.parse(row.payload),
+      detail: parseStoredMatchDetail(row.payload),
       importedAt,
       source: dataSourceSchema.parse(row.source),
       quality: dataQualitySchema.parse(row.quality),
@@ -525,7 +560,7 @@ export class PostgresDodoRepository implements DodoRepository {
       select payload from dodo.matches where id = ${match.detail.id} for update
     `;
     const detail = mergeMatchPlayers(
-      existing ? matchDetailSchema.parse(existing.payload) : undefined,
+      existing ? parseStoredMatchDetail(existing.payload) : undefined,
       match.detail,
     );
     await sql`
