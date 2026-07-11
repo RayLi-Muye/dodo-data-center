@@ -92,6 +92,12 @@ function readInteger(value: unknown, field: string, minimum = 0): number {
     : payloadError(`${field} must be an integer >= ${minimum}`);
 }
 
+function readSignedInteger(value: unknown, field: string): number {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : payloadError(`${field} must be an integer`);
+}
+
 function readOptionalInteger(value: unknown): number | null {
   return value === null || value === undefined ? null : readInteger(value, "optional integer");
 }
@@ -187,6 +193,38 @@ function normalizePlayer(
   const finalItemIds = [raw.item_0, raw.item_1, raw.item_2, raw.item_3, raw.item_4, raw.item_5]
     .map(readOptionalId)
     .filter((itemId): itemId is string => itemId !== null && itemId !== "0");
+  const backpackItemIds = [raw.backpack_0, raw.backpack_1, raw.backpack_2]
+    .map(readOptionalId)
+    .filter((itemId): itemId is string => itemId !== null && itemId !== "0");
+  const neutralItemId = readOptionalId(raw.item_neutral);
+
+  const abilityBuild = Array.isArray(raw.ability_upgrades_arr)
+    ? raw.ability_upgrades_arr.map((abilityId, index) => ({
+        abilityId: readId(abilityId, `player.ability_upgrades_arr[${index}]`),
+        sequence: index + 1,
+        heroLevel: null,
+        gameTimeSeconds: null,
+      }))
+    : [];
+  const abilityBuildStatus = Array.isArray(raw.ability_upgrades_arr)
+    ? "ordered"
+    : "unavailable";
+
+  const itemTimeline = Array.isArray(raw.purchase_log)
+    ? raw.purchase_log.map((purchaseValue, index) => {
+        const purchase = readRecord(purchaseValue, `player.purchase_log[${index}]`);
+        return {
+          itemKey: readString(purchase.key, `player.purchase_log[${index}].key`),
+          action: "purchase" as const,
+          gameTimeSeconds: readSignedInteger(
+            purchase.time,
+            `player.purchase_log[${index}].time`,
+          ),
+          charges: null,
+        };
+      })
+    : [];
+  const itemTimelineStatus = Array.isArray(raw.purchase_log) ? "partial" : "unavailable";
 
   return {
     accountId,
@@ -201,8 +239,19 @@ function normalizePlayer(
     gpm: readOptionalInteger(raw.gold_per_min),
     xpm: readOptionalInteger(raw.xp_per_min),
     lastHits: readOptionalInteger(raw.last_hits),
+    denies: readOptionalInteger(raw.denies),
     heroDamage: readOptionalInteger(raw.hero_damage),
+    heroHealing: readOptionalInteger(raw.hero_healing),
+    towerDamage: readOptionalInteger(raw.tower_damage),
+    level: readOptionalInteger(raw.level),
+    netWorth: readOptionalInteger(raw.net_worth),
     finalItemIds,
+    backpackItemIds,
+    neutralItemId: neutralItemId === "0" ? null : neutralItemId,
+    abilityBuild,
+    abilityBuildStatus,
+    itemTimeline,
+    itemTimelineStatus,
   };
 }
 
@@ -451,6 +500,10 @@ export class OpenDotaProvider {
       patchId: readOptionalId(raw.patch),
       gameMode: readId(raw.game_mode, "match.game_mode"),
       region: readOptionalId(raw.region),
+      lobbyType: readOptionalId(raw.lobby_type),
+      cluster: readOptionalId(raw.cluster),
+      radiantScore: readOptionalInteger(raw.radiant_score),
+      direScore: readOptionalInteger(raw.dire_score),
       radiantWin,
       eligiblePlayerCount: normalizedPlayers.length,
       excludedPlayerCount,

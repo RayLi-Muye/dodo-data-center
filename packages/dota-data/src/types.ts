@@ -25,8 +25,29 @@ export type CanonicalMatchPlayer = {
   gpm: number | null;
   xpm: number | null;
   lastHits: number | null;
+  denies: number | null;
   heroDamage: number | null;
+  heroHealing: number | null;
+  towerDamage: number | null;
+  level: number | null;
+  netWorth: number | null;
   finalItemIds: string[];
+  backpackItemIds: string[];
+  neutralItemId: string | null;
+  abilityBuild: Array<{
+    abilityId: string;
+    sequence: number;
+    heroLevel: null;
+    gameTimeSeconds: null;
+  }>;
+  abilityBuildStatus: "unavailable" | "ordered" | "timed";
+  itemTimeline: Array<{
+    itemKey: string;
+    action: "purchase" | "sell";
+    gameTimeSeconds: number;
+    charges: number | null;
+  }>;
+  itemTimelineStatus: "unavailable" | "partial" | "complete";
 };
 
 export type CanonicalPlayerMatch = {
@@ -74,6 +95,10 @@ export type CanonicalMatchDetail = {
   patchId: string | null;
   gameMode: string;
   region: string | null;
+  lobbyType: string | null;
+  cluster: string | null;
+  radiantScore: number | null;
+  direScore: number | null;
   radiantWin: boolean;
   eligiblePlayerCount: number;
   excludedPlayerCount: number;

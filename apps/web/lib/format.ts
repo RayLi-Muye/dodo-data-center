@@ -15,6 +15,13 @@ export const formatDuration = (seconds: number): string => {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 };
 
+export const formatGameTime = (seconds: number): string => {
+  const absolute = Math.abs(seconds);
+  const minutes = Math.floor(absolute / 60);
+  const remainder = absolute % 60;
+  return `${seconds < 0 ? "−" : ""}${minutes}:${String(remainder).padStart(2, "0")}`;
+};
+
 export const formatUtc = (timestamp: string): string =>
   new Intl.DateTimeFormat("zh-CN", {
     day: "2-digit",

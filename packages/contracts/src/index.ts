@@ -158,6 +158,20 @@ export const itemDetailSchema = itemSummarySchema.extend({
   sourceSnapshot: z.string().min(1),
 });
 
+export const abilityUpgradeEventSchema = z.object({
+  abilityId: identifierSchema,
+  sequence: z.number().int().positive(),
+  heroLevel: z.number().int().positive().nullable(),
+  gameTimeSeconds: z.number().int().nullable(),
+});
+
+export const itemTransactionSchema = z.object({
+  itemId: identifierSchema,
+  action: z.enum(["purchase", "sell"]),
+  gameTimeSeconds: z.number().int(),
+  charges: z.number().int().nonnegative().nullable(),
+});
+
 export const matchPlayerSchema = z.object({
   accountId: identifierSchema.nullable(),
   playerSlot: z.number().int().min(0).max(255),
@@ -170,8 +184,19 @@ export const matchPlayerSchema = z.object({
   gpm: z.number().int().nonnegative().nullable(),
   xpm: z.number().int().nonnegative().nullable(),
   lastHits: z.number().int().nonnegative().nullable(),
+  denies: z.number().int().nonnegative().nullable(),
   heroDamage: z.number().int().nonnegative().nullable(),
+  heroHealing: z.number().int().nonnegative().nullable(),
+  towerDamage: z.number().int().nonnegative().nullable(),
+  level: z.number().int().nonnegative().nullable(),
+  netWorth: z.number().int().nonnegative().nullable(),
   finalItemIds: z.array(identifierSchema),
+  backpackItemIds: z.array(identifierSchema),
+  neutralItemId: identifierSchema.nullable(),
+  abilityBuild: z.array(abilityUpgradeEventSchema),
+  abilityBuildStatus: z.enum(["unavailable", "ordered", "timed"]),
+  itemTimeline: z.array(itemTransactionSchema),
+  itemTimelineStatus: z.enum(["unavailable", "partial", "complete"]),
 });
 
 export const matchSummarySchema = z.object({
@@ -187,7 +212,12 @@ export const matchSummarySchema = z.object({
 
 export const matchDetailSchema = matchSummarySchema.omit({ player: true }).extend({
   players: z.array(matchPlayerSchema).min(1).max(10),
+  detailStatus: z.enum(["summary", "enriched"]),
   parseStatus: z.enum(["unparsed", "parsed", "pending"]),
+  lobbyType: z.string().nullable(),
+  cluster: z.string().nullable(),
+  radiantScore: z.number().int().nonnegative().nullable(),
+  direScore: z.number().int().nonnegative().nullable(),
 });
 
 export const playerProfileSchema = z.object({

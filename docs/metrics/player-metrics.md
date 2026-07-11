@@ -60,3 +60,13 @@ quality
 - 玩家同步的“计划 100 场 vs 实际导入数量”由玩家资料和数据状态单独表达，不复用上述统计覆盖率。
 - GPM/XPM 等可缺失指标必须各自返回 `observedCount` 与字段覆盖率。
 - `inputWatermark` 是本次聚合实际包含的最新比赛时间，使用 UTC ISO-8601；无输入时为 `null`。
+
+## Match detail completeness
+
+- `detailStatus=summary`：只保证目标玩家摘要，不声称包含完整阵容。
+- `detailStatus=enriched`：已请求并通过完整比赛详情质量门禁；玩家数组应包含上游可用的全部参赛者。
+- `abilityBuildStatus=ordered`：只知道升级先后顺序；`heroLevel` 与 `gameTimeSeconds` 可以为空。
+- `abilityBuildStatus=timed`：每条升级事件具有上游提供的真实游戏时间。
+- `itemTimelineStatus=unavailable`：没有可靠交易日志；空数组不表示玩家没有购买物品。
+- `itemTimelineStatus=partial`：只有部分交易类型或时间可用，例如只有购买日志而没有出售日志。
+- `itemTimelineStatus=complete`：数据源明确提供完整购买和出售事件；不得通过最终装备差异推断。

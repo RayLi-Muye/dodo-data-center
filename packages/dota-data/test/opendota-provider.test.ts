@@ -256,6 +256,10 @@ describe("OpenDotaProvider", () => {
     expect(match.id).toBe("9003");
     expect(match.patchId).toBe("58");
     expect(match).toMatchObject({
+      lobbyType: "7",
+      cluster: "156",
+      radiantScore: 31,
+      direScore: 42,
       eligiblePlayerCount: 2,
       excludedPlayerCount: 0,
       exclusionReasons: [],
@@ -264,6 +268,72 @@ describe("OpenDotaProvider", () => {
     expect(match.players[1]).toMatchObject({
       accountId: null,
       eligibleForPersonalAggregation: false,
+    });
+  });
+
+  it("normalizes enriched player metrics, inventory, ordered abilities, and real purchases", async () => {
+    const match = await providerFor(matchDetailFixture).provider.getMatchDetail("9003");
+
+    expect(match.players[0]).toMatchObject({
+      denies: 12,
+      heroHealing: 250,
+      towerDamage: 3100,
+      level: 24,
+      netWorth: 21450,
+      finalItemIds: ["1", "2"],
+      backpackItemIds: ["3"],
+      neutralItemId: "4",
+      abilityBuildStatus: "ordered",
+      abilityBuild: [
+        { abilityId: "5010", sequence: 1, heroLevel: null, gameTimeSeconds: null },
+        { abilityId: "5011", sequence: 2, heroLevel: null, gameTimeSeconds: null },
+        { abilityId: "5010", sequence: 3, heroLevel: null, gameTimeSeconds: null },
+      ],
+      itemTimelineStatus: "partial",
+      itemTimeline: [
+        {
+          itemKey: "tango",
+          action: "purchase",
+          gameTimeSeconds: -85,
+          charges: null,
+        },
+        {
+          itemKey: "blink",
+          action: "purchase",
+          gameTimeSeconds: 412,
+          charges: null,
+        },
+      ],
+    });
+  });
+
+  it("marks absent ability and purchase logs as unavailable without inferring events", async () => {
+    const match = await providerFor(matchDetailFixture).provider.getMatchDetail("9003");
+
+    expect(match.players[1]).toMatchObject({
+      denies: null,
+      heroHealing: null,
+      towerDamage: null,
+      level: null,
+      netWorth: null,
+      backpackItemIds: [],
+      neutralItemId: null,
+      abilityBuild: [],
+      abilityBuildStatus: "unavailable",
+      itemTimeline: [],
+      itemTimelineStatus: "unavailable",
+    });
+  });
+
+  it("treats a present purchase-only log as partial even when it is empty", async () => {
+    const detail = structuredClone(matchDetailFixture);
+    detail.players[0]!.purchase_log = [];
+
+    const match = await providerFor(detail).provider.getMatchDetail("9003");
+
+    expect(match.players[0]).toMatchObject({
+      itemTimeline: [],
+      itemTimelineStatus: "partial",
     });
   });
 

@@ -119,6 +119,26 @@ DONE
 - Fly Tokyo 在当前网络下 TLS 握手超时，因此作为可迁移备选保留；MVP 预览采用 Railway Singapore。
 - 当前为海外预览，不含自定义域名、大陆部署、ICP备案或多 API 副本。
 
+## Wave 8: Enriched match details
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-008 match detail contracts and metric semantics | Root | contracts、PRD、API、metrics | Wave 7 | ACCEPTED |
+| DATA-008 OpenDota detail normalization | Data Source Agent | `packages/dota-data/**` | ROOT-008 | ACCEPTED |
+| API-008 recent-20 enrichment and persistence | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-008, DATA-008 | ACCEPTED |
+| WEB-008 ten-player scoreboard and timelines | Web Agent | `apps/web/**` | ROOT-008 | ACCEPTED |
+| QA-008 live enriched-match acceptance | Root / QA Agent | read-only | DATA-008, API-008, WEB-008 | REVIEW |
+| DEPLOY-008 Railway and Vercel preview | Root | commit、deploy、smoke | QA-008 | READY |
+
+## Wave 8 local evidence
+
+- 最近 20 场仅补齐尚未 enriched 的比赛，详情请求并发上限为 2；单场失败保留 summary。
+- 完整详情包含上游可用的十人阵容、等级、GPM/XPM、补反、伤害、最终/背包/中立装备和比分。
+- `ability_upgrades_arr` 只生成有证据的加点顺序；缺少真实等级或时间时保持为空。
+- 物品时间线只使用真实 `purchase_log`；未知物品事件降级为 partial，出售事件不推断。
+- Memory/PostgreSQL 按 player slot 合并，并在上游匿名详情中保留摘要已知 account ID，避免重复成 11 人。
+- 全仓 typecheck、生产 build 和 104 项常规测试通过；3 项专用 PostgreSQL 测试按设计跳过。
+
 ## Wave 7: Player refresh experience
 
 | Task | Owner | Scope | Depends on | State |

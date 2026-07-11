@@ -155,18 +155,17 @@ const parseProviderHealth = (value: unknown): ProviderHealth => {
 };
 
 const mergeMatchPlayers = (existing: MatchDetail | undefined, incoming: MatchDetail): MatchDetail => {
-  const playersByIdentity = new Map(
-    existing?.players.map((player) => [
-      player.accountId === null ? `slot:${player.playerSlot}` : `account:${player.accountId}`,
-      player,
-    ]) ?? [],
+  const playersBySlot = new Map(
+    existing?.players.map((player) => [player.playerSlot, player]) ?? [],
   );
   for (const player of incoming.players) {
-    const identity =
-      player.accountId === null ? `slot:${player.playerSlot}` : `account:${player.accountId}`;
-    playersByIdentity.set(identity, player);
+    const previous = playersBySlot.get(player.playerSlot);
+    playersBySlot.set(player.playerSlot, {
+      ...player,
+      accountId: player.accountId ?? previous?.accountId ?? null,
+    });
   }
-  return { ...incoming, players: [...playersByIdentity.values()] };
+  return { ...incoming, players: [...playersBySlot.values()] };
 };
 
 export class PostgresDodoRepository implements DodoRepository {

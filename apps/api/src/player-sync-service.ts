@@ -9,6 +9,8 @@ import {
   OpenDotaProviderError,
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
+  type CanonicalMatchDetail,
+  type CanonicalMatchPlayer,
   type CanonicalPlayerMatch,
   type CanonicalPlayerProfile,
 } from "@dodo/dota-data";
@@ -60,8 +62,29 @@ const toItemDetails = (
   }));
 };
 
-const toMatchDetail = (match: CanonicalPlayerMatch): MatchDetail => {
-  const { eligibleForPersonalAggregation: _eligible, ...player } = match.player;
+const toMatchPlayer = (
+  player: CanonicalMatchPlayer,
+  itemIdByName: ReadonlyMap<string, string>,
+): MatchDetail["players"][number] => {
+  const { eligibleForPersonalAggregation: _eligible, itemTimeline, ...rest } = player;
+  const knownTransactions = itemTimeline.flatMap((transaction) => {
+    const itemId = itemIdByName.get(transaction.itemKey);
+    return itemId === undefined ? [] : [{ ...transaction, itemId }];
+  });
+  return {
+    ...rest,
+    itemTimeline: knownTransactions.map(({ itemKey: _itemKey, ...transaction }) => transaction),
+    itemTimelineStatus:
+      knownTransactions.length === itemTimeline.length
+        ? player.itemTimelineStatus
+        : "partial",
+  };
+};
+
+const toMatchSummaryDetail = (
+  match: CanonicalPlayerMatch,
+  itemIdByName: ReadonlyMap<string, string>,
+): MatchDetail => {
   return {
     id: match.id,
     startTime: match.startTime,
@@ -70,11 +93,35 @@ const toMatchDetail = (match: CanonicalPlayerMatch): MatchDetail => {
     gameMode: match.gameMode,
     region: match.region,
     radiantWin: match.radiantWin,
-    // The MVP deliberately stores the target player's recent-match row without an N+1 detail fetch.
-    players: [player],
+    players: [toMatchPlayer(match.player, itemIdByName)],
+    detailStatus: "summary",
     parseStatus: "unparsed",
+    lobbyType: null,
+    cluster: null,
+    radiantScore: null,
+    direScore: null,
   };
 };
+
+const toEnrichedMatchDetail = (
+  match: CanonicalMatchDetail,
+  itemIdByName: ReadonlyMap<string, string>,
+): MatchDetail => ({
+  id: match.id,
+  startTime: match.startTime,
+  durationSeconds: match.durationSeconds,
+  patch: match.patchId ?? UNKNOWN_PATCH,
+  gameMode: match.gameMode,
+  region: match.region,
+  radiantWin: match.radiantWin,
+  players: match.players.map((player) => toMatchPlayer(player, itemIdByName)),
+  detailStatus: "enriched",
+  parseStatus: match.parseStatus,
+  lobbyType: match.lobbyType,
+  cluster: match.cluster,
+  radiantScore: match.radiantScore,
+  direScore: match.direScore,
+});
 
 const statusForProviderError = (
   error: OpenDotaProviderError,
@@ -226,12 +273,23 @@ export class PlayerSyncService {
         fetchedProfile.status === "public_partial" || recent.quality === "partial"
           ? "partial"
           : "complete";
-      const storedMatches: StoredMatch[] = recent.matches.map((match) => ({
-        detail: toMatchDetail(match),
-        importedAt: recent.source.fetchedAt,
-        source: "opendota",
-        quality,
-      }));
+      const itemIdByName = new Map(items.items.map((item) => [item.name, item.id]));
+      const previousMatches = new Map(
+        (await this.#repository.listPlayerMatches(job.accountId)).map((match) => [
+          match.detail.id,
+          match,
+        ]),
+      );
+      const storedMatches: StoredMatch[] = recent.matches.map((match) => {
+        const previous = previousMatches.get(match.id);
+        if (previous?.detail.detailStatus === "enriched") return previous;
+        return {
+          detail: toMatchSummaryDetail(match, itemIdByName),
+          importedAt: recent.source.fetchedAt,
+          source: "opendota",
+          quality,
+        };
+      });
       const batch: PlayerSyncBatch = {
         accountId: job.accountId,
         eligibleCount: recent.eligibleCount,
@@ -258,6 +316,39 @@ export class PlayerSyncService {
         fetchedAt: items.source.fetchedAt,
       });
       await this.#repository.replacePlayerMatches(job.accountId, storedMatches);
+      const enrichmentCandidates = storedMatches
+        .slice(0, 20)
+        .filter((match) => match.detail.detailStatus !== "enriched");
+      let nextCandidateIndex = 0;
+      const enrichNext = async (): Promise<void> => {
+        while (nextCandidateIndex < enrichmentCandidates.length) {
+          const candidate = enrichmentCandidates[nextCandidateIndex++];
+          if (!candidate) return;
+          let detail: MatchDetail;
+          let canonical: CanonicalMatchDetail;
+          try {
+            canonical = await this.#provider.getMatchDetail(candidate.detail.id);
+            if (canonical.id !== candidate.detail.id) {
+              throw new Error("Match detail provider returned a different match");
+            }
+            detail = toEnrichedMatchDetail(canonical, itemIdByName);
+          } catch {
+            continue;
+          }
+          await this.#repository.upsertMatch({
+            detail,
+            importedAt: canonical.source.fetchedAt,
+            source: "opendota",
+            quality: canonical.quality,
+          });
+        }
+      };
+      await Promise.all(
+        Array.from(
+          { length: Math.min(2, enrichmentCandidates.length) },
+          async () => enrichNext(),
+        ),
+      );
       await this.#repository.upsertPlayerSyncBatch(batch);
       await this.#repository.clearPlayerSyncFailure(job.accountId);
       await this.#repository.upsertPlayer(

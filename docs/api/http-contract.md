@@ -21,6 +21,8 @@ GET  /v1/matches/{matchId}
 
 默认窗口：玩家概览、英雄列表和玩家英雄详情均为 `last_100`。最近 N 场先按 `startTime DESC, id DESC` 稳定排序后截取。所有时间均为 UTC ISO-8601（`Z` 后缀）。
 
+`GET /v1/matches/{matchId}` 使用 `detailStatus=summary|enriched` 区分玩家比赛摘要与完整十人详情。完整详情可以返回最终装备、背包、中立物品、技能升级序列和物品交易时间线。技能只有顺序而没有可靠等级/时间时使用 `abilityBuildStatus=ordered`；只有上游提供真实时间时使用 `timed`。物品购买或出售日志缺失时必须使用 `itemTimelineStatus=unavailable|partial`，不得从最终背包反推交易事件。
+
 ## Outcome rules
 
 - `public_complete`、`public_partial`：HTTP 200 成功响应；partial 必须带实际数据和 `quality=partial`。

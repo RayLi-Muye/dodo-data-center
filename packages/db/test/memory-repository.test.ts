@@ -55,6 +55,35 @@ describe("MemoryDodoRepository", () => {
     expect((await repository.getPlayer(SEED_ACCOUNT_ID))?.importedMatchCount).toBe(2);
   });
 
+  it("merges enriched players by slot and preserves a known summary account", async () => {
+    const repository = await createSeedRepository();
+    const stored = await repository.getMatch("9000000000");
+    if (!stored) throw new Error("seed match missing");
+    const target = stored.detail.players[0]!;
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        detailStatus: "summary",
+        players: [target],
+      },
+    });
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        players: stored.detail.players.map((player) =>
+          player.playerSlot === target.playerSlot ? { ...player, accountId: null } : player,
+        ),
+      },
+    });
+
+    const merged = await repository.getMatch(stored.detail.id);
+    expect(merged?.detail.players).toHaveLength(10);
+    expect(merged?.detail.players.find((player) => player.playerSlot === target.playerSlot)?.accountId)
+      .toBe(SEED_ACCOUNT_ID);
+  });
+
   it("keeps the live repository isolated from seed players and matches", async () => {
     const repository = await createLiveRepository();
 

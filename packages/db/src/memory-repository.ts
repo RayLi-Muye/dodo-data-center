@@ -69,20 +69,19 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     const existing = this.#matches.get(match.detail.id);
-    const playersByIdentity = new Map(
-      existing?.detail.players.map((player) => [
-        player.accountId === null ? `slot:${player.playerSlot}` : `account:${player.accountId}`,
-        player,
-      ]) ?? [],
+    const playersBySlot = new Map(
+      existing?.detail.players.map((player) => [player.playerSlot, player]) ?? [],
     );
     for (const player of match.detail.players) {
-      const identity =
-        player.accountId === null ? `slot:${player.playerSlot}` : `account:${player.accountId}`;
-      playersByIdentity.set(identity, player);
+      const previous = playersBySlot.get(player.playerSlot);
+      playersBySlot.set(player.playerSlot, {
+        ...player,
+        accountId: player.accountId ?? previous?.accountId ?? null,
+      });
     }
     const stored = clone({
       ...match,
-      detail: { ...match.detail, players: [...playersByIdentity.values()] },
+      detail: { ...match.detail, players: [...playersBySlot.values()] },
     });
     this.#matches.set(match.detail.id, stored);
     for (const player of stored.detail.players) {

@@ -208,7 +208,12 @@ const createMatch = (index: number): MatchDetail => {
     gameMode: "seed-ranked-all-pick",
     region: "seed-region",
     radiantWin,
+    detailStatus: "enriched",
     parseStatus: "unparsed",
+    lobbyType: "seed-lobby",
+    cluster: "seed-cluster",
+    radiantScore: 30 + index,
+    direScore: 25 + index,
     players: slots.map((playerSlot, playerIndex) => {
       const side = playerSlot < 128 ? "radiant" : "dire";
       const isTarget = playerIndex === 0;
@@ -229,8 +234,19 @@ const createMatch = (index: number): MatchDetail => {
         gpm: isTarget && index % 5 === 0 ? null : 400 + index,
         xpm: isTarget && index % 7 === 0 ? null : 500 + index,
         lastHits: 100 + index,
+        denies: playerIndex,
         heroDamage: 10_000 + index * 100,
+        heroHealing: 0,
+        towerDamage: 1_000 + index,
+        level: 20,
+        netWorth: 15_000 + index,
         finalItemIds: [String((index % 3) + 1)],
+        backpackItemIds: [],
+        neutralItemId: null,
+        abilityBuild: [],
+        abilityBuildStatus: "unavailable",
+        itemTimeline: [],
+        itemTimelineStatus: "unavailable",
       };
     }),
   };

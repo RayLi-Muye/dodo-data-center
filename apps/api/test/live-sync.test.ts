@@ -14,6 +14,7 @@ import {
   type CanonicalConstantsSnapshot,
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
+  type CanonicalMatchDetail,
   type CanonicalPlayerProfile,
   type CanonicalRecentMatches,
 } from "@dodo/dota-data";
@@ -78,8 +79,22 @@ const recent: CanonicalRecentMatches = {
         gpm: 610,
         xpm: 700,
         lastHits: 260,
+        denies: 8,
         heroDamage: 30_000,
+        heroHealing: 0,
+        towerDamage: 4_000,
+        level: 25,
+        netWorth: 24_000,
         finalItemIds: ["1", "2"],
+        backpackItemIds: [],
+        neutralItemId: null,
+        abilityBuild: [],
+        abilityBuildStatus: "unavailable",
+        itemTimeline: [
+          { itemKey: "blink", action: "purchase", gameTimeSeconds: 900, charges: null },
+          { itemKey: "unknown_item", action: "purchase", gameTimeSeconds: 950, charges: null },
+        ],
+        itemTimelineStatus: "partial",
       },
     },
     {
@@ -103,8 +118,19 @@ const recent: CanonicalRecentMatches = {
         gpm: null,
         xpm: 480,
         lastHits: 120,
+        denies: null,
         heroDamage: 14_000,
+        heroHealing: null,
+        towerDamage: null,
+        level: null,
+        netWorth: null,
         finalItemIds: ["1"],
+        backpackItemIds: [],
+        neutralItemId: null,
+        abilityBuild: [],
+        abilityBuildStatus: "unavailable",
+        itemTimeline: [],
+        itemTimelineStatus: "unavailable",
       },
     },
   ],
@@ -158,9 +184,29 @@ const items: CanonicalConstantsSnapshot<CanonicalItemConstant> = {
   ],
 };
 
+const detailFor = (matchId: string): CanonicalMatchDetail => {
+  const match = recent.matches.find((candidate) => candidate.id === matchId);
+  if (!match) throw new Error(`Missing test match ${matchId}`);
+  return {
+    ...match,
+    lobbyType: "7",
+    cluster: "156",
+    radiantScore: 35,
+    direScore: 28,
+    eligiblePlayerCount: 1,
+    excludedPlayerCount: 0,
+    exclusionReasons: [],
+    quality: "complete",
+    players: [match.player],
+    parseStatus: "parsed",
+    source: SOURCE,
+  };
+};
+
 const createProvider = (): PlayerDataProvider => ({
   getPlayerProfile: vi.fn(async () => profile),
   getRecentMatches: vi.fn(async () => recent),
+  getMatchDetail: vi.fn(async (matchId) => detailFor(matchId)),
   getHeroConstants: vi.fn(async () => heroes),
   getItemConstants: vi.fn(async () => items),
 });
@@ -238,8 +284,20 @@ describe("live player synchronization", () => {
     const detail = matchDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/matches/8000000002" })),
     );
-    expect(detail.data).toMatchObject({ patch: "unknown", parseStatus: "unparsed" });
+    expect(detail.data).toMatchObject({
+      patch: "unknown",
+      detailStatus: "enriched",
+      parseStatus: "parsed",
+      lobbyType: "7",
+      cluster: "156",
+      radiantScore: 35,
+      direScore: 28,
+    });
     expect(detail.data.players).toHaveLength(1);
+    expect(detail.data.players[0]?.itemTimeline).toEqual([
+      { itemId: "1", action: "purchase", gameTimeSeconds: 900, charges: null },
+    ]);
+    expect(detail.data.players[0]?.itemTimelineStatus).toBe("partial");
 
     const hero = heroDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/heroes/1" })),
@@ -263,6 +321,7 @@ describe("live player synchronization", () => {
 
     expect(provider.getPlayerProfile).toHaveBeenCalledTimes(1);
     expect(provider.getRecentMatches).toHaveBeenCalledWith(ACCOUNT_ID, 100);
+    expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
     expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
   });
@@ -293,6 +352,71 @@ describe("live player synchronization", () => {
       eligibleCount: 3,
     });
     expect(provider.getRecentMatches).toHaveBeenCalledTimes(2);
+    expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
+    expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
+  });
+
+  it("keeps a failed detail as summary without failing the player sync", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    provider.getMatchDetail = vi.fn(async (matchId) => {
+      if (matchId === "8000000002") throw new Error("test-only detail failure");
+      return detailFor(matchId);
+    });
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+
+    const job = await service.requestSync(ACCOUNT_ID);
+    const terminal = await service.waitForJob(job.jobId);
+
+    expect(terminal?.status).toBe("public_partial");
+    expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("summary");
+    expect((await repository.getMatch("8000000001"))?.detail.detailStatus).toBe("enriched");
+    await service.close();
+  });
+
+  it("enriches only the latest 20 matches with at most two requests in flight", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    const template = recent.matches[0]!;
+    const matches = Array.from({ length: 25 }, (_, index) => ({
+      ...template,
+      id: String(8_200_000_000 + index),
+      startTime: new Date(Date.parse(template.startTime) - index * 60_000).toISOString(),
+      player: { ...template.player },
+    }));
+    provider.getRecentMatches = vi.fn(async () => ({
+      ...recent,
+      eligibleCount: matches.length,
+      excludedCount: 0,
+      exclusionReasons: [],
+      quality: "complete" as const,
+      matches,
+      candidateLedger: matches.map((match, providerIndex) => ({
+        providerIndex,
+        status: "included" as const,
+        matchId: match.id,
+      })),
+    }));
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    provider.getMatchDetail = vi.fn(async (matchId) => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      activeRequests -= 1;
+      const match = matches.find((candidate) => candidate.id === matchId)!;
+      return { ...detailFor(template.id), ...match, players: [match.player] };
+    });
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+
+    const job = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(job.jobId);
+
+    expect(provider.getMatchDetail).toHaveBeenCalledTimes(20);
+    expect(maximumActiveRequests).toBe(2);
+    expect((await repository.getMatch(matches[19]!.id))?.detail.detailStatus).toBe("enriched");
+    expect((await repository.getMatch(matches[20]!.id))?.detail.detailStatus).toBe("summary");
+    await service.close();
   });
 
   it("coalesces concurrent requests and reports a complete provider as ready", async () => {
