@@ -125,7 +125,7 @@ DONE
 |---|---|---|---|---|
 | WEB-006 manual and automatic player refresh | Web Agent | `apps/web/**` | Wave 6 | ACCEPTED |
 | QA-006 sync workflow audit | QA Agent | read-only | WEB-006 | ACCEPTED |
-| DEPLOY-007 refreshed Web preview | Root | commit、preview deploy、live smoke | WEB-006, QA-006 | RUNNING |
+| DEPLOY-007 refreshed Web preview | Root | commit、preview deploy、live smoke | WEB-006, QA-006 | ACCEPTED |
 
 ## Wave 7 evidence
 
@@ -135,3 +135,5 @@ DONE
 - 隐私、限流、上游不可用、解析等待与失败均显示独立状态，不会退化为空数据或错误导航。
 - 全仓 typecheck、生产 build 和 95 项常规测试通过；3 项专用测试数据库集成测试按设计跳过。
 - QA-006 无 P0/P1/P2，未发现客户端凭据或自动更新循环。
+- Vercel commit `b7adbb8` 预览为 `READY`；公开账号 `224328273` 进入页面后自动触发刷新，旧数据在同步期间保持可见。
+- 首次自动刷新正确呈现 `source_unavailable` 且未清空旧数据；随后手动刷新恢复为 `public_complete`，验证了强制重试和轮询终态。
