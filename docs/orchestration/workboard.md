@@ -64,3 +64,20 @@ DONE
 - 无 Key OpenDota 公开账号同步 100 场为 `public_complete`，`sampleSize=100`、`eligibleCount=100`、`coverageRate=1`。
 - API 关闭并启动新进程后，玩家 100 场比赛、同步任务和批次仍可完整查询。
 - QA 最终窄复核 PASS，无 P0/P1。
+
+## Wave 4: Repository publication and hosted Supabase
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| GH-004 publish repository | Root | Public GitHub repository、README、initial commit | Wave 3 | ACCEPTED |
+| INFRA-004 hosted Supabase | Root | Create、link、migrate、seed、read-only verification | Wave 3 | ACCEPTED |
+
+## Wave 4 evidence
+
+- 公开 GitHub 仓库 `RayLi-Muye/dodo-data-center` 已创建，`main` 为默认分支。
+- 面向用户的 README 已覆盖产品目的、已实现能力、边界、架构、快速开始、Supabase、测试和隐私说明。
+- 独立 Supabase Nano 项目 `dodo-data-center` 已在东京区域创建并关联；未复用或修改账号中的其他项目。
+- Dry-run 只包含 `20260711000100_initial_persistence.sql` 和无个人数据的 `supabase/seed.sql`，随后均成功推送。
+- 远端 migration history 与本地一致；只读验证为 11 张 `dodo` 表、1 条 current map，`anon`/`authenticated` schema usage 均为 false。
+- Fastify 通过 Supavisor session connection 启动成功，并从云端 PostgreSQL 读取 current map。
+- 数据库随机密码仅保存于本机 Keychain，未写入 Git、README、环境模板或日志。
