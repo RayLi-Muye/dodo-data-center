@@ -640,7 +640,7 @@ button.text-action {
   font-size: var(--text-xs);
 }
 
-.account-search__message {
+.account-search__message--error {
   color: var(--negative);
 }
 
@@ -652,6 +652,40 @@ button.text-action {
 .account-search--compact .account-search__hint {
   display: none;
 }
+
+.player-page-actions,
+.player-sync-control {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.player-sync-control {
+  padding: var(--space-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.player-sync-control button {
+  min-height: 3rem;
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.player-sync-control p {
+  min-height: 1.25rem;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.player-sync-control--positive p { color: var(--positive); }
+.player-sync-control--warning p { color: var(--warning); }
+.player-sync-control--danger p { color: var(--negative); }
 
 /* Homepage */
 .home-intro {

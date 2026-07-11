@@ -118,3 +118,20 @@ DONE
 - 浏览器从公开 Vercel 页面通过 BFF 读取该账号、英雄分布和比赛明细；Railway API 重部署后玩家数据仍可查询。
 - Fly Tokyo 在当前网络下 TLS 握手超时，因此作为可迁移备选保留；MVP 预览采用 Railway Singapore。
 - 当前为海外预览，不含自定义域名、大陆部署、ICP备案或多 API 副本。
+
+## Wave 7: Player refresh experience
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| WEB-006 manual and automatic player refresh | Web Agent | `apps/web/**` | Wave 6 | ACCEPTED |
+| QA-006 sync workflow audit | QA Agent | read-only | WEB-006 | ACCEPTED |
+| DEPLOY-007 refreshed Web preview | Root | commit、preview deploy、live smoke | WEB-006, QA-006 | RUNNING |
+
+## Wave 7 evidence
+
+- 玩家页提供手动刷新；数据超过 15 分钟时进入页面会自动后台同步，新鲜数据不重复请求。
+- 首次账号查询等待同步任务到达终态后才导航，消除 202 后提前显示“记录不存在”的竞态。
+- 同步轮询具有 8 秒单请求超时、180 秒总预算、75 次轮询上限和卸载取消机制。
+- 隐私、限流、上游不可用、解析等待与失败均显示独立状态，不会退化为空数据或错误导航。
+- 全仓 typecheck、生产 build 和 95 项常规测试通过；3 项专用测试数据库集成测试按设计跳过。
+- QA-006 无 P0/P1/P2，未发现客户端凭据或自动更新循环。

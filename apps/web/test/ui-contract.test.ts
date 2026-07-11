@@ -25,4 +25,17 @@ describe("Web UI copy and touch contract", () => {
     expect(css).toContain('input[type="url"]');
     expect(css).toMatch(/input\[type="url"\][^{]+\{\s*touch-action: manipulation;/s);
   });
+
+  it("keeps player refresh visible and waits for sync before first-query navigation", () => {
+    const accountSearch = source("../components/account-search.tsx");
+    const playerPage = source("../app/players/[accountId]/page.tsx");
+    const syncControl = source("../components/player-sync-control.tsx");
+
+    expect(playerPage).toContain("<PlayerSyncControl");
+    expect(syncControl).toContain("刷新数据");
+    expect(syncControl).toContain("disabled={state.running}");
+    expect(accountSearch.indexOf("await startAndPollPlayerSync")).toBeLessThan(
+      accountSearch.indexOf("router.push"),
+    );
+  });
 });

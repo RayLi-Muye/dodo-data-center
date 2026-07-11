@@ -6,9 +6,10 @@ import { DataState, EmptyState } from "../../../components/data-state";
 import { HeroDistribution } from "../../../components/hero-distribution";
 import { MatchLedger } from "../../../components/match-ledger";
 import { PageHeading } from "../../../components/page-heading";
+import { PlayerSyncControl } from "../../../components/player-sync-control";
 import { QualityNotice } from "../../../components/quality-notice";
 import { WinRateDonut } from "../../../components/win-rate-donut";
-import { api, collectAllItems, collectAllPlayerHeroes, settle } from "../../../lib/api";
+import { api, collectAllItems, collectAllPlayerHeroes, DodoApiError, settle } from "../../../lib/api";
 import { formatCount, formatPercent, windowLabel } from "../../../lib/format";
 
 const windows = ["last_20", "last_50", "last_100", "all_imported"] as const;
@@ -32,15 +33,25 @@ export default async function PlayerPage({
   ]);
 
   if (!overviewResult.ok) {
+    const autoSync =
+      overviewResult.error instanceof DodoApiError &&
+      overviewResult.error.payload?.error.code === "NOT_FOUND";
     return (
       <div className="page-shell">
         <PageHeading
-          actions={<AccountSearch compact />}
+          actions={(
+            <div className="player-page-actions">
+              <AccountSearch compact />
+              <PlayerSyncControl accountId={accountId} autoSync={autoSync} />
+            </div>
+          )}
           eyebrow={`PLAYER / ${accountId}`}
           lead="这里只展示上游允许公开且已导入的比赛；私密、限流与解析中状态不会退化为空数据。"
           title="玩家数据"
         />
-        <DataState error={overviewResult.error} retryHref={`/players/${encodeURIComponent(accountId)}`} />
+        {autoSync ? null : (
+          <DataState error={overviewResult.error} retryHref={`/players/${encodeURIComponent(accountId)}`} />
+        )}
       </div>
     );
   }
@@ -63,7 +74,12 @@ export default async function PlayerPage({
   return (
     <div className="page-shell player-page">
       <PageHeading
-        actions={<AccountSearch compact />}
+        actions={(
+          <div className="player-page-actions">
+            <AccountSearch compact />
+            <PlayerSyncControl accountId={accountId} updatedAt={overview.meta.updatedAt} />
+          </div>
+        )}
         eyebrow={`PLAYER / ${overview.data.profile.accountId}`}
         lead="切换窗口比较英雄使用与胜负结构；全部已导入不等于完整生涯。"
         title={overview.data.profile.personaName ?? "匿名公开玩家"}
