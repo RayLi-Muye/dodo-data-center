@@ -107,4 +107,14 @@ DONE
 
 | Task | Owner | Scope | Depends on | State |
 |---|---|---|---|---|
-| DEPLOY-006 API and Web preview | Root | cloud login、secrets、deploy、smoke、rollback record | Wave 5 | RUNNING |
+| DEPLOY-006 API and Web preview | Root | cloud login、secrets、deploy、smoke、rollback record | Wave 5 | ACCEPTED |
+
+## Wave 6 evidence
+
+- Railway Singapore 单实例 API 部署成功，`/health/live` 与 `/health/ready` 均返回 200。
+- Railway API 使用 Supabase Tokyo session pooler，数据库凭据只存在于服务端变量中。
+- 公开账号 `86745912` 完成端到端同步，任务状态为 `public_complete`；玩家接口返回 200、100 场合格样本和 35 个英雄统计。
+- Vercel `codex/deploy-preview` 分支预览构建状态为 `READY`，分支级 `API_BASE_URL` 指向 Railway API；SSO 预览保护已关闭。
+- 浏览器从公开 Vercel 页面通过 BFF 读取该账号、英雄分布和比赛明细；Railway API 重部署后玩家数据仍可查询。
+- Fly Tokyo 在当前网络下 TLS 握手超时，因此作为可迁移备选保留；MVP 预览采用 Railway Singapore。
+- 当前为海外预览，不含自定义域名、大陆部署、ICP备案或多 API 副本。

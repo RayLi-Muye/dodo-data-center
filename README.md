@@ -140,19 +140,22 @@ pnpm --filter @dodo/web dev
 
 ## 海外部署
 
-推荐拓扑是 Vercel Tokyo Web + Tokyo 常驻 API + Supabase Tokyo：
+当前海外预览拓扑是 Vercel Web + Railway Singapore 常驻 API + Supabase Tokyo：
 
 ```text
-Vercel CDN / Next.js BFF (hnd1)
+Vercel CDN / Next.js BFF (preferredRegion: hnd1)
                 |
                 v
-Fastify API (Tokyo, one always-running instance)
+Fastify API (Railway Singapore, one always-running instance)
                 |
                 v
 Supabase PostgreSQL (Tokyo)
 ```
 
-- API 容器、Fly 配置、secrets、migration、smoke 和 rollback 说明见 [`infra/fly`](infra/fly/README.md)。
+- Web 预览：<https://web-git-codex-deploy-preview-rays-projects-f956e95b.vercel.app>
+- API 预览：<https://api-production-1f7d.up.railway.app>
+- Railway 使用仓库根目录的 [`railway.json`](railway.json) 构建同一 API 容器；Fly Tokyo 配置保留为后续迁移备选。
+- API 容器、Fly 备选配置、secrets、migration、smoke 和 rollback 说明见 [`infra/fly`](infra/fly/README.md)。
 - Vercel monorepo、东京区域和环境变量设置见 [`infra/vercel`](infra/vercel/README.md)。
 - 当前同步任务在 HTTP 202 后继续运行，因此 API 必须使用常驻进程；在数据库任务队列完成前只运行一个 API 实例。
 - 数据库 migration 是独立发布步骤，不随每次应用启动自动执行。
