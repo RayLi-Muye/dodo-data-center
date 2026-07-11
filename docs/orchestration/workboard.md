@@ -81,3 +81,30 @@ DONE
 - 远端 migration history 与本地一致；只读验证为 11 张 `dodo` 表、1 条 current map，`anon`/`authenticated` schema usage 均为 false。
 - Fastify 通过 Supavisor session connection 启动成功，并从云端 PostgreSQL 读取 current map。
 - 数据库随机密码仅保存于本机 Keychain，未写入 Git、README、环境模板或日志。
+
+## Wave 5: Overseas deployment readiness
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-005 deployment ADR and release gates | Root | ADR、shared config、cloud auth、acceptance | Wave 4 | ACCEPTED |
+| API-005 production lifecycle and health | Backend/API Agent | `apps/api/**` | ROOT-005 | ACCEPTED |
+| INFRA-005 Fly and container configuration | Infra Agent | `infra/**` | ROOT-005, API-005 health contract | ACCEPTED |
+| WEB-005 Vercel runtime readiness | Web Agent | `apps/web/**` | ROOT-005 | ACCEPTED |
+| QA-005 deployment security and smoke audit | QA Agent | read-only | API-005, INFRA-005, WEB-005 | ACCEPTED |
+
+## Wave 5 evidence
+
+- API 新增独立 liveness/readiness，并在 repository 失败时返回无敏感信息的 503。
+- SIGTERM/SIGINT 关闭处理幂等，沿既有 `onClose` 顺序等待同步任务后再关闭 repository。
+- Fly 配置固定东京 `nrt`、单实例、120 秒关闭窗口、关闭 auto-stop，并使用 readiness health check。
+- API 镜像使用 Node 22、非 root 用户、frozen pnpm install，并固定官方基础镜像 digest。
+- Web 动态页面与 BFF 均标记东京 `hnd1`；浏览器运行时字体全部为本地 WOFF2，不访问 Google Fonts。
+- 生产缺少 `API_BASE_URL` 时不再静默回退 localhost；客户端 bundle 未发现数据库或 OpenDota 凭据。
+- 全仓 typecheck、生产 build、90 项常规测试通过；QA 无 P0/P1。
+- 本机缺少 Docker，真实镜像构建留待远端 builder；Fly API 在当前网络发生 TLS handshake timeout。
+
+## Wave 6: Preview deployment
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| DEPLOY-006 API and Web preview | Root | cloud login、secrets、deploy、smoke、rollback record | Wave 5 | RUNNING |

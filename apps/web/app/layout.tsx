@@ -1,9 +1,26 @@
 import "@dodo/ui/styles.css";
 import type { Metadata, Viewport } from "next";
+import { Noto_Sans_SC, Saira_Condensed } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { SiteHeader } from "../components/site-header";
 import "./globals.css";
+
+const notoSansSc = Noto_Sans_SC({
+  display: "swap",
+  subsets: ["latin"],
+  variable: "--font-noto-sans-sc",
+  weight: ["400", "500", "600"],
+});
+
+const sairaCondensed = Saira_Condensed({
+  display: "swap",
+  subsets: ["latin"],
+  variable: "--font-saira-condensed",
+  weight: ["500", "600", "700"],
+});
+
+export const preferredRegion = "hnd1";
 
 export const metadata: Metadata = {
   description: "公开 Dota 2 账号比赛分析与当前版本百科。",
@@ -19,14 +36,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="zh-CN">
+    <html className={`${notoSansSc.variable} ${sairaCondensed.variable}`} lang="zh-CN">
       <head>
-        <link crossOrigin="anonymous" href="https://fonts.gstatic.com" rel="preconnect" />
         <link crossOrigin="anonymous" href="https://cdn.cloudflare.steamstatic.com" rel="preconnect" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Saira+Condensed:wght@500;600;700&display=swap"
-          rel="stylesheet"
-        />
       </head>
       <body>
         <a className="skip-link" href="#main-content">跳到主要内容</a>

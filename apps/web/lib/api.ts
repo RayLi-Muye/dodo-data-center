@@ -38,8 +38,12 @@ export function getApiBaseUrl(
   environment: Record<string, string | undefined> = process.env,
 ): string {
   const configured =
-    environment.API_BASE_URL ?? environment.NEXT_PUBLIC_API_BASE_URL ?? FALLBACK_API_BASE_URL;
-  return configured.replace(/\/+$/, "");
+    environment.API_BASE_URL?.trim() || environment.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  if (environment.NODE_ENV === "production") {
+    throw new Error("API_BASE_URL must be configured for production Web requests.");
+  }
+  return FALLBACK_API_BASE_URL;
 }
 
 export async function fetchApi<TSchema extends z.ZodType>(
@@ -47,9 +51,10 @@ export async function fetchApi<TSchema extends z.ZodType>(
   path: string,
   init: NextRequestInit = {},
 ): Promise<z.output<TSchema>> {
+  const apiBaseUrl = getApiBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${getApiBaseUrl()}${path}`, {
+    response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
       headers: { Accept: "application/json", ...init.headers },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

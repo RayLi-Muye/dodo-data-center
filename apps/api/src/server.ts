@@ -1,4 +1,5 @@
 import { buildApp } from "./app.js";
+import { installShutdownHandlers } from "./shutdown.js";
 
 const parsePort = (value: string | undefined): number => {
   const port = Number(value ?? 3001);
@@ -13,6 +14,7 @@ try {
     host: process.env.API_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: parsePort(process.env.API_PORT ?? process.env.PORT),
   });
+  installShutdownHandlers(app);
 } catch (error) {
   if (app) {
     app.log.error(

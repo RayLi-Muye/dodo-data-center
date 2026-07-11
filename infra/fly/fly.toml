@@ -1,0 +1,28 @@
+app = "replace-with-your-fly-app-name"
+primary_region = "nrt"
+kill_signal = "SIGTERM"
+kill_timeout = 120
+
+[build]
+  dockerfile = "infra/fly/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  API_HOST = "0.0.0.0"
+  API_PORT = "3001"
+  DODO_DATA_MODE = "live"
+  DODO_REPOSITORY = "postgres"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "15s"
+    method = "GET"
+    path = "/health/ready"
+    timeout = "2s"

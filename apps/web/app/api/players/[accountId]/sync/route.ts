@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
 
 import { DodoApiError, fetchApi } from "../../../../../lib/api";
 
+export const preferredRegion = "hnd1";
+
 export async function POST(_request: Request, context: { params: Promise<{ accountId: string }> }) {
   const params = accountIdParamsSchema.safeParse(await context.params);
   if (!params.success) {

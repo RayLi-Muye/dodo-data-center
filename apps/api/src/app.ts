@@ -84,6 +84,16 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
     });
   }
 
+  app.get("/health/live", async () => ({ status: "ok" }));
+  app.get("/health/ready", async (_request, reply) => {
+    try {
+      await repository.getLatestMatchAt();
+      return { status: "ready" };
+    } catch {
+      return reply.code(503).send({ status: "not_ready" });
+    }
+  });
+
   app.setErrorHandler(async (error, request, reply) => {
     if (error instanceof ApiHttpError) {
       return reply.code(error.statusCode).send(error.toResponse());

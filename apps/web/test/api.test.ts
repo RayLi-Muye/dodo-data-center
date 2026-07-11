@@ -11,7 +11,17 @@ describe("server API client", () => {
   it("uses the documented environment precedence and trims trailing slashes", () => {
     expect(getApiBaseUrl({ API_BASE_URL: "http://api.internal///", NEXT_PUBLIC_API_BASE_URL: "http://public" })).toBe("http://api.internal");
     expect(getApiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "http://public/" })).toBe("http://public");
+    expect(getApiBaseUrl({ API_BASE_URL: "   ", NEXT_PUBLIC_API_BASE_URL: " http://public/ " })).toBe("http://public");
     expect(getApiBaseUrl({})).toBe("http://127.0.0.1:3001");
+  });
+
+  it("never silently targets localhost when production has no API URL", () => {
+    expect(() => getApiBaseUrl({ NODE_ENV: "production" })).toThrow(
+      "API_BASE_URL must be configured for production Web requests.",
+    );
+    expect(() => getApiBaseUrl({ API_BASE_URL: " ", NODE_ENV: "production" })).toThrow(
+      "API_BASE_URL must be configured for production Web requests.",
+    );
   });
 
   it("checks response.ok and preserves a frozen API error", async () => {

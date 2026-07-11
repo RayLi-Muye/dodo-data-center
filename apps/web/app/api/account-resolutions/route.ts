@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
 
 import { DodoApiError, fetchApi } from "../../../lib/api";
 
+export const preferredRegion = "hnd1";
+
 const validationError = (message: string): ApiError => ({
   error: { code: "VALIDATION_ERROR", message, retryable: false },
 });

@@ -19,8 +19,8 @@
   --negative-line: oklch(43% 0.09 24);
   --warning: oklch(78% 0.15 75);
   --warning-line: oklch(45% 0.08 75);
-  --font-display: "Saira Condensed", "Arial Narrow", sans-serif;
-  --font-body: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-display: var(--font-saira-condensed), "Saira Condensed", "Arial Narrow", sans-serif;
+  --font-body: var(--font-noto-sans-sc), "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
