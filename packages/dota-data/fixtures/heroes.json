@@ -1,0 +1,18 @@
+{
+  "1": {
+    "id": 1,
+    "name": "npc_dota_hero_antimage",
+    "localized_name": "Anti-Mage",
+    "primary_attr": "agi",
+    "attack_type": "Melee",
+    "roles": ["Carry", "Escape"]
+  },
+  "2": {
+    "id": 2,
+    "name": "npc_dota_hero_axe",
+    "localized_name": "Axe",
+    "primary_attr": "str",
+    "attack_type": "Melee",
+    "roles": ["Initiator", "Durable"]
+  }
+}

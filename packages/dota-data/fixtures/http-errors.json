@@ -1,0 +1,5 @@
+{
+  "rateLimited": { "status": 429, "retryAfter": "30" },
+  "upstreamUnavailable": { "status": 503 },
+  "timeout": { "abortDriven": true }
+}

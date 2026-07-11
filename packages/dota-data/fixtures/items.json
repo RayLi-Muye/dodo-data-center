@@ -1,0 +1,25 @@
+{
+  "blink": {
+    "id": 1,
+    "dname": "Blink Dagger",
+    "qual": "component",
+    "cost": 2250,
+    "desc": "Synthetic fixture description.",
+    "attrib": [],
+    "components": null
+  },
+  "recipe_fixture": {
+    "id": null,
+    "dname": null,
+    "cost": null
+  },
+  "boots": {
+    "id": 2,
+    "dname": "Boots of Speed",
+    "qual": "component",
+    "cost": 500,
+    "desc": "Synthetic fixture description.",
+    "attrib": [{ "key": "movement_speed", "header": "+", "value": 45 }],
+    "components": ["lace"]
+  }
+}

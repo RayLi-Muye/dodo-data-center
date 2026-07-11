@@ -1,0 +1,132 @@
+import cors from "@fastify/cors";
+import { OpenDotaProvider } from "@dodo/dota-data";
+import {
+  createLiveRepository,
+  createSeedRepository,
+  PostgresDodoRepository,
+  type DodoRepository,
+  type ProviderHealth,
+} from "@dodo/db";
+import Fastify, { LogController } from "fastify";
+
+import { parseDataMode, type DataMode } from "./data-mode.js";
+import { ApiHttpError } from "./errors.js";
+import { createErrorMeta } from "./meta.js";
+import type { PlayerDataProvider } from "./player-data-provider.js";
+import { PlayerSyncService } from "./player-sync-service.js";
+import { parseRepositoryMode, type RepositoryMode } from "./repository-mode.js";
+import { registerRoutes } from "./routes.js";
+
+export type BuildAppOptions = {
+  environment?: string;
+  logger?: boolean;
+  repository?: DodoRepository;
+  repositoryMode?: RepositoryMode;
+  databaseUrl?: string;
+  dataMode?: DataMode;
+  playerDataProvider?: PlayerDataProvider;
+  syncService?: PlayerSyncService;
+  clock?: () => Date;
+};
+
+export const buildApp = async (options: BuildAppOptions = {}) => {
+  const environment = options.environment ?? process.env.NODE_ENV ?? "development";
+  const logger = options.logger ?? false;
+  const dataMode = options.dataMode ?? parseDataMode(process.env.DODO_DATA_MODE);
+  const clock = options.clock ?? (() => new Date());
+  const repositoryMode = options.repository
+    ? undefined
+    : options.repositoryMode ?? parseRepositoryMode(process.env.DODO_REPOSITORY);
+  const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
+  const repository =
+    options.repository ??
+    (repositoryMode === "postgres"
+      ? new PostgresDodoRepository({
+          ...(databaseUrl ? { databaseUrl } : {}),
+        })
+      : dataMode === "live"
+        ? await createLiveRepository()
+        : await createSeedRepository());
+  let syncService = options.syncService;
+  if (dataMode === "live" && !syncService) {
+    const provider =
+      options.playerDataProvider ??
+      new OpenDotaProvider({
+        ...(process.env.OPENDOTA_API_BASE_URL
+          ? { baseUrl: process.env.OPENDOTA_API_BASE_URL }
+          : {}),
+        ...(process.env.OPENDOTA_API_KEY ? { apiKey: process.env.OPENDOTA_API_KEY } : {}),
+      });
+    syncService = new PlayerSyncService({ repository, provider, clock });
+  }
+  try {
+    if (dataMode === "live" && !(await repository.getProviderHealth("opendota"))) {
+      await repository.upsertProviderHealth({
+        source: "opendota",
+        status: "degraded",
+        checkedAt: clock().toISOString(),
+        message: "No live provider check has completed in this process.",
+      });
+    }
+  } catch (error) {
+    await repository.close();
+    throw error;
+  }
+
+  const app = Fastify({
+    logger,
+    logController: new LogController({ disableRequestLogging: true }),
+  });
+
+  if (environment === "development") {
+    await app.register(cors, {
+      origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+    });
+  }
+
+  app.setErrorHandler(async (error, request, reply) => {
+    if (error instanceof ApiHttpError) {
+      return reply.code(error.statusCode).send(error.toResponse());
+    }
+
+    request.log.error(
+      { errorName: error instanceof Error ? error.name : "UnknownError" },
+      "Unhandled API error",
+    );
+    let health: ProviderHealth | undefined;
+    if (dataMode === "live") {
+      try {
+        health = await repository.getProviderHealth("opendota");
+      } catch {
+        health = undefined;
+      }
+    }
+    return reply.code(500).send({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "An internal error occurred.",
+        retryable: false,
+      },
+      meta: createErrorMeta(
+        "failed",
+        null,
+        health
+          ? { updatedAt: health.checkedAt, sources: [health.source], quality: "partial" }
+          : {},
+      ),
+    });
+  });
+
+  await registerRoutes(app, repository, {
+    dataMode,
+    ...(syncService ? { syncService } : {}),
+  });
+  app.addHook("onClose", async () => {
+    try {
+      await syncService?.close();
+    } finally {
+      await repository.close();
+    }
+  });
+  return app;
+};

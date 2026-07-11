@@ -1,0 +1,35 @@
+{
+  "match_id": 9003,
+  "radiant_win": false,
+  "duration": 2000,
+  "game_mode": 22,
+  "region": 3,
+  "patch": 58,
+  "start_time": 1700000100,
+  "version": 21,
+  "players": [
+    {
+      "account_id": 123456789,
+      "player_slot": 2,
+      "hero_id": 3,
+      "kills": 3,
+      "deaths": 4,
+      "assists": 8,
+      "gold_per_min": 420,
+      "xp_per_min": 510,
+      "last_hits": 160,
+      "hero_damage": 18000,
+      "item_0": 1,
+      "item_1": 2
+    },
+    {
+      "account_id": null,
+      "player_slot": 128,
+      "hero_id": 4,
+      "kills": 5,
+      "deaths": 2,
+      "assists": 12,
+      "item_0": 3
+    }
+  ]
+}
