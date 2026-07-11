@@ -127,8 +127,8 @@ DONE
 | DATA-008 OpenDota detail normalization | Data Source Agent | `packages/dota-data/**` | ROOT-008 | ACCEPTED |
 | API-008 recent-20 enrichment and persistence | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-008, DATA-008 | ACCEPTED |
 | WEB-008 ten-player scoreboard and timelines | Web Agent | `apps/web/**` | ROOT-008 | ACCEPTED |
-| QA-008 live enriched-match acceptance | Root / QA Agent | read-only | DATA-008, API-008, WEB-008 | REVIEW |
-| DEPLOY-008 Railway and Vercel preview | Root | commit、deploy、smoke | QA-008 | READY |
+| QA-008 live enriched-match acceptance | Root / QA Agent | read-only | DATA-008, API-008, WEB-008 | ACCEPTED |
+| DEPLOY-008 Railway and Vercel preview | Root | commit、deploy、smoke | QA-008 | ACCEPTED |
 
 ## Wave 8 local evidence
 
@@ -138,6 +138,10 @@ DONE
 - 物品时间线只使用真实 `purchase_log`；未知物品事件降级为 partial，出售事件不推断。
 - Memory/PostgreSQL 按 player slot 合并，并在上游匿名详情中保留摘要已知 account ID，避免重复成 11 人。
 - 全仓 typecheck、生产 build 和 104 项常规测试通过；3 项专用 PostgreSQL 测试按设计跳过。
+- 旧 Supabase JSONB 通过读取时默认值兼容新契约；部署探针确认玩家接口由 500 恢复为 200，旧100场数据保留。
+- 账号 `224328273` 最近20场全部达到 enriched、完整十人、已知 Patch/Region；200名参赛者的 GPM/XPM/补刀/伤害/加点覆盖率均为100%。
+- 最终装备覆盖198/200；真实购买时间线覆盖110/200，其他记录明确标记 unavailable；出售事件仍不推断。
+- Vercel `017531d` 与 Railway `ff71df82-010a-4002-8567-d6127734bf49` 均成功；浏览器确认真实比赛页包含10行玩家、双方完整阵容、技能加点、物品时间线和69个装备图标。
 
 ## Wave 7: Player refresh experience
 
