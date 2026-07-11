@@ -1,0 +1,31 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "infra/fly/Dockerfile",
+    "watchPatterns": [
+      "apps/api/**",
+      "packages/contracts/**",
+      "packages/db/**",
+      "packages/dota-data/**",
+      "infra/fly/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "railway.json",
+      "tsconfig.base.json"
+    ]
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "healthcheckPath": "/health/ready",
+    "healthcheckTimeout": 120,
+    "sleepApplication": false,
+    "runtime": "V2",
+    "restartPolicyType": "ALWAYS",
+    "restartPolicyMaxRetries": 10,
+    "region": "southeast-asia",
+    "overlapSeconds": 0,
+    "drainingSeconds": 120
+  }
+}
