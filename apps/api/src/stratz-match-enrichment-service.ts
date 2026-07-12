@@ -182,6 +182,18 @@ const errorStatus = (error: unknown): Exclude<StratzEnrichmentStatus, "complete"
   return "failed";
 };
 
+const safeErrorReason = (error: unknown): string | null => {
+  if (!error || typeof error !== "object") return null;
+  const record = error as { code?: unknown; reason?: unknown };
+  const code = typeof record.code === "string" && /^[A-Z_]+$/.test(record.code)
+    ? record.code
+    : null;
+  const reason = typeof record.reason === "string" && /^[a-z0-9_]+$/.test(record.reason)
+    ? record.reason
+    : null;
+  return code && reason ? `${code}: ${reason}` : code ?? reason;
+};
+
 export class StratzMatchEnrichmentService {
   readonly #repository: DodoRepository;
   readonly #provider: StratzMatchProvider;
@@ -232,13 +244,14 @@ export class StratzMatchEnrichmentService {
     } catch (error) {
       const status = errorStatus(error);
       if (status !== "private") {
+        const reason = safeErrorReason(error);
         await this.#recordHealth(
           status === "unavailable" ? "unavailable" : "degraded",
           status === "rate_limited"
-            ? "STRATZ rate limit was reached."
+            ? `STRATZ rate limit was reached${reason ? ` (${reason})` : ""}.`
             : status === "unavailable"
-              ? "STRATZ is unavailable."
-              : "STRATZ match enrichment failed.",
+              ? `STRATZ is unavailable${reason ? ` (${reason})` : ""}.`
+              : `STRATZ match enrichment failed${reason ? ` (${reason})` : ""}.`,
         );
       }
       return { changed: false, status };
