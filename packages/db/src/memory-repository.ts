@@ -19,6 +19,7 @@ import type {
   ProviderHealth,
   StaticDataSnapshot,
 } from "./types.js";
+import { mergeMatchDetails } from "./match-merge.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
 const normalizeSnapshot = (snapshot: StaticDataSnapshot): StaticDataSnapshot => ({
@@ -85,23 +86,9 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     const existing = this.#matches.get(match.detail.id);
-    const incomingDetail =
-      existing?.detail.detailStatus === "enriched" && match.detail.detailStatus === "summary"
-        ? existing.detail
-        : match.detail;
-    const playersBySlot = new Map(
-      existing?.detail.players.map((player) => [player.playerSlot, player]) ?? [],
-    );
-    for (const player of incomingDetail.players) {
-      const previous = playersBySlot.get(player.playerSlot);
-      playersBySlot.set(player.playerSlot, {
-        ...player,
-        accountId: player.accountId ?? previous?.accountId ?? null,
-      });
-    }
     const stored = clone({
       ...match,
-      detail: { ...incomingDetail, players: [...playersBySlot.values()] },
+      detail: mergeMatchDetails(existing?.detail, match.detail),
     });
     this.#matches.set(match.detail.id, stored);
     for (const player of stored.detail.players) {

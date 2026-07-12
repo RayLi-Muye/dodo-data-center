@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import { Dota2OfficialProvider, OpenDotaProvider } from "@dodo/dota-data";
+import { Dota2OfficialProvider, OpenDotaProvider, StratzProvider } from "@dodo/dota-data";
 import {
   createLiveRepository,
   createSeedRepository,
@@ -18,6 +18,7 @@ import { PlayerSyncService } from "./player-sync-service.js";
 import { parseRepositoryMode, type RepositoryMode } from "./repository-mode.js";
 import { registerRoutes } from "./routes.js";
 import { StaticCatalogService } from "./static-catalog-service.js";
+import { StratzMatchEnrichmentService } from "./stratz-match-enrichment-service.js";
 
 export type BuildAppOptions = {
   environment?: string;
@@ -30,6 +31,8 @@ export type BuildAppOptions = {
   syncService?: PlayerSyncService;
   historySyncService?: PlayerHistorySyncService;
   staticCatalogService?: StaticCatalogService;
+  stratzProvider?: Pick<StratzProvider, "getMatchDetail">;
+  stratzMatchEnrichmentService?: StratzMatchEnrichmentService;
   clock?: () => Date;
 };
 
@@ -54,6 +57,7 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
   let syncService = options.syncService;
   let historySyncService = options.historySyncService;
   let staticCatalogService = options.staticCatalogService;
+  let stratzMatchEnrichmentService = options.stratzMatchEnrichmentService;
   if (dataMode === "live" && (!syncService || !historySyncService)) {
     const provider = options.playerDataProvider ?? (() => {
       const openDotaProvider = new OpenDotaProvider({
@@ -72,7 +76,34 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
           officialProvider.getRecentUpdateReleases(limit),
       });
     })();
-    syncService ??= new PlayerSyncService({ repository, provider, clock });
+    if (!syncService && !stratzMatchEnrichmentService) {
+      const stratzToken = process.env.STRATZ_TOKEN?.trim();
+      const stratzProvider = options.stratzProvider ?? (
+        stratzToken
+          ? new StratzProvider({
+              token: stratzToken,
+              ...(process.env.STRATZ_API_BASE_URL
+                ? { endpoint: process.env.STRATZ_API_BASE_URL }
+                : {}),
+            })
+          : undefined
+      );
+      if (stratzProvider) {
+        stratzMatchEnrichmentService = new StratzMatchEnrichmentService({
+          repository,
+          provider: stratzProvider,
+          clock,
+        });
+      }
+    }
+    syncService ??= new PlayerSyncService({
+      repository,
+      provider,
+      ...(stratzMatchEnrichmentService
+        ? { matchEnrichmentService: stratzMatchEnrichmentService }
+        : {}),
+      clock,
+    });
     historySyncService ??= new PlayerHistorySyncService({ repository, provider, clock });
     if (!options.playerDataProvider) {
       staticCatalogService ??= new StaticCatalogService({ repository, provider, clock });

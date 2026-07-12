@@ -250,6 +250,7 @@ const createMatch = (index: number): MatchDetail => {
     region: "seed-region",
     radiantWin,
     detailStatus: "enriched",
+    enrichmentSources: [],
     parseStatus: "unparsed",
     lobbyType: "seed-lobby",
     cluster: "seed-cluster",

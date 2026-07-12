@@ -292,6 +292,44 @@ describe("MemoryDodoRepository", () => {
       .toBe(SEED_ACCOUNT_ID);
   });
 
+  it("does not downgrade persisted STRATZ timelines during an OpenDota refresh", async () => {
+    const repository = await createSeedRepository();
+    const stored = await repository.getMatch("9000000000");
+    if (!stored) throw new Error("seed match missing");
+    const target = stored.detail.players[0]!;
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        enrichmentSources: ["stratz"],
+        players: stored.detail.players.map((player) =>
+          player.playerSlot === target.playerSlot
+            ? {
+                ...player,
+                abilityBuild: [
+                  { abilityId: "5003", sequence: 1, heroLevel: 1, gameTimeSeconds: 0 },
+                ],
+                abilityBuildStatus: "timed" as const,
+                itemTimeline: [
+                  { itemId: "1", action: "purchase" as const, gameTimeSeconds: 10, charges: null },
+                ],
+                itemTimelineStatus: "partial" as const,
+              }
+            : player,
+        ),
+      },
+    });
+    await repository.upsertMatch(stored);
+
+    const refreshed = await repository.getMatch(stored.detail.id);
+    const refreshedTarget = refreshed?.detail.players.find(
+      (player) => player.playerSlot === target.playerSlot,
+    );
+    expect(refreshed?.detail.enrichmentSources).toEqual(["stratz"]);
+    expect(refreshedTarget?.abilityBuildStatus).toBe("timed");
+    expect(refreshedTarget?.itemTimeline).toHaveLength(1);
+  });
+
   it("keeps the live repository isolated from seed players and matches", async () => {
     const repository = await createLiveRepository();
 

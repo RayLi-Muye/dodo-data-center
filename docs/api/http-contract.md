@@ -34,6 +34,8 @@ GET  /v1/updates/{version}
 
 `GET /v1/matches/{matchId}` 使用 `detailStatus=summary|enriched` 区分玩家比赛摘要与完整十人详情。`officialVersion` 由官方发布时间与比赛开始时间推定，`openDotaPatchId` 保留上游大版本 ID，`officialVersionSource` 必须标明推定或不可用。完整详情可以返回最终装备、背包、中立物品本体、中立强化项、技能升级序列和物品交易时间线。技能只有顺序而没有可靠等级/时间时使用 `abilityBuildStatus=ordered`；只有上游提供真实时间时使用 `timed`。物品购买或出售日志缺失时必须使用 `itemTimelineStatus=unavailable|partial`，不得从最终背包反推交易事件。
 
+比赛详情的基础事实仍以 OpenDota 为主；STRATZ 只可增强加点时间与购买时间。使用 STRATZ 增强时，`enrichmentSources` 包含 `stratz`，响应 `meta.sources` 同时包含 `opendota` 与 `stratz`。STRATZ 缺失、限流或不可用时保留已有 OpenDota 数据，不得把现有时间线覆盖为空。STRATZ 的 `gameVersionId` 不得作为当前官方版本：当前英雄、物品与更新日志继续以 Dota 2 official current-data 为准。
+
 ## Outcome rules
 
 - `public_complete`、`public_partial`：HTTP 200 成功响应；partial 必须带实际数据和 `quality=partial`。

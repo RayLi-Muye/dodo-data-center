@@ -8,9 +8,15 @@ export type Dota2OfficialSourceMetadata = {
   fetchedAt: string;
 };
 
+export type StratzSourceMetadata = {
+  source: "stratz";
+  fetchedAt: string;
+};
+
 export type DotaDataSourceMetadata =
   | OpenDotaSourceMetadata
-  | Dota2OfficialSourceMetadata;
+  | Dota2OfficialSourceMetadata
+  | StratzSourceMetadata;
 
 export type CanonicalPlayerProfile = {
   accountId: string;
@@ -225,4 +231,91 @@ export type CanonicalOfficialHeroAbilityConstants = CanonicalHeroAbilityConstant
 export type CanonicalOfficialHeroCatalog = {
   heroes: CanonicalOfficialConstantsSnapshot<CanonicalHeroConstant>;
   abilities: CanonicalOfficialHeroAbilityConstants;
+};
+
+export type StratzAbilityUpgradeEvent = {
+  abilityId: string;
+  sequence: number;
+  heroLevel: number;
+  gameTimeSeconds: number;
+};
+
+export type StratzItemPurchaseEvent = {
+  itemId: string;
+  action: "purchase";
+  gameTimeSeconds: number;
+  charges: null;
+};
+
+export type StratzMatchPlayer = {
+  steamAccountId: string | null;
+  playerSlot: number;
+  heroId: string;
+  side: "radiant" | "dire";
+  isWin: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  gpm: number | null;
+  xpm: number | null;
+  lastHits: number | null;
+  denies: number | null;
+  heroDamage: number | null;
+  heroHealing: number | null;
+  towerDamage: number | null;
+  level: number | null;
+  netWorth: number | null;
+  finalItemIds: string[];
+  backpackItemIds: string[];
+  neutralItemId: string | null;
+  abilityBuild: StratzAbilityUpgradeEvent[];
+  abilityBuildStatus: "unavailable" | "timed";
+  itemTimeline: StratzItemPurchaseEvent[];
+  itemTimelineStatus: "unavailable" | "partial";
+};
+
+export type StratzMatchDetail = {
+  id: string;
+  startTime: string;
+  durationSeconds: number;
+  gameVersionId: string | null;
+  gameMode: string;
+  lobbyType: string | null;
+  region: string | null;
+  cluster: string | null;
+  radiantWin: boolean;
+  eligiblePlayerCount: number;
+  excludedPlayerCount: number;
+  exclusionReasons: string[];
+  quality: "complete" | "partial";
+  players: StratzMatchPlayer[];
+  source: StratzSourceMetadata;
+};
+
+export type StratzPlayerSummary = {
+  steamAccountId: string;
+  personaName: string | null;
+  avatarUrl: string | null;
+  matchCount: number | null;
+  winCount: number | null;
+  lastMatchAt: string | null;
+  privacyStatus: "public" | "anonymous" | "unknown";
+  quality: "complete" | "partial";
+  source: StratzSourceMetadata;
+};
+
+export type StratzRecentMatch = Omit<StratzMatchDetail, "players"> & {
+  player: StratzMatchPlayer;
+};
+
+export type StratzRecentMatches = {
+  steamAccountId: string;
+  requestedLimit: number;
+  privacyStatus: StratzPlayerSummary["privacyStatus"];
+  quality: "complete" | "partial";
+  eligibleCount: number;
+  excludedCount: number;
+  exclusionReasons: string[];
+  matches: StratzRecentMatch[];
+  source: StratzSourceMetadata;
 };

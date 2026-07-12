@@ -8,6 +8,7 @@ export const timestampSchema = z.iso.datetime().refine((value) => value.endsWith
 export const dataSourceSchema = z.enum([
   "dota2_official",
   "opendota",
+  "stratz",
   "steam",
   "dotaconstants",
   "curated_map",
@@ -287,6 +288,7 @@ export const matchSummarySchema = z.object({
 export const matchDetailSchema = matchSummarySchema.omit({ player: true }).extend({
   players: z.array(matchPlayerSchema).min(1).max(10),
   detailStatus: z.enum(["summary", "enriched"]),
+  enrichmentSources: z.array(z.enum(["stratz"])).default([]),
   parseStatus: z.enum(["unparsed", "parsed", "pending"]),
   cluster: z.string().nullable(),
   radiantScore: z.number().int().nonnegative().nullable(),

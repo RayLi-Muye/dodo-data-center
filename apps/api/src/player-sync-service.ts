@@ -27,6 +27,7 @@ import type {
 import { createHash } from "node:crypto";
 
 import type { PlayerDataProvider } from "./player-data-provider.js";
+import type { StratzMatchEnrichmentService } from "./stratz-match-enrichment-service.js";
 
 export const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const UPDATE_TTL_MS = 2 * 60 * 60 * 1_000;
@@ -83,6 +84,7 @@ export const nextSnapshot = (
 type PlayerSyncServiceOptions = {
   repository: DodoRepository;
   provider: PlayerDataProvider;
+  matchEnrichmentService?: StratzMatchEnrichmentService;
   clock?: () => Date;
 };
 
@@ -171,6 +173,7 @@ export const toMatchSummaryDetail = (
     radiantWin: match.radiantWin,
     players: [toMatchPlayer(match.player, itemIdByName)],
     detailStatus: "summary",
+    enrichmentSources: [],
     parseStatus: "unparsed",
     cluster: null,
     radiantScore: null,
@@ -194,6 +197,7 @@ const toEnrichedMatchDetail = (
   radiantWin: match.radiantWin,
   players: match.players.map((player) => toMatchPlayer(player, itemIdByName)),
   detailStatus: "enriched",
+  enrichmentSources: [],
   parseStatus: match.parseStatus,
   lobbyType: match.lobbyType,
   cluster: match.cluster,
@@ -278,13 +282,20 @@ const asPlayerProfile = (
 export class PlayerSyncService {
   readonly #repository: DodoRepository;
   readonly #provider: PlayerDataProvider;
+  readonly #matchEnrichmentService: StratzMatchEnrichmentService | undefined;
   readonly #clock: () => Date;
   readonly #inFlight = new Map<string, Promise<void>>();
   readonly #requests = new Map<string, Promise<SyncJob>>();
 
-  constructor({ repository, provider, clock = () => new Date() }: PlayerSyncServiceOptions) {
+  constructor({
+    repository,
+    provider,
+    matchEnrichmentService,
+    clock = () => new Date(),
+  }: PlayerSyncServiceOptions) {
     this.#repository = repository;
     this.#provider = provider;
+    this.#matchEnrichmentService = matchEnrichmentService;
     this.#clock = clock;
   }
 
@@ -474,6 +485,40 @@ export class PlayerSyncService {
           async () => enrichNext(),
         ),
       );
+      if (this.#matchEnrichmentService) {
+        const refreshedLatest = await Promise.all(
+          latestMatches.map((match) => this.#repository.getMatch(match.detail.id)),
+        );
+        const stratzCandidates = refreshedLatest.flatMap((match) =>
+          match?.detail.detailStatus === "enriched" &&
+            !match.detail.enrichmentSources.includes("stratz") &&
+            match.detail.players.some(
+              (player) =>
+                player.abilityBuildStatus === "unavailable" ||
+                player.itemTimelineStatus !== "complete",
+            )
+            ? [match]
+            : [],
+        );
+        let nextStratzIndex = 0;
+        const enrichWithStratz = async (): Promise<void> => {
+          while (nextStratzIndex < stratzCandidates.length) {
+            const match = stratzCandidates[nextStratzIndex++];
+            if (!match) return;
+            try {
+              await this.#matchEnrichmentService!.enrichMatch(match.detail.id);
+            } catch {
+              // STRATZ is optional enrichment; OpenDota data remains the readable fallback.
+            }
+          }
+        };
+        await Promise.all(
+          Array.from(
+            { length: Math.min(2, stratzCandidates.length) },
+            async () => enrichWithStratz(),
+          ),
+        );
+      }
       await this.#repository.upsertPlayerSyncBatch(batch);
       await this.#repository.clearPlayerSyncFailure(job.accountId);
       await this.#repository.upsertPlayer(

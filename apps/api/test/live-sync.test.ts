@@ -27,6 +27,8 @@ import {
   type CanonicalOfficialHeroAbilityConstants,
   type CanonicalPlayerProfile,
   type CanonicalRecentMatches,
+  type StratzMatchDetail,
+  type StratzProvider,
 } from "@dodo/dota-data";
 import { createLiveRepository } from "@dodo/db";
 import type { FastifyInstance } from "fastify";
@@ -37,6 +39,7 @@ import type { PlayerDataProvider } from "../src/player-data-provider.js";
 import { PlayerHistorySyncService } from "../src/player-history-sync-service.js";
 import { PlayerSyncService } from "../src/player-sync-service.js";
 import { StaticCatalogService } from "../src/static-catalog-service.js";
+import { StratzMatchEnrichmentService } from "../src/stratz-match-enrichment-service.js";
 
 const ACCOUNT_ID = "86745912";
 const FETCHED_AT = "2026-07-10T01:00:00.000Z";
@@ -1153,6 +1156,41 @@ describe("live player synchronization", () => {
     ]);
   });
 
+  it("reports optional STRATZ unavailability as degraded while core providers are ready", async () => {
+    const repository = await createPreparedRepository();
+    await repository.upsertProviderHealth({
+      source: "opendota",
+      status: "ready",
+      checkedAt: CLOCK_AT,
+      message: null,
+    });
+    await repository.upsertProviderHealth({
+      source: "stratz",
+      status: "unavailable",
+      checkedAt: CLOCK_AT,
+      message: "STRATZ is unavailable.",
+    });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      playerDataProvider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const status = dataStatusResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/data-status" })),
+    );
+    expect(status.data.status).toBe("degraded");
+    expect(status.data.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "opendota", status: "ready" }),
+        expect.objectContaining({ source: "dota2_official", status: "ready" }),
+        expect.objectContaining({ source: "stratz", status: "unavailable" }),
+      ]),
+    );
+  });
+
   it("keeps previously imported public data readable while a refresh is running", async () => {
     const repository = await createPreparedRepository();
     const provider = createProvider();
@@ -1422,6 +1460,86 @@ describe("live player synchronization", () => {
     expect(maximumActiveRequests).toBe(2);
     expect((await repository.getMatch(matches[19]!.id))?.detail.detailStatus).toBe("enriched");
     expect((await repository.getMatch(matches[20]!.id))?.detail.detailStatus).toBe("summary");
+    await service.close();
+  });
+
+  it("adds optional STRATZ timelines after OpenDota detail enrichment", async () => {
+    const repository = await createPreparedRepository();
+    const openDotaProvider = createProvider();
+    const getMatchDetail = vi.fn(async (matchId: string): Promise<StratzMatchDetail> => {
+      const match = detailFor(matchId);
+      const target = match.players[0]!;
+      return {
+        id: match.id,
+        startTime: match.startTime,
+        durationSeconds: match.durationSeconds,
+        gameVersionId: "999",
+        gameMode: "ALL_PICK_RANKED",
+        lobbyType: "RANKED",
+        region: match.region,
+        cluster: match.cluster,
+        radiantWin: match.radiantWin,
+        eligiblePlayerCount: 1,
+        excludedPlayerCount: 0,
+        exclusionReasons: [],
+        quality: "complete",
+        players: [{
+          steamAccountId: target.accountId,
+          playerSlot: target.playerSlot,
+          heroId: target.heroId,
+          side: target.side,
+          isWin: target.isWin,
+          kills: target.kills,
+          deaths: target.deaths,
+          assists: target.assists,
+          gpm: target.gpm,
+          xpm: target.xpm,
+          lastHits: target.lastHits,
+          denies: target.denies,
+          heroDamage: target.heroDamage,
+          heroHealing: target.heroHealing,
+          towerDamage: target.towerDamage,
+          level: target.level,
+          netWorth: target.netWorth,
+          finalItemIds: target.finalItemIds,
+          backpackItemIds: target.backpackItemIds,
+          neutralItemId: target.neutralItemId,
+          abilityBuild: [
+            { abilityId: "5003", sequence: 1, heroLevel: 1, gameTimeSeconds: 0 },
+          ],
+          abilityBuildStatus: "timed",
+          itemTimeline: [],
+          itemTimelineStatus: "unavailable",
+        }],
+        source: { source: "stratz", fetchedAt: CLOCK_AT },
+      };
+    });
+    const matchEnrichmentService = new StratzMatchEnrichmentService({
+      repository,
+      provider: { getMatchDetail } as Pick<StratzProvider, "getMatchDetail">,
+      clock: () => new Date(CLOCK_AT),
+    });
+    const service = new PlayerSyncService({
+      repository,
+      provider: openDotaProvider,
+      matchEnrichmentService,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const job = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(job.jobId);
+
+    expect(getMatchDetail).toHaveBeenCalledTimes(2);
+    const match = await repository.getMatch("8000000002");
+    expect(match?.detail.enrichmentSources).toEqual(["stratz"]);
+    expect(match?.detail.officialVersion).toBe("7.41b");
+    expect(match?.detail.players[0]?.abilityBuildStatus).toBe("timed");
+
+    const secondRunUpsert = vi.spyOn(repository, "upsertMatch");
+    const secondJob = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(secondJob.jobId);
+    expect(getMatchDetail).toHaveBeenCalledTimes(2);
+    expect(secondRunUpsert).not.toHaveBeenCalled();
     await service.close();
   });
 

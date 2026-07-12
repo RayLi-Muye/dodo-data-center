@@ -333,8 +333,25 @@ const descriptorFromSnapshot = (snapshot: StaticDataSnapshot): MetaDescriptor =>
 
 const descriptorFromMatch = (match: StoredMatch): MetaDescriptor => ({
   updatedAt: match.importedAt,
-  sources: [match.source],
+  sources: [...new Set([match.source, ...match.detail.enrichmentSources])],
   quality: match.quality,
+});
+
+const descriptorWithMatchSources = (
+  descriptor: MetaDescriptor,
+  matches: StoredMatch[],
+): MetaDescriptor => ({
+  ...descriptor,
+  updatedAt: matches.reduce(
+    (latest, match) => match.importedAt > latest ? match.importedAt : latest,
+    descriptor.updatedAt,
+  ),
+  sources: [
+    ...new Set([
+      ...descriptor.sources,
+      ...matches.flatMap((match) => match.detail.enrichmentSources),
+    ]),
+  ],
 });
 
 const inferStoredMatchVersion = (
@@ -638,7 +655,10 @@ export const registerRoutes = async (
       query.window,
       query.patch,
     );
-    const descriptor = batch ? descriptorFromBatch(batch) : await defaultDescriptor();
+    const descriptor = descriptorWithMatchSources(
+      batch ? descriptorFromBatch(batch) : await defaultDescriptor(),
+      selectedMatches,
+    );
     return {
       data,
       meta: createMetricMeta({
@@ -666,7 +686,7 @@ export const registerRoutes = async (
     const profile = await accessiblePlayer(accountId);
     const query = parse(playerMatchesQuerySchema, request.query, errorMeta);
     const batch = await repository.getPlayerSyncBatch(accountId);
-    const matches = selectWindow(
+    const selectedMatches = selectWindow(
       filterPlayerMatches(
         await listVersionedMatches(accountId),
         accountId,
@@ -674,13 +694,25 @@ export const registerRoutes = async (
         errorMeta,
       ),
       query.window,
-    )
-      .map((match) => toMatchSummary(match.detail, accountId));
+    );
+    const page = paginate(
+      selectedMatches,
+      query.limit,
+      query.cursor,
+      (match) => match.detail.id,
+      errorMeta,
+    );
     return {
-      data: paginate(matches, query.limit, query.cursor, (match) => match.id, errorMeta),
+      data: {
+        items: page.items.map((match) => toMatchSummary(match.detail, accountId)),
+        nextCursor: page.nextCursor,
+      },
       meta: {
         ...createOperationMeta({
-          ...(await playerDescriptor(accountId)),
+          ...descriptorWithMatchSources(
+            await playerDescriptor(accountId),
+            page.items,
+          ),
           quality: batch?.quality ?? qualityForProfile(profile),
         }),
         filtersApplied: {
@@ -717,7 +749,10 @@ export const registerRoutes = async (
       query.window,
       query.patch,
     );
-    const descriptor = batch ? descriptorFromBatch(batch) : await defaultDescriptor();
+    const descriptor = descriptorWithMatchSources(
+      batch ? descriptorFromBatch(batch) : await defaultDescriptor(),
+      selectedMatches,
+    );
     const sampleSize = qualityWindow.sampleSize;
     const eligibleCount = qualityWindow.eligibleCount;
     return {
@@ -770,7 +805,10 @@ export const registerRoutes = async (
         errorMeta,
       );
     }
-    const descriptor = await playerDescriptor(accountId);
+    const descriptor = descriptorWithMatchSources(
+      await playerDescriptor(accountId),
+      selectedMatches,
+    );
     return {
       data: stats,
       meta: createMetricMeta({
@@ -1029,10 +1067,12 @@ export const registerRoutes = async (
           checkedAt: new Date(0).toISOString(),
           message: "The first official catalog check has not completed yet.",
         };
-      const providers = [health, officialHealth];
-      const status = providers.some((provider) => provider.status === "unavailable")
+      const stratzHealth = await repository.getProviderHealth("stratz");
+      const coreProviders = [health, officialHealth];
+      const providers = [...coreProviders, ...(stratzHealth ? [stratzHealth] : [])];
+      const status = coreProviders.some((provider) => provider.status === "unavailable")
         ? "unavailable"
-        : providers.some((provider) => provider.status === "degraded")
+        : providers.some((provider) => provider.status !== "ready")
           ? "degraded"
           : "ready";
       const latestHealth = providers.reduce((latest, provider) =>

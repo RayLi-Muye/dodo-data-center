@@ -545,6 +545,26 @@ describe("Dodo API", () => {
     });
   });
 
+  it("attributes persisted STRATZ enrichment in match response metadata", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        enrichmentSources: ["stratz"],
+      },
+    });
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const response = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: `/v1/matches/${stored.detail.id}` })),
+    );
+    expect(response.data.enrichmentSources).toEqual(["stratz"]);
+    expect(response.meta.sources).toEqual(["seed", "stratz"]);
+  });
+
   it("defaults match browsing to 30 all-imported results", async () => {
     const response = playerMatchesResponseSchema.parse(
       json(

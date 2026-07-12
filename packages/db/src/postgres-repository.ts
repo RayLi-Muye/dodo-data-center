@@ -34,6 +34,7 @@ import type {
   StaticDataSnapshot,
   StoredMatch,
 } from "./types.js";
+import { mergeMatchDetails } from "./match-merge.js";
 
 type JsonRow = { payload: unknown };
 type QuerySql = Sql | postgres.TransactionSql;
@@ -77,6 +78,7 @@ const withLegacyMatchDefaults = (value: unknown): unknown => {
     officialVersionSource: value.officialVersionSource ?? "unavailable",
     players,
     detailStatus: value.detailStatus ?? "summary",
+    enrichmentSources: value.enrichmentSources ?? [],
     lobbyType: value.lobbyType ?? null,
     cluster: value.cluster ?? null,
     radiantScore: value.radiantScore ?? null,
@@ -228,23 +230,6 @@ const parseProviderHealth = (value: unknown): ProviderHealth => {
     checkedAt: timestampSchema.parse(value.checkedAt),
     message: value.message as string | null,
   };
-};
-
-const mergeMatchPlayers = (existing: MatchDetail | undefined, incoming: MatchDetail): MatchDetail => {
-  if (existing?.detailStatus === "enriched" && incoming.detailStatus === "summary") {
-    return existing;
-  }
-  const playersBySlot = new Map(
-    existing?.players.map((player) => [player.playerSlot, player]) ?? [],
-  );
-  for (const player of incoming.players) {
-    const previous = playersBySlot.get(player.playerSlot);
-    playersBySlot.set(player.playerSlot, {
-      ...player,
-      accountId: player.accountId ?? previous?.accountId ?? null,
-    });
-  }
-  return { ...incoming, players: [...playersBySlot.values()] };
 };
 
 export class PostgresDodoRepository implements DodoRepository {
@@ -789,7 +774,7 @@ export class PostgresDodoRepository implements DodoRepository {
       byId.set(
         match.detail.id,
         previous
-          ? { ...match, detail: mergeMatchPlayers(previous.detail, match.detail) }
+          ? { ...match, detail: mergeMatchDetails(previous.detail, match.detail) }
           : match,
       );
       return byId;
@@ -808,7 +793,7 @@ export class PostgresDodoRepository implements DodoRepository {
     );
     const merged = deduplicated.map((match) => ({
       ...match,
-      detail: mergeMatchPlayers(existingById.get(match.detail.id), match.detail),
+      detail: mergeMatchDetails(existingById.get(match.detail.id), match.detail),
     }));
     const matchRows = merged.map((match) => ({
       id: match.detail.id,
@@ -858,7 +843,7 @@ export class PostgresDodoRepository implements DodoRepository {
     const [existing] = await sql<JsonRow[]>`
       select payload from dodo.matches where id = ${match.detail.id} for update
     `;
-    const detail = mergeMatchPlayers(
+    const detail = mergeMatchDetails(
       existing ? parseStoredMatchDetail(existing.payload) : undefined,
       match.detail,
     );
