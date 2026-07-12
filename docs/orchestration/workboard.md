@@ -183,3 +183,23 @@ DONE
 - QA-006 无 P0/P1/P2，未发现客户端凭据或自动更新循环。
 - Vercel commit `b7adbb8` 预览为 `READY`；公开账号 `224328273` 进入页面后自动触发刷新，旧数据在同步期间保持可见。
 - 首次自动刷新正确呈现 `source_unavailable` 且未清空旧数据；随后手动刷新恢复为 `public_complete`，验证了强制重试和轮询终态。
+
+## Wave 10: Incremental synchronization and snapshot cache
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-010 cache semantics and ADR | Root | PostgreSQL 快照 TTL、内容哈希、增量写入语义 | Wave 9 | ACCEPTED |
+| API-010 incremental player sync | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-010 | ACCEPTED |
+| QA-010 concurrency and live performance audit | Root / QA Agent | read-only | API-010 | ACCEPTED |
+| DEPLOY-010 Railway API rollout | Root | commit、deploy、真实账号连续同步 | QA-010 | ACCEPTED |
+
+## Wave 10 evidence
+
+- PostgreSQL 继续作为事实来源；本波不引入 Redis。英雄、物品和 Patch 快照 TTL 为 6 小时，官方更新 TTL 为 30 分钟。
+- 快照使用稳定 SHA-256 内容哈希区分“已检查但未变化”和“内容已变化”；CAS touch 与目录替换共用 advisory lock，避免旧检查覆盖新快照。
+- 最近比赛只写入新增或内容发生变化的记录；空差异不启动比赛写事务，目录和比赛批量写入改为 set-based SQL。
+- 多账号共享比赛按全局排序获取 advisory lock；重复 match ID 在写入前合并，enriched 详情不会被 summary 降级，所有已知账号关联均保留。
+- 全仓 typecheck、Web 生产 build、164 项常规测试与 17 项真实 PostgreSQL 测试通过，共 170 项不重复测试。
+- Railway 部署 `cf06f58d-09d9-4929-8f6f-4ffc40fababc` 成功，健康检查为 ready。
+- 公开账号 `224328273` 连续两次同步均为 `public_complete`：第一轮 7.268 秒，第二轮 5.617 秒；此前重复同步基线约 113.55 秒。
+- 同步后 100 场统计 `coverageRate=1`；英雄、物品、更新与最新比赛接口均为 200，最新比赛详情保留 10 名玩家。
