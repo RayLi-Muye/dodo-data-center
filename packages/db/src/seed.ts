@@ -294,11 +294,17 @@ export const seedRepository = async (repository: DodoRepository): Promise<DodoRe
     source: "seed",
     quality: "complete",
     fetchedAt: SEED_UPDATED_AT,
+    checkedAt: SEED_UPDATED_AT,
+    changedAt: SEED_UPDATED_AT,
+    contentHash: null,
   });
   await repository.replaceUpdateReleases([updateSeed], {
     source: "seed",
     quality: "complete",
     fetchedAt: SEED_UPDATED_AT,
+    checkedAt: SEED_UPDATED_AT,
+    changedAt: SEED_UPDATED_AT,
+    contentHash: null,
   });
   await seedCuratedMap(repository);
   for (const player of playerSeeds) await repository.upsertPlayer(player);

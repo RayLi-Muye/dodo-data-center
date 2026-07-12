@@ -21,6 +21,12 @@ import type {
 } from "./types.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
+const normalizeSnapshot = (snapshot: StaticDataSnapshot): StaticDataSnapshot => ({
+  ...snapshot,
+  checkedAt: snapshot.checkedAt ?? snapshot.fetchedAt,
+  changedAt: snapshot.changedAt ?? snapshot.fetchedAt,
+  contentHash: snapshot.contentHash ?? null,
+});
 
 const compareDecimalIdDescending = (left: string, right: string): number => {
   if (/^\d+$/.test(left) && /^\d+$/.test(right)) {
@@ -176,19 +182,19 @@ export class MemoryDodoRepository implements DodoRepository {
   async replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void> {
     this.#heroes.clear();
     for (const hero of heroes) await this.upsertHero(hero);
-    this.#heroSnapshot = clone(snapshot);
+    this.#heroSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
   async replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void> {
     this.#items.clear();
     for (const item of items) await this.upsertItem(item);
-    this.#itemSnapshot = clone(snapshot);
+    this.#itemSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
   async replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void> {
     this.#patches.clear();
     for (const patch of patches) this.#patches.set(patch.id, clone(patch));
-    this.#patchSnapshot = clone(snapshot);
+    this.#patchSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
   async replaceUpdateReleases(
@@ -201,7 +207,29 @@ export class MemoryDodoRepository implements DodoRepository {
         : new Map<string, UpdateReleaseDetail>();
     for (const release of releases) next.set(release.version, clone(release));
     this.#updateReleases = next;
-    this.#updateSnapshot = clone(snapshot);
+    this.#updateSnapshot = clone(normalizeSnapshot(snapshot));
+  }
+
+  async touchStaticSnapshot(
+    kind: "hero" | "item" | "patch" | "update",
+    expectedContentHash: string | null,
+    snapshot: StaticDataSnapshot,
+  ): Promise<boolean> {
+    const current =
+      kind === "hero"
+        ? this.#heroSnapshot
+        : kind === "item"
+          ? this.#itemSnapshot
+          : kind === "patch"
+            ? this.#patchSnapshot
+            : this.#updateSnapshot;
+    if (!current || current.contentHash !== expectedContentHash) return false;
+    const normalized = clone(normalizeSnapshot(snapshot));
+    if (kind === "hero") this.#heroSnapshot = normalized;
+    else if (kind === "item") this.#itemSnapshot = normalized;
+    else if (kind === "patch") this.#patchSnapshot = normalized;
+    else this.#updateSnapshot = normalized;
+    return true;
   }
 
   async upsertProviderHealth(health: ProviderHealth): Promise<void> {

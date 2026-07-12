@@ -52,6 +52,9 @@ describe("MemoryDodoRepository", () => {
       source: "opendota" as const,
       quality: "complete" as const,
       fetchedAt: "2026-07-12T01:00:00.000Z",
+      checkedAt: "2026-07-12T01:00:00.000Z",
+      changedAt: "2026-07-12T01:00:00.000Z",
+      contentHash: null,
     };
 
     expect(await repository.getPatch(SEED_PATCH)).toMatchObject({ releasedAt: SEED_UPDATED_AT });
@@ -69,12 +72,43 @@ describe("MemoryDodoRepository", () => {
     expect(await repository.getPatchSnapshot()).toEqual(snapshot);
   });
 
+  it("touches a snapshot only when its expected content hash still wins", async () => {
+    const repository = await createLiveRepository();
+    const changedAt = "2026-07-12T01:00:00.000Z";
+    const current = {
+      source: "opendota" as const,
+      quality: "complete" as const,
+      fetchedAt: changedAt,
+      checkedAt: changedAt,
+      changedAt,
+      contentHash: "new",
+    };
+    await repository.replacePatches(
+      [{ id: "60", name: "7.39", releasedAt: changedAt }],
+      current,
+    );
+    const touched = {
+      ...current,
+      fetchedAt: "2026-07-12T02:00:00.000Z",
+      checkedAt: "2026-07-12T02:00:01.000Z",
+    };
+
+    expect(await repository.touchStaticSnapshot("patch", "old", touched)).toBe(false);
+    expect(await repository.getPatchSnapshot()).toEqual(current);
+    expect(await repository.touchStaticSnapshot("patch", "new", touched)).toBe(true);
+    expect(await repository.getPatchSnapshot()).toEqual(touched);
+    expect((await repository.getPatchSnapshot())?.changedAt).toBe(changedAt);
+  });
+
   it("idempotently replaces update details while listing summaries only", async () => {
     const repository = await createLiveRepository();
     const snapshot = {
       source: "dota2_official" as const,
       quality: "complete" as const,
       fetchedAt: "2026-07-12T02:00:00.000Z",
+      checkedAt: "2026-07-12T02:00:00.000Z",
+      changedAt: "2026-07-12T02:00:00.000Z",
+      contentHash: "first",
     };
     const releases = [
       {
@@ -130,6 +164,7 @@ describe("MemoryDodoRepository", () => {
       ...snapshot,
       quality: "partial" as const,
       fetchedAt: "2026-07-12T03:00:00.000Z",
+      checkedAt: "2026-07-12T03:00:00.000Z",
     };
     await repository.replaceUpdateReleases([releases[0]!], partialSnapshot);
     expect((await repository.listUpdateReleases()).map((release) => release.version)).toEqual([

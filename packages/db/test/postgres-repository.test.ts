@@ -101,6 +101,9 @@ describeWithDatabase("PostgresDodoRepository", () => {
       source: "seed" as const,
       quality: "complete" as const,
       fetchedAt: SEED_UPDATED_AT,
+      checkedAt: SEED_UPDATED_AT,
+      changedAt: SEED_UPDATED_AT,
+      contentHash: null,
     };
     await repository.replaceHeroes([hero], snapshot);
     await repository.replaceItems([item], snapshot);
@@ -231,6 +234,53 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(storedIds).toHaveLength(3);
   });
 
+  it("bulk-replaces shared matches in reverse order without deadlocking", async () => {
+    const fixtures = await createSeedRepository();
+    const primary = await fixtures.getPlayer(SEED_ACCOUNT_ID);
+    const shared = await fixtures.getPlayer(SEED_PARTIAL_ACCOUNT_ID);
+    const matches = (await fixtures.listPlayerMatches(SEED_PARTIAL_ACCOUNT_ID)).slice(0, 2);
+    if (!primary || !shared || matches.length !== 2) throw new Error("Shared fixtures missing");
+    await repository.upsertPlayer(primary);
+    await repository.upsertPlayer(shared);
+
+    await Promise.race([
+      Promise.all([
+        repository.replacePlayerMatches(SEED_ACCOUNT_ID, matches),
+        repository.replacePlayerMatches(SEED_PARTIAL_ACCOUNT_ID, [...matches].reverse()),
+      ]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("reverse replacement deadlocked")), 5_000),
+      ),
+    ]);
+
+    expect(await repository.listPlayerMatches(SEED_ACCOUNT_ID)).toHaveLength(2);
+    expect(await repository.listPlayerMatches(SEED_PARTIAL_ACCOUNT_ID)).toHaveLength(2);
+  });
+
+  it("deduplicates enriched and summary copies in one bulk upsert", async () => {
+    const fixtures = await createSeedRepository();
+    const player = await fixtures.getPlayer(SEED_ACCOUNT_ID);
+    const enriched = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0];
+    if (!player || !enriched) throw new Error("Match fixture missing");
+    await repository.upsertPlayer(player);
+    const target = enriched.detail.players.find((candidate) => candidate.accountId === SEED_ACCOUNT_ID)!;
+    const summary = {
+      ...enriched,
+      detail: {
+        ...enriched.detail,
+        detailStatus: "summary" as const,
+        players: [{ ...target, accountId: null }],
+      },
+    };
+
+    await repository.upsertPlayerMatches(SEED_ACCOUNT_ID, [enriched, summary]);
+
+    const stored = await repository.getMatch(enriched.detail.id);
+    expect(stored?.detail.detailStatus).toBe("enriched");
+    expect(stored?.detail.players).toHaveLength(10);
+    expect(stored?.detail.players.some((candidate) => candidate.accountId === SEED_ACCOUNT_ID)).toBe(true);
+  });
+
   it("serializes concurrent static catalog replacement with matching snapshots", async () => {
     const fixtures = await createSeedRepository();
     const heroes = await fixtures.listHeroes();
@@ -242,11 +292,17 @@ describeWithDatabase("PostgresDodoRepository", () => {
       source: "seed" as const,
       quality: "complete" as const,
       fetchedAt: "2025-01-02T01:00:00.000Z",
+      checkedAt: "2025-01-02T01:00:00.000Z",
+      changedAt: "2025-01-02T01:00:00.000Z",
+      contentHash: "first",
     };
     const secondSnapshot = {
       source: "seed" as const,
       quality: "complete" as const,
       fetchedAt: "2025-01-02T02:00:00.000Z",
+      checkedAt: "2025-01-02T02:00:00.000Z",
+      changedAt: "2025-01-02T02:00:00.000Z",
+      contentHash: "second",
     };
 
     await Promise.all([
@@ -288,5 +344,31 @@ describeWithDatabase("PostgresDodoRepository", () => {
       { ids: ["59"], snapshot: firstSnapshot },
       { ids: ["60"], snapshot: secondSnapshot },
     ]).toContainEqual(patchResult);
+  });
+
+  it("compare-and-set touches snapshots without overwriting a concurrent winner", async () => {
+    const changedAt = "2026-07-12T01:00:00.000Z";
+    const current = {
+      source: "opendota" as const,
+      quality: "complete" as const,
+      fetchedAt: changedAt,
+      checkedAt: changedAt,
+      changedAt,
+      contentHash: "new",
+    };
+    await repository.replacePatches(
+      [{ id: "60", name: "7.39", releasedAt: changedAt }],
+      current,
+    );
+    const touched = {
+      ...current,
+      fetchedAt: "2026-07-12T02:00:00.000Z",
+      checkedAt: "2026-07-12T02:00:01.000Z",
+    };
+
+    expect(await repository.touchStaticSnapshot("patch", "old", touched)).toBe(false);
+    expect(await repository.getPatchSnapshot()).toEqual(current);
+    expect(await repository.touchStaticSnapshot("patch", "new", touched)).toBe(true);
+    expect(await repository.getPatchSnapshot()).toEqual(touched);
   });
 });

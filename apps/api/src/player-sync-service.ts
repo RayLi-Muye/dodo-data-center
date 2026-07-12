@@ -20,12 +20,56 @@ import type {
   DodoRepository,
   PlayerSyncBatch,
   ProviderHealth,
+  StaticDataSnapshot,
   StoredMatch,
 } from "@dodo/db";
+import { createHash } from "node:crypto";
 
 import type { PlayerDataProvider } from "./player-data-provider.js";
 
 const UNKNOWN_PATCH = "unknown";
+const STATIC_TTL_MS = 6 * 60 * 60 * 1_000;
+const UPDATE_TTL_MS = 30 * 60 * 1_000;
+
+const stableValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, stableValue(child)]),
+    );
+  }
+  return value;
+};
+
+const contentHash = (value: unknown): string =>
+  createHash("sha256").update(JSON.stringify(stableValue(value))).digest("hex");
+
+const snapshotIsFresh = (
+  snapshot: StaticDataSnapshot | undefined,
+  now: string,
+  ttlMs: number,
+): boolean =>
+  snapshot !== undefined &&
+  Date.parse(now) - Date.parse(snapshot.checkedAt) >= 0 &&
+  Date.parse(now) - Date.parse(snapshot.checkedAt) < ttlMs;
+
+const nextSnapshot = (
+  previous: StaticDataSnapshot | undefined,
+  source: StaticDataSnapshot["source"],
+  quality: DataQuality,
+  fetchedAt: string,
+  hash: string,
+  checkedAt: string,
+): StaticDataSnapshot => ({
+  source,
+  quality,
+  fetchedAt,
+  checkedAt,
+  changedAt: previous?.contentHash === hash ? previous.changedAt : checkedAt,
+  contentHash: hash,
+});
 
 type PlayerSyncServiceOptions = {
   repository: DodoRepository;
@@ -274,22 +318,137 @@ export class PlayerSyncService {
     let fetchedProfile: CanonicalPlayerProfile | undefined;
     try {
       fetchedProfile = await this.#provider.getPlayerProfile(job.accountId);
-      const updateRefresh = Promise.resolve()
-        .then(() => this.#provider.getRecentUpdateReleases(5))
-        .then((updates) =>
-          this.#repository.replaceUpdateReleases(updates.items, {
-            source: "dota2_official",
-            quality: updates.excludedVersions.length === 0 ? "complete" : "partial",
-            fetchedAt: updates.source.fetchedAt,
-          }),
-        )
-        .catch(() => undefined);
-      const [recent, heroes, heroAbilities, items, patches] = await Promise.all([
+      const checkedAt = this.#clock().toISOString();
+      const [heroSnapshot, itemSnapshot, patchSnapshot, updateSnapshot] = await Promise.all([
+        this.#repository.getHeroSnapshot(),
+        this.#repository.getItemSnapshot(),
+        this.#repository.getPatchSnapshot(),
+        this.#repository.getUpdateSnapshot(),
+      ]);
+      const updateRefresh = snapshotIsFresh(updateSnapshot, checkedAt, UPDATE_TTL_MS)
+        ? Promise.resolve()
+        : Promise.resolve()
+            .then(() => this.#provider.getRecentUpdateReleases(5))
+            .then(async (updates) => {
+              const hash = contentHash(updates.items);
+              const snapshot = nextSnapshot(
+                updateSnapshot,
+                "dota2_official",
+                updates.excludedVersions.length === 0 ? "complete" : "partial",
+                updates.source.fetchedAt,
+                hash,
+                checkedAt,
+              );
+              if (updateSnapshot?.contentHash === hash) {
+                await this.#repository.touchStaticSnapshot(
+                  "update",
+                  updateSnapshot.contentHash,
+                  snapshot,
+                );
+              } else await this.#repository.replaceUpdateReleases(updates.items, snapshot);
+            })
+            .catch(() => undefined);
+      const heroRefresh = snapshotIsFresh(heroSnapshot, checkedAt, STATIC_TTL_MS)
+        ? Promise.resolve()
+        : Promise.all([
+            this.#provider.getHeroConstants(),
+            this.#provider.getHeroAbilityConstants(),
+          ])
+            .then(async ([heroes, heroAbilities]) => {
+              const hash = contentHash([heroes.items, heroAbilities.heroes]);
+              const fetchedAt =
+                heroes.source.fetchedAt > heroAbilities.source.fetchedAt
+                  ? heroes.source.fetchedAt
+                  : heroAbilities.source.fetchedAt;
+              const snapshot = nextSnapshot(
+                heroSnapshot,
+                "opendota",
+                "complete",
+                fetchedAt,
+                hash,
+                checkedAt,
+              );
+              if (heroSnapshot?.contentHash === hash) {
+                await this.#repository.touchStaticSnapshot(
+                  "hero",
+                  heroSnapshot.contentHash,
+                  snapshot,
+                );
+              } else {
+                await this.#repository.replaceHeroes(
+                  heroes.items.map((hero) =>
+                    toHeroDetail(
+                      hero,
+                      heroAbilities.heroes[`npc_dota_hero_${hero.name}`],
+                      heroes.source.fetchedAt,
+                      heroAbilities.source.fetchedAt,
+                    ),
+                  ),
+                  snapshot,
+                );
+              }
+            })
+            .catch((error) => {
+              if (!heroSnapshot) throw error;
+            });
+      const itemRefresh = snapshotIsFresh(itemSnapshot, checkedAt, STATIC_TTL_MS)
+        ? this.#repository.listItems()
+        : this.#provider
+            .getItemConstants()
+            .then(async (items) => {
+              const details = toItemDetails(items.items, items.source.fetchedAt);
+              const hash = contentHash(items.items);
+              const snapshot = nextSnapshot(
+                itemSnapshot,
+                "opendota",
+                "complete",
+                items.source.fetchedAt,
+                hash,
+                checkedAt,
+              );
+              if (itemSnapshot?.contentHash === hash) {
+                await this.#repository.touchStaticSnapshot(
+                  "item",
+                  itemSnapshot.contentHash,
+                  snapshot,
+                );
+              } else await this.#repository.replaceItems(details, snapshot);
+              return details;
+            })
+            .catch((error) => {
+              if (!itemSnapshot) throw error;
+              return this.#repository.listItems();
+            });
+      const patchRefresh = snapshotIsFresh(patchSnapshot, checkedAt, STATIC_TTL_MS)
+        ? Promise.resolve()
+        : this.#provider
+            .getPatchConstants()
+            .then(async (patches) => {
+              const hash = contentHash(patches.items);
+              const snapshot = nextSnapshot(
+                patchSnapshot,
+                "opendota",
+                "complete",
+                patches.source.fetchedAt,
+                hash,
+                checkedAt,
+              );
+              if (patchSnapshot?.contentHash === hash) {
+                await this.#repository.touchStaticSnapshot(
+                  "patch",
+                  patchSnapshot.contentHash,
+                  snapshot,
+                );
+              } else await this.#repository.replacePatches(patches.items, snapshot);
+            })
+            .catch((error) => {
+              if (!patchSnapshot) throw error;
+            });
+      const [recent, itemDetails] = await Promise.all([
         this.#provider.getRecentMatches(job.accountId, 100),
-        this.#provider.getHeroConstants(),
-        this.#provider.getHeroAbilityConstants(),
-        this.#provider.getItemConstants(),
-        this.#provider.getPatchConstants(),
+        itemRefresh,
+        heroRefresh,
+        patchRefresh,
         updateRefresh,
       ]);
       if (recent.accountId !== job.accountId) {
@@ -300,11 +459,7 @@ export class PlayerSyncService {
         fetchedProfile.status === "public_partial" || recent.quality === "partial"
           ? "partial"
           : "complete";
-      const heroCatalogFetchedAt =
-        heroes.source.fetchedAt > heroAbilities.source.fetchedAt
-          ? heroes.source.fetchedAt
-          : heroAbilities.source.fetchedAt;
-      const itemIdByName = new Map(items.items.map((item) => [item.name, item.id]));
+      const itemIdByName = new Map(itemDetails.map((item) => [item.name, item.id]));
       const previousMatches = new Map(
         (await this.#repository.listPlayerMatches(job.accountId)).map((match) => [
           match.detail.id,
@@ -333,32 +488,15 @@ export class PlayerSyncService {
         candidateLedger: recent.candidateLedger,
       };
 
-      await this.#repository.replaceHeroes(
-        heroes.items.map((hero) =>
-          toHeroDetail(
-            hero,
-            heroAbilities.heroes[`npc_dota_hero_${hero.name}`],
-            heroes.source.fetchedAt,
-            heroAbilities.source.fetchedAt,
-          ),
-        ),
-        {
-          source: "opendota",
-          quality: "complete",
-          fetchedAt: heroCatalogFetchedAt,
-        },
-      );
-      await this.#repository.replaceItems(toItemDetails(items.items, items.source.fetchedAt), {
-        source: "opendota",
-        quality: "complete",
-        fetchedAt: items.source.fetchedAt,
+      const changedMatches = storedMatches.filter((match) => {
+        const previous = previousMatches.get(match.detail.id);
+        return (
+          !previous ||
+          contentHash({ detail: previous.detail, source: previous.source, quality: previous.quality }) !==
+            contentHash({ detail: match.detail, source: match.source, quality: match.quality })
+        );
       });
-      await this.#repository.replacePatches(patches.items, {
-        source: "opendota",
-        quality: "complete",
-        fetchedAt: patches.source.fetchedAt,
-      });
-      await this.#repository.upsertPlayerMatches(job.accountId, storedMatches);
+      await this.#repository.upsertPlayerMatches(job.accountId, changedMatches);
       const enrichmentCandidates = storedMatches
         .slice(0, 20)
         .filter((match) => match.detail.detailStatus !== "enriched");

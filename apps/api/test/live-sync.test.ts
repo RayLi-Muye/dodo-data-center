@@ -572,6 +572,7 @@ describe("live player synchronization", () => {
   it("replaces repeated sync batches idempotently", async () => {
     const repository = await createLiveRepository();
     const provider = createProvider();
+    const upsertMatches = vi.spyOn(repository, "upsertPlayerMatches");
     const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
     app = await buildApp({
       environment: "test",
@@ -595,11 +596,17 @@ describe("live player synchronization", () => {
       eligibleCount: 3,
     });
     expect(provider.getRecentMatches).toHaveBeenCalledTimes(2);
+    expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getHeroAbilityConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getRecentUpdateReleases).toHaveBeenCalledTimes(1);
+    expect(upsertMatches).toHaveBeenLastCalledWith(ACCOUNT_ID, []);
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
   });
 
-  it("keeps the previous hero catalog when the ability catalog refresh is unavailable", async () => {
+  it("reuses the previous hero catalog within its refresh TTL", async () => {
     const repository = await createLiveRepository();
     const provider = createProvider();
     const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
@@ -624,15 +631,49 @@ describe("live player synchronization", () => {
     const refresh = await service.requestSync(ACCOUNT_ID);
     const terminal = await service.waitForJob(refresh.jobId);
 
-    expect(terminal).toMatchObject({
-      status: "source_unavailable",
-      errorCode: "SOURCE_UNAVAILABLE",
-    });
+    expect(terminal).toMatchObject({ status: "public_partial", errorCode: null });
+    expect(provider.getHeroAbilityConstants).not.toHaveBeenCalled();
     expect((await repository.getHero("107"))?.abilities.map((ability) => ability.id)).toEqual([
       "5608",
       "5612",
       "324",
     ]);
+  });
+
+  it("touches unchanged stale catalogs and advances changedAt only for changed content", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    let now = new Date(CLOCK_AT);
+    const clock = () => now;
+    const replaceHeroes = vi.spyOn(repository, "replaceHeroes");
+    const service = new PlayerSyncService({ repository, provider, clock });
+
+    const first = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(first.jobId);
+    const initial = await repository.getHeroSnapshot();
+    expect(replaceHeroes).toHaveBeenCalledTimes(1);
+
+    now = new Date(Date.parse(CLOCK_AT) + 7 * 60 * 60 * 1_000);
+    const second = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(second.jobId);
+    const touched = await repository.getHeroSnapshot();
+    expect(replaceHeroes).toHaveBeenCalledTimes(1);
+    expect(touched?.checkedAt).toBe(now.toISOString());
+    expect(touched?.changedAt).toBe(initial?.changedAt);
+
+    provider.getHeroConstants = vi.fn(async () => ({
+      ...heroes,
+      items: heroes.items.map((hero) =>
+        hero.id === "107" ? { ...hero, roles: [...hero.roles, "Support"] } : hero,
+      ),
+    }));
+    now = new Date(Date.parse(CLOCK_AT) + 14 * 60 * 60 * 1_000);
+    const third = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(third.jobId);
+    const changed = await repository.getHeroSnapshot();
+    expect(replaceHeroes).toHaveBeenCalledTimes(2);
+    expect(changed?.changedAt).toBe(now.toISOString());
+    expect(changed?.contentHash).not.toBe(initial?.contentHash);
   });
 
   it("keeps old updates readable when their non-critical refresh fails", async () => {
@@ -642,6 +683,9 @@ describe("live player synchronization", () => {
       source: "dota2_official",
       quality: "complete",
       fetchedAt: "2026-07-09T00:00:00.000Z",
+      checkedAt: "2026-07-09T00:00:00.000Z",
+      changedAt: "2026-07-09T00:00:00.000Z",
+      contentHash: "old-update",
     });
     const provider = createProvider();
     provider.getRecentUpdateReleases = vi.fn(async () => {

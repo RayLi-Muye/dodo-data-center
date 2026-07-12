@@ -51,6 +51,9 @@ export type StaticDataSnapshot = {
   source: DataSource;
   quality: DataQuality;
   fetchedAt: string;
+  checkedAt: string;
+  changedAt: string;
+  contentHash: string | null;
 };
 
 export type ProviderHealth = DataStatus["providers"][number];
@@ -90,6 +93,11 @@ export interface DodoRepository {
     releases: UpdateReleaseDetail[],
     snapshot: StaticDataSnapshot,
   ): Promise<void>;
+  touchStaticSnapshot(
+    kind: "hero" | "item" | "patch" | "update",
+    expectedContentHash: string | null,
+    snapshot: StaticDataSnapshot,
+  ): Promise<boolean>;
   upsertProviderHealth(health: ProviderHealth): Promise<void>;
   getHero(id: string): Promise<HeroDetail | undefined>;
   listHeroes(): Promise<HeroDetail[]>;

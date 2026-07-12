@@ -106,10 +106,17 @@ const compareMatch = (left: StoredMatch, right: StoredMatch): number =>
 
 const parseSnapshot = (value: unknown): StaticDataSnapshot => {
   if (!isRecord(value)) throw new Error("Stored static snapshot is invalid");
+  const fetchedAt = timestampSchema.parse(value.fetchedAt);
   return {
     source: dataSourceSchema.parse(value.source),
     quality: dataQualitySchema.parse(value.quality),
-    fetchedAt: timestampSchema.parse(value.fetchedAt),
+    fetchedAt,
+    checkedAt: timestampSchema.parse(value.checkedAt ?? fetchedAt),
+    changedAt: timestampSchema.parse(value.changedAt ?? fetchedAt),
+    contentHash:
+      value.contentHash === null || typeof value.contentHash === "string"
+        ? value.contentHash
+        : null,
   };
 };
 
@@ -272,14 +279,7 @@ export class PostgresDodoRepository implements DodoRepository {
       const previousRows = await sql<{ match_id: string }[]>`
         select match_id from dodo.player_matches where account_id = ${accountId}
       `;
-      for (const match of matches) {
-        await this.#upsertMatch(sql, match, true);
-        await sql`
-          insert into dodo.player_matches (account_id, match_id, start_time)
-          values (${accountId}, ${match.detail.id}, ${match.detail.startTime})
-          on conflict (account_id, match_id) do update set start_time = excluded.start_time
-        `;
-      }
+      await this.#upsertPlayerMatches(sql, accountId, matches, true);
 
       const matchIds = [...new Set(matches.map((match) => match.detail.id))];
       if (matchIds.length === 0) {
@@ -307,6 +307,7 @@ export class PostgresDodoRepository implements DodoRepository {
   }
 
   async upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void> {
+    if (matches.length === 0) return;
     await this.#sql.begin(async (sql) => {
       await this.#upsertPlayerMatches(sql, accountId, matches);
     });
@@ -394,12 +395,12 @@ export class PostgresDodoRepository implements DodoRepository {
         select pg_advisory_xact_lock(hashtextextended('catalog:heroes', 0))
       `;
       await sql`delete from dodo.heroes`;
-      for (const hero of heroes) {
-        await sql`
-          insert into dodo.heroes (id, payload, updated_at)
-          values (${hero.id}, ${sql.json(toJson(hero))}, now())
-        `;
-      }
+      await sql`
+        insert into dodo.heroes (id, payload, updated_at)
+        select id, payload, now()
+        from jsonb_to_recordset(${sql.json(toJson(heroes.map((hero) => ({ id: hero.id, payload: hero }))))}::jsonb)
+          as records(id text, payload jsonb)
+      `;
       await this.#upsertSnapshot(sql, "hero", snapshot);
     });
   }
@@ -410,12 +411,12 @@ export class PostgresDodoRepository implements DodoRepository {
         select pg_advisory_xact_lock(hashtextextended('catalog:items', 0))
       `;
       await sql`delete from dodo.items`;
-      for (const item of items) {
-        await sql`
-          insert into dodo.items (id, payload, updated_at)
-          values (${item.id}, ${sql.json(toJson(item))}, now())
-        `;
-      }
+      await sql`
+        insert into dodo.items (id, payload, updated_at)
+        select id, payload, now()
+        from jsonb_to_recordset(${sql.json(toJson(items.map((item) => ({ id: item.id, payload: item }))))}::jsonb)
+          as records(id text, payload jsonb)
+      `;
       await this.#upsertSnapshot(sql, "item", snapshot);
     });
   }
@@ -426,12 +427,12 @@ export class PostgresDodoRepository implements DodoRepository {
         select pg_advisory_xact_lock(hashtextextended('catalog:patches', 0))
       `;
       await sql`delete from dodo.patches`;
-      for (const patch of patches) {
-        await sql`
-          insert into dodo.patches (id, payload, released_at, updated_at)
-          values (${patch.id}, ${sql.json(toJson(patch))}, ${patch.releasedAt}, now())
-        `;
-      }
+      await sql`
+        insert into dodo.patches (id, payload, released_at, updated_at)
+        select id, payload, released_at, now()
+        from jsonb_to_recordset(${sql.json(toJson(patches.map((patch) => ({ id: patch.id, payload: patch, released_at: patch.releasedAt }))))}::jsonb)
+          as records(id text, payload jsonb, released_at timestamptz)
+      `;
       await this.#upsertSnapshot(sql, "patch", snapshot);
     });
   }
@@ -445,19 +446,35 @@ export class PostgresDodoRepository implements DodoRepository {
         select pg_advisory_xact_lock(hashtextextended('catalog:updates', 0))
       `;
       if (snapshot.quality === "complete") await sql`delete from dodo.update_releases`;
-      for (const release of releases) {
-        await sql`
-          insert into dodo.update_releases (version, payload, released_at, updated_at)
-          values (
-            ${release.version}, ${sql.json(toJson(release))}, ${release.releasedAt}, now()
-          )
-          on conflict (version) do update set
-            payload = excluded.payload,
-            released_at = excluded.released_at,
-            updated_at = now()
-        `;
-      }
+      await sql`
+        insert into dodo.update_releases (version, payload, released_at, updated_at)
+        select version, payload, released_at, now()
+        from jsonb_to_recordset(${sql.json(toJson(releases.map((release) => ({ version: release.version, payload: release, released_at: release.releasedAt }))))}::jsonb)
+          as records(version text, payload jsonb, released_at timestamptz)
+        on conflict (version) do update set
+          payload = excluded.payload,
+          released_at = excluded.released_at,
+          updated_at = now()
+      `;
       await this.#upsertSnapshot(sql, "update", snapshot);
+    });
+  }
+
+  async touchStaticSnapshot(
+    kind: "hero" | "item" | "patch" | "update",
+    expectedContentHash: string | null,
+    snapshot: StaticDataSnapshot,
+  ): Promise<boolean> {
+    const lockKind =
+      kind === "hero" ? "heroes" : kind === "item" ? "items" : kind === "patch" ? "patches" : "updates";
+    return this.#sql.begin(async (sql) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`catalog:${lockKind}`}, 0))`;
+      const [row] = await sql<JsonRow[]>`
+        select payload from dodo.static_snapshots where kind = ${kind} for update
+      `;
+      if (!row || parseSnapshot(row.payload).contentHash !== expectedContentHash) return false;
+      await this.#upsertSnapshot(sql, kind, snapshot);
+      return true;
     });
   }
 
@@ -707,18 +724,81 @@ export class PostgresDodoRepository implements DodoRepository {
     sql: QuerySql,
     accountId: string,
     matches: StoredMatch[],
+    accountLockHeld = false,
   ): Promise<void> {
-    await sql`
-      select pg_advisory_xact_lock(hashtextextended(${`player-matches:${accountId}`}, 0))
-    `;
-    for (const match of matches) {
-      await this.#upsertMatch(sql, match, true);
+    if (matches.length === 0) return;
+    if (!accountLockHeld) {
       await sql`
-        insert into dodo.player_matches (account_id, match_id, start_time)
-        values (${accountId}, ${match.detail.id}, ${match.detail.startTime})
-        on conflict (account_id, match_id) do update set start_time = excluded.start_time
+        select pg_advisory_xact_lock(hashtextextended(${`player-matches:${accountId}`}, 0))
       `;
     }
+    const deduplicated = [...matches.reduce((byId, match) => {
+      const previous = byId.get(match.detail.id);
+      byId.set(
+        match.detail.id,
+        previous
+          ? { ...match, detail: mergeMatchPlayers(previous.detail, match.detail) }
+          : match,
+      );
+      return byId;
+    }, new Map<string, StoredMatch>()).values()];
+    const orderedIds = deduplicated.map((match) => match.detail.id).sort();
+    await sql`
+      select pg_advisory_xact_lock(hashtextextended(id, 0))
+      from unnest(${orderedIds}::text[]) as ids(id)
+      order by id
+    `;
+    const existingRows = await sql<Array<JsonRow & { id: string }>>`
+      select id, payload from dodo.matches where id in ${sql(orderedIds)} for update
+    `;
+    const existingById = new Map(
+      existingRows.map((row) => [row.id, parseStoredMatchDetail(row.payload)]),
+    );
+    const merged = deduplicated.map((match) => ({
+      ...match,
+      detail: mergeMatchPlayers(existingById.get(match.detail.id), match.detail),
+    }));
+    const matchRows = merged.map((match) => ({
+      id: match.detail.id,
+      payload: match.detail,
+      start_time: match.detail.startTime,
+      imported_at: match.importedAt,
+      source: match.source,
+      quality: match.quality,
+    }));
+    await sql`
+      insert into dodo.matches
+        (id, payload, start_time, imported_at, source, quality, updated_at)
+      select id, payload, start_time, imported_at, source, quality, now()
+      from jsonb_to_recordset(${sql.json(toJson(matchRows))}::jsonb)
+        as records(
+          id text, payload jsonb, start_time timestamptz, imported_at timestamptz,
+          source text, quality text
+        )
+      on conflict (id) do update set
+        payload = excluded.payload, start_time = excluded.start_time,
+        imported_at = excluded.imported_at, source = excluded.source,
+        quality = excluded.quality, updated_at = now()
+    `;
+    const associationByKey = new Map<string, { account_id: string; match_id: string; start_time: string }>();
+    for (const entry of merged.flatMap((match) => {
+      const accounts = new Set([
+        accountId,
+        ...match.detail.players.flatMap((player) => player.accountId ?? []),
+      ]);
+      return [...accounts].map((associatedAccountId) => ({
+        account_id: associatedAccountId,
+        match_id: match.detail.id,
+        start_time: match.detail.startTime,
+      }));
+    })) associationByKey.set(`${entry.account_id}:${entry.match_id}`, entry);
+    await sql`
+      insert into dodo.player_matches (account_id, match_id, start_time)
+      select account_id, match_id, start_time
+      from jsonb_to_recordset(${sql.json(toJson([...associationByKey.values()]))}::jsonb)
+        as records(account_id text, match_id text, start_time timestamptz)
+      on conflict (account_id, match_id) do update set start_time = excluded.start_time
+    `;
   }
 
   async #upsertMatch(sql: QuerySql, match: StoredMatch, indexPlayers: boolean): Promise<void> {
