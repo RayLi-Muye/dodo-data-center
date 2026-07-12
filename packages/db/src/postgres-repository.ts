@@ -653,6 +653,29 @@ export class PostgresDodoRepository implements DodoRepository {
     return row ? this.#parseStoredMatch(row) : undefined;
   }
 
+  async listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]> {
+    const requestedIds = [...new Set(matchIds)].slice(0, 20);
+    if (requestedIds.length === 0) return [];
+    const rows = await this.#sql<{ id: string }[]>`
+      select m.id
+      from dodo.matches m
+      where m.id in ${this.#sql(requestedIds)}
+        and exists (
+          select 1
+          from jsonb_array_elements(
+            case
+              when jsonb_typeof(m.payload -> 'players') = 'array'
+                then m.payload -> 'players'
+              else '[]'::jsonb
+            end
+          ) as entries(player)
+          where not (player ? 'neutralItemEnhancementId')
+        )
+    `;
+    const found = new Set(rows.map((row) => row.id));
+    return requestedIds.filter((matchId) => found.has(matchId));
+  }
+
   async listPlayerMatches(accountId: string): Promise<StoredMatch[]> {
     const rows = await this.#sql<
       (JsonRow & { imported_at: unknown; source: string; quality: string })[]

@@ -228,7 +228,8 @@ DONE
 - 地图 seed 已从 seed 与迁移中移除；在交付可审计 geometry 前接口必须返回 `MAP_UNAVAILABLE`。
 - Live 官方验证为 7.41d、127 个英雄和 501 个成功解析的物品定义；英雄与物品快照按未安全解析的模板/条目诚实标记 partial，物品可购买性统一为 unverified。
 - 公开账号 `224328273` 的 100 场导入、7.41d 时间推定、Ranked lobby 筛选、十人详情和第二中立强化字段均完成 API 与浏览器对账。
-- 全仓 typecheck、生产 build、187 项常规测试、22 项真实 PostgreSQL 测试和 41 项 schema 检查通过；QA-011 无 P0/P1。
+- 全仓 typecheck、生产 build、190 项常规测试、24 项真实 PostgreSQL 测试和 41 项 schema 检查通过；QA-011 无 P0/P1。
 - 390×844 竖屏验证无横向溢出；质量提示、Ranked/Normal/Turbo 选择、官方物品可用性声明与中立附魔均在真实页面可见。
 - Supabase migrations 004/005 已应用：移除精确匹配的 seed map，并允许 `dota2_official` provider health；本地与远端 migration history 一致。
 - 已知 P2：partial 目录 merge 仍可能保留 legacy row，列表级来源不能逐行表达；Patch 发布时间边界尚未细分低置信度窗口。
+- 已导入的 legacy enriched 比赛若缺少第二中立强化字段，会在下一次玩家同步时只回填最新 20 场中的缺字段比赛；字段键落库后后续同步继续复用 enriched 详情，不恢复重复全量请求。

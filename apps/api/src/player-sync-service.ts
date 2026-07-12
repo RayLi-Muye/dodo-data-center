@@ -139,9 +139,7 @@ const toMatchPlayer = (
   });
   return {
     ...rest,
-    neutralItemEnhancementId:
-      (player as CanonicalMatchPlayer & { neutralItemEnhancementId?: string | null })
-        .neutralItemEnhancementId ?? null,
+    neutralItemEnhancementId: neutralItemEnhancementIdFor(player),
     itemTimeline: knownTransactions.map(({ itemKey: _itemKey, ...transaction }) => transaction),
     itemTimelineStatus:
       knownTransactions.length === itemTimeline.length
@@ -149,6 +147,10 @@ const toMatchPlayer = (
         : "partial",
   };
 };
+
+const neutralItemEnhancementIdFor = (player: CanonicalMatchPlayer): string | null =>
+  (player as CanonicalMatchPlayer & { neutralItemEnhancementId?: string | null })
+    .neutralItemEnhancementId ?? null;
 
 export const toMatchSummaryDetail = (
   match: CanonicalPlayerMatch,
@@ -401,35 +403,69 @@ export class PlayerSyncService {
         );
       });
       await this.#repository.upsertPlayerMatches(job.accountId, changedMatches);
-      const enrichmentCandidates = storedMatches
-        .slice(0, 20)
-        .filter((match) => match.detail.detailStatus !== "enriched");
+      const latestMatches = storedMatches.slice(0, 20);
+      const legacyEnrichedIds = new Set(
+        await this.#repository.listMatchIdsMissingNeutralItemEnhancement(
+          latestMatches.map((match) => match.detail.id),
+        ),
+      );
+      const enrichmentCandidates = latestMatches.filter(
+        (match) =>
+          match.detail.detailStatus !== "enriched" || legacyEnrichedIds.has(match.detail.id),
+      );
       let nextCandidateIndex = 0;
       const enrichNext = async (): Promise<void> => {
         while (nextCandidateIndex < enrichmentCandidates.length) {
           const candidate = enrichmentCandidates[nextCandidateIndex++];
           if (!candidate) return;
-          let detail: MatchDetail;
-          let canonical: CanonicalMatchDetail;
+          let enrichedMatch: StoredMatch;
           try {
-            canonical = await this.#provider.getMatchDetail(candidate.detail.id);
+            const canonical = await this.#provider.getMatchDetail(candidate.detail.id);
             if (canonical.id !== candidate.detail.id) {
               throw new Error("Match detail provider returned a different match");
             }
-            detail = toEnrichedMatchDetail(
-              canonical,
-              itemIdByName,
-              inferOfficialVersion(canonical.startTime, effectiveVersionReleases),
-            );
+            const isLegacyEnriched =
+              candidate.detail.detailStatus === "enriched" &&
+              legacyEnrichedIds.has(candidate.detail.id);
+            if (isLegacyEnriched) {
+              const refreshedPlayers = new Map(
+                canonical.players.map((player) => [player.playerSlot, player]),
+              );
+              if (
+                candidate.detail.players.some(
+                  (player) => !refreshedPlayers.has(player.playerSlot),
+                )
+              ) {
+                continue;
+              }
+              enrichedMatch = {
+                ...candidate,
+                detail: {
+                  ...candidate.detail,
+                  players: candidate.detail.players.map((player) => ({
+                    ...player,
+                    neutralItemEnhancementId:
+                      player.neutralItemEnhancementId ??
+                      neutralItemEnhancementIdFor(refreshedPlayers.get(player.playerSlot)!),
+                  })),
+                },
+              };
+            } else {
+              enrichedMatch = {
+                detail: toEnrichedMatchDetail(
+                  canonical,
+                  itemIdByName,
+                  inferOfficialVersion(canonical.startTime, effectiveVersionReleases),
+                ),
+                importedAt: canonical.source.fetchedAt,
+                source: "opendota",
+                quality: canonical.quality,
+              };
+            }
           } catch {
             continue;
           }
-          await this.#repository.upsertMatch({
-            detail,
-            importedAt: canonical.source.fetchedAt,
-            source: "opendota",
-            quality: canonical.quality,
-          });
+          await this.#repository.upsertMatch(enrichedMatch);
         }
       };
       await Promise.all(

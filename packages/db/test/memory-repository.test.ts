@@ -234,6 +234,35 @@ describe("MemoryDodoRepository", () => {
     expect((await repository.getMatch(match.detail.id))?.detail.players).toHaveLength(10);
   });
 
+  it("detects legacy match players by own neutral enhancement property", async () => {
+    const repository = await createSeedRepository();
+    const match = await repository.getMatch("9000000000");
+    if (!match) throw new Error("seed match missing");
+    const legacyPlayers = match.detail.players.map((player, index) => {
+      if (index !== 0) return player;
+      const legacyPlayer: Partial<typeof player> = { ...player };
+      delete legacyPlayer.neutralItemEnhancementId;
+      return legacyPlayer as typeof player;
+    });
+    await repository.upsertMatch({
+      ...match,
+      detail: { ...match.detail, players: legacyPlayers },
+    });
+
+    expect(
+      await repository.listMatchIdsMissingNeutralItemEnhancement([
+        "missing",
+        match.detail.id,
+        match.detail.id,
+      ]),
+    ).toEqual([match.detail.id]);
+
+    await repository.upsertMatch(match);
+    expect(
+      await repository.listMatchIdsMissingNeutralItemEnhancement([match.detail.id]),
+    ).toEqual([]);
+  });
+
   it("merges enriched players by slot and preserves a known summary account", async () => {
     const repository = await createSeedRepository();
     const stored = await repository.getMatch("9000000000");

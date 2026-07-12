@@ -336,6 +336,38 @@ describeWithDatabase("PostgresDodoRepository", () => {
     }
   });
 
+  it("detects a missing neutral enhancement key in raw match JSON until backfilled", async () => {
+    const fixtures = await createSeedRepository();
+    const stored = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    const legacyPlayers = stored.detail.players.map((player, index) => {
+      if (index !== 0) return player;
+      const legacyPlayer: Partial<typeof player> = { ...player };
+      delete legacyPlayer.neutralItemEnhancementId;
+      return legacyPlayer;
+    });
+    const legacyPayload = { ...stored.detail, players: legacyPlayers };
+    await admin`
+      insert into dodo.matches
+        (id, payload, start_time, imported_at, source, quality, updated_at)
+      values (
+        ${stored.detail.id}, ${admin.json(legacyPayload)}, ${stored.detail.startTime},
+        ${stored.importedAt}, ${stored.source}, ${stored.quality}, now()
+      )
+    `;
+
+    expect(
+      await repository.listMatchIdsMissingNeutralItemEnhancement([
+        "missing",
+        stored.detail.id,
+      ]),
+    ).toEqual([stored.detail.id]);
+
+    await repository.upsertMatch(stored);
+    expect(
+      await repository.listMatchIdsMissingNeutralItemEnhancement([stored.detail.id]),
+    ).toEqual([]);
+  });
+
   it("marks legacy non-empty facets unavailable instead of active", async () => {
     const fixtures = await createSeedRepository();
     const hero = await fixtures.getHero("1");

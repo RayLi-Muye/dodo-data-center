@@ -797,6 +797,162 @@ describe("live player synchronization", () => {
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
   });
 
+  it("backfills a legacy enriched neutral enhancement field only once", async () => {
+    const repository = await createPreparedRepository();
+    const provider = createProvider();
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+
+    const initial = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(initial.jobId);
+    const enriched = await repository.getMatch("8000000002");
+    if (!enriched) throw new Error("Enriched match missing");
+    const primaryPlayer = {
+      ...enriched.detail.players[0]!,
+      kills: 31,
+      gpm: 777,
+      heroDamage: 54_321,
+      abilityBuild: [
+        { abilityId: "5608", sequence: 1, heroLevel: 1, gameTimeSeconds: 0 },
+      ],
+      abilityBuildStatus: "timed" as const,
+      itemTimeline: [
+        { itemId: "1", action: "purchase" as const, gameTimeSeconds: 123, charges: null },
+      ],
+      itemTimelineStatus: "complete" as const,
+    };
+    const preservedDetail = {
+      ...enriched.detail,
+      parseStatus: "parsed" as const,
+      cluster: "legacy-cluster",
+      radiantScore: 91,
+      direScore: 42,
+      players: [
+        primaryPlayer,
+        {
+          ...primaryPlayer,
+          accountId: null,
+          playerSlot: 1,
+          heroId: "2",
+          neutralItemEnhancementId: "1599",
+        },
+      ],
+    };
+    const legacyPlayers = preservedDetail.players.map((player, index) => {
+      if (index !== 0) return player;
+      const legacyPlayer: Partial<typeof player> = { ...player };
+      delete legacyPlayer.neutralItemEnhancementId;
+      return legacyPlayer as typeof player;
+    });
+    await repository.upsertMatch({
+      ...enriched,
+      detail: { ...preservedDetail, players: legacyPlayers },
+    });
+    provider.getMatchDetail = vi.fn(async (matchId) => {
+      const refreshed = detailFor(matchId);
+      const refreshedPrimary = {
+        ...refreshed.players[0]!,
+        kills: 0,
+        gpm: null,
+        heroDamage: null,
+        neutralItemEnhancementId: "1600",
+        abilityBuild: [],
+        abilityBuildStatus: "unavailable" as const,
+        itemTimeline: [],
+        itemTimelineStatus: "unavailable" as const,
+      };
+      return {
+        ...refreshed,
+        quality: "partial" as const,
+        parseStatus: "unparsed" as const,
+        cluster: null,
+        radiantScore: null,
+        direScore: null,
+        players: [
+          refreshedPrimary,
+          {
+            ...refreshedPrimary,
+            accountId: null,
+            playerSlot: 1,
+            heroId: "2",
+            neutralItemEnhancementId: null,
+          },
+        ],
+      };
+    });
+
+    const backfill = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(backfill.jobId);
+    expect(provider.getMatchDetail).toHaveBeenCalledOnce();
+    expect(provider.getMatchDetail).toHaveBeenCalledWith("8000000002");
+    const backfilled = await repository.getMatch("8000000002");
+    expect(backfilled).toEqual({
+      ...enriched,
+      detail: {
+        ...preservedDetail,
+        players: [
+          { ...primaryPlayer, neutralItemEnhancementId: "1600" },
+          preservedDetail.players[1],
+        ],
+      },
+    });
+
+    const repeated = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(repeated.jobId);
+    expect(provider.getMatchDetail).toHaveBeenCalledOnce();
+    expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
+    await service.close();
+  });
+
+  it("keeps a legacy field missing when refreshed detail omits an existing player slot", async () => {
+    const repository = await createPreparedRepository();
+    const provider = createProvider();
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+
+    const initial = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(initial.jobId);
+    const enriched = await repository.getMatch("8000000002");
+    if (!enriched) throw new Error("Enriched match missing");
+    const legacyPlayer: Partial<(typeof enriched.detail.players)[number]> = {
+      ...enriched.detail.players[0]!,
+    };
+    delete legacyPlayer.neutralItemEnhancementId;
+    const legacyDetail = {
+      ...enriched.detail,
+      players: [legacyPlayer as (typeof enriched.detail.players)[number]],
+    };
+    await repository.upsertMatch({ ...enriched, detail: legacyDetail });
+
+    let attempt = 0;
+    provider.getMatchDetail = vi.fn(async (matchId) => {
+      attempt += 1;
+      const refreshed = detailFor(matchId);
+      return attempt === 1 ? { ...refreshed, players: [] } : refreshed;
+    });
+
+    const incomplete = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(incomplete.jobId);
+    const unchanged = await repository.getMatch("8000000002");
+    expect(unchanged?.detail).toEqual(legacyDetail);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        unchanged?.detail.players[0],
+        "neutralItemEnhancementId",
+      ),
+    ).toBe(false);
+    expect(provider.getMatchDetail).toHaveBeenCalledOnce();
+
+    const retry = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(retry.jobId);
+    expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        (await repository.getMatch("8000000002"))?.detail.players[0],
+        "neutralItemEnhancementId",
+      ),
+    ).toBe(true);
+    await service.close();
+  });
+
   it("reuses the previous hero catalog within its refresh TTL", async () => {
     const repository = await createPreparedRepository();
     const provider = createProvider();

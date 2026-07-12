@@ -120,6 +120,7 @@ export interface DodoRepository {
   getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined>;
   getSyncJob(jobId: string): Promise<SyncJob | undefined>;
   getMatch(id: string): Promise<StoredMatch | undefined>;
+  listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]>;
   listPlayerMatches(accountId: string): Promise<StoredMatch[]>;
   getProviderHealth(source: DataSource): Promise<ProviderHealth | undefined>;
   getLatestMatchAt(): Promise<string | null>;

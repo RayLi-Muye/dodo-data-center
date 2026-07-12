@@ -356,6 +356,15 @@ export class MemoryDodoRepository implements DodoRepository {
     return match ? clone(match) : undefined;
   }
 
+  async listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]> {
+    return [...new Set(matchIds)].slice(0, 20).filter((matchId) =>
+      this.#matches.get(matchId)?.detail.players.some(
+        (player) =>
+          !Object.prototype.hasOwnProperty.call(player, "neutralItemEnhancementId"),
+      ),
+    );
+  }
+
   async listPlayerMatches(accountId: string): Promise<StoredMatch[]> {
     const indexedMatchIds = this.#playerMatchIds.get(accountId);
     const matches = indexedMatchIds
