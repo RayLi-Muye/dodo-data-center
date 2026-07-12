@@ -94,10 +94,18 @@ export const playerWindowQuerySchema = z.object({
 });
 
 export const playerMatchesQuerySchema = paginationQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(100).default(30),
   heroId: identifierSchema.optional(),
-  window: metricWindowSchema.default("last_100"),
+  window: metricWindowSchema.default("all_imported"),
   patch: identifierSchema.optional(),
-});
+  outcome: z.enum(["win", "loss"]).optional(),
+  gameMode: z.string().trim().min(1).max(64).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).refine(
+  ({ dateFrom, dateTo }) => !dateFrom || !dateTo || dateFrom <= dateTo,
+  { message: "dateFrom must not be after dateTo", path: ["dateTo"] },
+);
 
 export const playerHeroesQuerySchema = paginationQuerySchema.extend({
   window: metricWindowSchema.default("last_100"),

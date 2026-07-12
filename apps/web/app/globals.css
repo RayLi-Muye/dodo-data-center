@@ -70,7 +70,8 @@ a {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -92,6 +93,7 @@ input[type="url"] {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+select:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -1229,6 +1231,92 @@ button.text-action {
 .patch-filter button { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 700; }
 .patch-filter a { color: var(--text-muted); }
 
+.match-explorer {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.match-explorer__filters {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-low);
+}
+
+.match-explorer__filters summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-height: 3rem;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  color: var(--text-strong);
+}
+
+.match-explorer__filters summary small { color: var(--text-muted); }
+
+.match-explorer__filters form {
+  display: grid;
+  gap: var(--space-sm);
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+.match-explorer__filters label {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.match-explorer__filters label > span {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.match-explorer__filters input,
+.match-explorer__filters select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding-inline: var(--space-sm);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.match-explorer__filter-actions,
+.match-explorer__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.match-explorer__filter-actions button,
+.match-explorer__footer button {
+  min-height: 2.75rem;
+  padding-inline: var(--space-md);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.match-explorer__filter-actions .button-secondary {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text);
+}
+
+.match-explorer__footer {
+  justify-content: space-between;
+  padding-inline: var(--space-md);
+}
+
+.match-explorer__footer span,
+.match-explorer__footer small { color: var(--text-muted); font-size: var(--text-xs); }
+.match-explorer__error { margin: 0; padding-inline: var(--space-md); color: var(--negative); }
+.match-explorer__empty { padding: var(--space-xl) var(--space-md); text-align: center; }
+.match-explorer__empty strong { color: var(--text-strong); }
+.match-explorer__empty p { margin-bottom: 0; color: var(--text-muted); }
+
 .patch-timeline { margin: 0; padding: 0; list-style: none; }
 .patch-timeline li {
   display: grid;
@@ -1884,6 +1972,8 @@ circle.map-feature,
 @media (min-width: 40rem) {
   .patch-filter { grid-template-columns: auto minmax(12rem, 1fr) auto auto; align-items: end; }
   .patch-filter label { grid-column: 1 / -1; }
+  .match-explorer__filters form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .match-explorer__filter-actions { grid-column: 1 / -1; }
   .patch-timeline li { grid-template-columns: 2.5rem minmax(5rem, 0.5fr) minmax(9rem, 1fr) auto; }
   .patch-timeline time,
   .patch-timeline code { grid-column: auto; }

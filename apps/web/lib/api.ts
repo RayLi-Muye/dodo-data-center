@@ -135,10 +135,33 @@ export const api = {
       `/v1/players/${encodeURIComponent(accountId)}/heroes${queryString({ cursor, limit: 100, patch, window })}`,
       { cache: "no-store" },
     ),
-  playerMatches: (accountId: string, window: string, patch?: string, cursor?: string) =>
+  playerMatches: (
+    accountId: string,
+    options: {
+      cursor?: string | undefined;
+      dateFrom?: string | undefined;
+      dateTo?: string | undefined;
+      gameMode?: string | undefined;
+      heroId?: string | undefined;
+      limit?: number;
+      outcome?: "win" | "loss" | undefined;
+      patch?: string | undefined;
+      window?: string | undefined;
+    } = {},
+  ) =>
     fetchApi(
       playerMatchesResponseSchema,
-      `/v1/players/${encodeURIComponent(accountId)}/matches${queryString({ cursor, limit: 100, patch, window })}`,
+      `/v1/players/${encodeURIComponent(accountId)}/matches${queryString({
+        cursor: options.cursor,
+        dateFrom: options.dateFrom,
+        dateTo: options.dateTo,
+        gameMode: options.gameMode,
+        heroId: options.heroId,
+        limit: options.limit ?? 30,
+        outcome: options.outcome,
+        patch: options.patch,
+        window: options.window ?? "all_imported",
+      })}`,
       { cache: "no-store" },
     ),
   playerOverview: (accountId: string, window: string, patch?: string) =>

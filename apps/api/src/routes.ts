@@ -224,6 +224,61 @@ const paginate = <T>(
   return { items: pageItems, nextCursor };
 };
 
+const utcDateBoundary = (
+  date: string,
+  endOfDay: boolean,
+  errorMeta: ErrorMeta,
+): number => {
+  const timestamp = Date.parse(`${date}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) {
+    throw new ApiHttpError(
+      400,
+      "VALIDATION_ERROR",
+      "Date filters must be valid UTC calendar dates.",
+      false,
+      errorMeta,
+    );
+  }
+  return timestamp;
+};
+
+const targetMatchPlayer = (match: StoredMatch, accountId: string) => {
+  const player = match.detail.players.find((candidate) => candidate.accountId === accountId);
+  if (!player) throw new Error(`Repository invariant failed for match ${match.detail.id}`);
+  return player;
+};
+
+const filterPlayerMatches = (
+  matches: StoredMatch[],
+  accountId: string,
+  query: z.output<typeof playerMatchesQuerySchema>,
+  errorMeta: ErrorMeta,
+): StoredMatch[] => {
+  const dateFrom = query.dateFrom
+    ? utcDateBoundary(query.dateFrom, false, errorMeta)
+    : undefined;
+  const dateTo = query.dateTo ? utcDateBoundary(query.dateTo, true, errorMeta) : undefined;
+
+  return matches
+    .filter((match) => {
+      const player = targetMatchPlayer(match, accountId);
+      const startedAt = Date.parse(match.detail.startTime);
+      return (
+        (!query.heroId || player.heroId === query.heroId) &&
+        (!query.patch || match.detail.patch === query.patch) &&
+        (!query.outcome || (query.outcome === "win" ? player.isWin : !player.isWin)) &&
+        (!query.gameMode || match.detail.gameMode === query.gameMode) &&
+        (dateFrom === undefined || startedAt >= dateFrom) &&
+        (dateTo === undefined || startedAt <= dateTo)
+      );
+    })
+    .sort(
+      (left, right) =>
+        Date.parse(right.detail.startTime) - Date.parse(left.detail.startTime) ||
+        right.detail.id.localeCompare(left.detail.id),
+    );
+};
+
 const toItemSummary = (item: ItemDetail): ItemSummary => ({
   id: item.id,
   name: item.name,
@@ -557,19 +612,15 @@ export const registerRoutes = async (
     const profile = await accessiblePlayer(accountId);
     const query = parse(playerMatchesQuerySchema, request.query, errorMeta);
     const batch = await repository.getPlayerSyncBatch(accountId);
-    const matches = selectPlayerWindow(
-      await repository.listPlayerMatches(accountId),
-      batch,
+    const matches = selectWindow(
+      filterPlayerMatches(
+        await repository.listPlayerMatches(accountId),
+        accountId,
+        query,
+        errorMeta,
+      ),
       query.window,
-      query.patch,
     )
-      .filter(
-        (match) =>
-          !query.heroId ||
-          match.detail.players.some(
-            (player) => player.accountId === accountId && player.heroId === query.heroId,
-          ),
-      )
       .map((match) => toMatchSummary(match.detail, accountId));
     return {
       data: paginate(matches, query.limit, query.cursor, (match) => match.id, errorMeta),
@@ -582,6 +633,10 @@ export const registerRoutes = async (
           window: query.window,
           patch: query.patch ?? null,
           heroId: query.heroId ?? null,
+          outcome: query.outcome ?? null,
+          gameMode: query.gameMode ?? null,
+          dateFrom: query.dateFrom ?? null,
+          dateTo: query.dateTo ?? null,
         },
       },
     };

@@ -65,4 +65,24 @@ describe("Web UI copy and touch contract", () => {
     expect(patchesPage).toContain("collectAllPatches");
     expect(api).toContain("patch, window");
   });
+
+  it("browses filtered matches in independent 30-row cursor pages", () => {
+    const playerPage = source("../app/players/[accountId]/page.tsx");
+    const explorer = source("../components/match-explorer.tsx");
+    const bff = source("../app/api/players/[accountId]/matches/route.ts");
+
+    expect(playerPage).toContain('collectAllPlayerHeroes(accountId, "all_imported")');
+    expect(playerPage).toContain('window: "all_imported"');
+    expect(playerPage).toContain("limit: 30");
+    expect(playerPage).toContain("key={JSON.stringify(matchFilters)}");
+    expect(playerPage).toContain("matchFilterSuffix");
+    expect(playerPage).toContain("[...matchFilterParams].map");
+    expect(explorer).toContain('const filterKeys = ["heroId", "matchPatch", "outcome", "gameMode", "dateFrom", "dateTo"]');
+    expect(explorer).toContain('cursor: nextCursor');
+    expect(explorer).toContain('limit: "30"');
+    expect(explorer).toContain("setMatches((current) =>");
+    expect(explorer).toContain("显示更多");
+    expect(bff).toContain("playerMatchesQuerySchema.safeParse");
+    expect(bff).toContain("playerMatchesResponseSchema");
+  });
 });

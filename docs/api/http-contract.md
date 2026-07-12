@@ -11,7 +11,7 @@ GET  /v1/sync-jobs/{jobId}
 POST /v1/players/{accountId}/history-sync
 GET  /v1/players/{accountId}/history-sync
 GET  /v1/players/{accountId}
-GET  /v1/players/{accountId}/matches?cursor=&limit=&heroId=
+GET  /v1/players/{accountId}/matches?cursor=&limit=&heroId=&patch=&outcome=&gameMode=&dateFrom=&dateTo=
 GET  /v1/players/{accountId}/heroes?window=last_20|last_50|last_100|all_imported
 GET  /v1/players/{accountId}/heroes/{heroId}?window=last_100
 GET  /v1/matches/{matchId}
@@ -27,6 +27,8 @@ GET  /v1/patches?cursor=&limit=
 默认窗口：玩家概览、英雄列表和玩家英雄详情均为 `last_100`。最近 N 场先按 `startTime DESC, id DESC` 稳定排序后截取。所有时间均为 UTC ISO-8601（`Z` 后缀）。
 
 玩家概览、比赛列表、英雄列表与玩家英雄详情支持组合 `window=last_20|last_50|last_100|all_imported` 和 `patch=<patch_id>`。存在 `patch` 时先筛选版本，再在该版本内部按稳定顺序截取窗口；`all_imported` 只表示本系统已导入的公开比赛，不声明完整职业生涯。
+
+比赛浏览列表默认 `limit=30`、`window=all_imported`。`heroId`、`patch`、`outcome=win|loss`、`gameMode`、`dateFrom` 与 `dateTo` 必须先组合筛选，再按 `startTime DESC, id DESC` 排序和游标分页；因此“某英雄最近 30 场”表示先筛选该英雄，再取该结果集最新 30 场。日期使用 UTC 的 `YYYY-MM-DD` 且两端均包含。采集任务每批 100 场只是内部吞吐参数，不得成为前端展示上限。
 
 `GET /v1/matches/{matchId}` 使用 `detailStatus=summary|enriched` 区分玩家比赛摘要与完整十人详情。完整详情可以返回最终装备、背包、中立物品、技能升级序列和物品交易时间线。技能只有顺序而没有可靠等级/时间时使用 `abilityBuildStatus=ordered`；只有上游提供真实时间时使用 `timed`。物品购买或出售日志缺失时必须使用 `itemTimelineStatus=unavailable|partial`，不得从最终背包反推交易事件。
 

@@ -358,12 +358,14 @@ describe("Dodo API", () => {
     expect(apiErrorSchema.parse(json(badCursor)).error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("never paginates beyond the frozen last-100 match window", async () => {
+  it("never paginates beyond an explicitly selected last-100 match window", async () => {
     const ids: string[] = [];
     let cursor: string | null = null;
 
     do {
-      const query = cursor ? `?limit=37&cursor=${encodeURIComponent(cursor)}` : "?limit=37";
+      const query = cursor
+        ? `?window=last_100&limit=37&cursor=${encodeURIComponent(cursor)}`
+        : "?window=last_100&limit=37";
       const response = playerMatchesResponseSchema.parse(
         json(
           await app.inject({
@@ -428,6 +430,10 @@ describe("Dodo API", () => {
       window: "last_20",
       patch: "old-patch",
       heroId: null,
+      outcome: null,
+      gameMode: null,
+      dateFrom: null,
+      dateTo: null,
     });
 
     const heroes = playerHeroesResponseSchema.parse(
@@ -469,6 +475,145 @@ describe("Dodo API", () => {
     );
     expect(allImported.data.items).toHaveLength(95);
     expect(allImported.data.nextCursor).toBeNull();
+  });
+
+  it("defaults match browsing to 30 all-imported results", async () => {
+    const response = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches`,
+        }),
+      ),
+    );
+
+    expect(response.data.items).toHaveLength(30);
+    expect(response.data.nextCursor).not.toBeNull();
+    expect(response.meta.filtersApplied).toEqual({
+      window: "all_imported",
+      patch: null,
+      heroId: null,
+      outcome: null,
+      gameMode: null,
+      dateFrom: null,
+      dateTo: null,
+    });
+  });
+
+  it("applies combined match filters before the window and keeps them across pages", async () => {
+    const repository = await createSeedRepository();
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+    const query = [
+      "heroId=1",
+      "patch=seed-patch",
+      "outcome=win",
+      "gameMode=seed-ranked-all-pick",
+      "dateFrom=2024-12-29",
+      "dateTo=2025-01-01",
+      "window=last_20",
+      "limit=3",
+    ].join("&");
+
+    const first = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?${query}`,
+        }),
+      ),
+    );
+    expect(first.data.items).toHaveLength(3);
+    expect(first.data.items.every((match) => match.player.heroId === "1")).toBe(true);
+    expect(first.data.items.every((match) => match.player.isWin)).toBe(true);
+    expect(first.data.items.every((match) => match.patch === "seed-patch")).toBe(true);
+    expect(first.data.items.every((match) => match.gameMode === "seed-ranked-all-pick")).toBe(
+      true,
+    );
+    expect(first.meta.filtersApplied).toEqual({
+      window: "last_20",
+      patch: "seed-patch",
+      heroId: "1",
+      outcome: "win",
+      gameMode: "seed-ranked-all-pick",
+      dateFrom: "2024-12-29",
+      dateTo: "2025-01-01",
+    });
+
+    const second = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?${query}&cursor=${encodeURIComponent(first.data.nextCursor!)}`,
+        }),
+      ),
+    );
+    expect(second.data.items).toHaveLength(3);
+    expect(second.data.items.every((match) => match.player.heroId === "1")).toBe(true);
+    expect(new Set([...first.data.items, ...second.data.items].map((match) => match.id)).size).toBe(
+      6,
+    );
+  });
+
+  it("selects a hero's recent window after filtering by that hero", async () => {
+    const response = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?heroId=1&window=last_20&limit=30`,
+        }),
+      ),
+    );
+
+    expect(response.data.items).toHaveLength(20);
+    expect(response.data.nextCursor).toBeNull();
+    expect(response.data.items.every((match) => match.player.heroId === "1")).toBe(true);
+  });
+
+  it("includes both UTC date endpoints and rejects impossible calendar dates", async () => {
+    const repository = await createSeedRepository();
+    const matches = await repository.listPlayerMatches(SEED_ACCOUNT_ID);
+    await repository.upsertMatch({
+      ...matches[0]!,
+      detail: { ...matches[0]!.detail, startTime: "2025-01-01T00:00:00.000Z" },
+    });
+    await repository.upsertMatch({
+      ...matches[1]!,
+      detail: { ...matches[1]!.detail, startTime: "2025-01-01T23:59:59.999Z" },
+    });
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const bounded = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?dateFrom=2025-01-01&dateTo=2025-01-01&limit=100`,
+        }),
+      ),
+    );
+    expect(bounded.data.items.map((match) => match.id)).toContain(matches[0]!.detail.id);
+    expect(bounded.data.items.map((match) => match.id)).toContain(matches[1]!.detail.id);
+    expect(
+      bounded.data.items.find((match) => match.id === matches[0]!.detail.id)?.startTime,
+    ).toBe("2025-01-01T00:00:00.000Z");
+    expect(
+      bounded.data.items.find((match) => match.id === matches[1]!.detail.id)?.startTime,
+    ).toBe("2025-01-01T23:59:59.999Z");
+
+    const impossible = await app.inject({
+      method: "GET",
+      url: `/v1/players/${SEED_ACCOUNT_ID}/matches?dateFrom=2025-02-30`,
+    });
+    expect(impossible.statusCode).toBe(400);
+    expect(apiErrorSchema.parse(json(impossible)).error.code).toBe("VALIDATION_ERROR");
+
+    const reversed = await app.inject({
+      method: "GET",
+      url: `/v1/players/${SEED_ACCOUNT_ID}/matches?dateFrom=2025-02-01&dateTo=2025-01-31`,
+    });
+    expect(reversed.statusCode).toBe(400);
+    expect(apiErrorSchema.parse(json(reversed)).error.code).toBe("VALIDATION_ERROR");
   });
 
   it("reconciles all-imported and last-100 metrics against match facts", async () => {

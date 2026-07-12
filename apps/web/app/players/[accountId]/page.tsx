@@ -4,7 +4,7 @@ import { DataSection, MetaLine, StatusNotice } from "@dodo/ui";
 import { AccountSearch } from "../../../components/account-search";
 import { DataState, EmptyState } from "../../../components/data-state";
 import { HeroDistribution } from "../../../components/hero-distribution";
-import { MatchLedger } from "../../../components/match-ledger";
+import { MatchExplorer, type MatchFilters } from "../../../components/match-explorer";
 import { PageHeading } from "../../../components/page-heading";
 import { PlayerHistorySyncControl } from "../../../components/player-history-sync-control";
 import { PlayerSyncControl } from "../../../components/player-sync-control";
@@ -20,18 +20,50 @@ export default async function PlayerPage({
   searchParams,
 }: {
   params: Promise<{ accountId: string }>;
-  searchParams: Promise<{ patch?: string; window?: string }>;
+  searchParams: Promise<{
+    dateFrom?: string;
+    dateTo?: string;
+    gameMode?: string;
+    heroId?: string;
+    matchPatch?: string;
+    outcome?: string;
+    patch?: string;
+    window?: string;
+  }>;
 }) {
   const [{ accountId }, query] = await Promise.all([params, searchParams]);
   const parsedWindow = metricWindowSchema.safeParse(query.window);
   const window = parsedWindow.success ? parsedWindow.data : "last_100";
   const parsedPatch = identifierSchema.safeParse(query.patch);
   const patch = parsedPatch.success ? parsedPatch.data : undefined;
+  const matchFilters: MatchFilters = {
+    dateFrom: /^\d{4}-\d{2}-\d{2}$/.test(query.dateFrom ?? "") ? query.dateFrom : undefined,
+    dateTo: /^\d{4}-\d{2}-\d{2}$/.test(query.dateTo ?? "") ? query.dateTo : undefined,
+    gameMode: query.gameMode?.trim() || undefined,
+    heroId: identifierSchema.safeParse(query.heroId).success ? query.heroId : undefined,
+    matchPatch: identifierSchema.safeParse(query.matchPatch).success ? query.matchPatch : undefined,
+    outcome: query.outcome === "win" || query.outcome === "loss" ? query.outcome : undefined,
+  };
+  const matchFilterParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(matchFilters)) {
+    if (value) matchFilterParams.set(key, value);
+  }
+  const matchFilterSuffix = matchFilterParams.size > 0 ? `&${matchFilterParams.toString()}` : "";
 
-  const [overviewResult, heroesResult, matchesResult, itemsResult, patchesResult] = await Promise.all([
+  const [overviewResult, heroesResult, allImportedHeroesResult, matchesResult, itemsResult, patchesResult] = await Promise.all([
     settle(api.playerOverview(accountId, window, patch)),
     settle(collectAllPlayerHeroes(accountId, window, patch)),
-    settle(api.playerMatches(accountId, window, patch)),
+    settle(collectAllPlayerHeroes(accountId, "all_imported")),
+    settle(api.playerMatches(accountId, {
+      dateFrom: matchFilters.dateFrom,
+      dateTo: matchFilters.dateTo,
+      gameMode: matchFilters.gameMode,
+      heroId: matchFilters.heroId,
+      limit: 30,
+      outcome: matchFilters.outcome,
+      patch: matchFilters.matchPatch,
+      window: "all_imported",
+    })),
     settle(collectAllItems()),
     settle(collectAllPatches()),
   ]);
@@ -64,14 +96,16 @@ export default async function PlayerPage({
   const patches = patchesResult.ok ? [...patchesResult.value].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt)) : [];
   const activePatch = patches.find((item) => item.id === patch);
   const heroes = heroesResult.ok ? heroesResult.value.items : [];
-  const matches = matchesResult.ok ? matchesResult.value.data.items : [];
-  const visibleMatchCount = window === "last_20" ? 20 : window === "last_50" ? 50 : 100;
-  const visibleMatches = matches.slice(0, visibleMatchCount);
-  const heroById = new Map([
+  const matchFilterHeroes = allImportedHeroesResult.ok ? allImportedHeroesResult.value.items : [];
+  const matchHeroOptions = [...new Map([
+    ...matchFilterHeroes.map((stats) => [stats.hero.id, stats.hero] as const),
+  ]).values()].sort((a, b) => a.localizedName.localeCompare(b.localizedName, "zh-CN"));
+  const matchDisplayHeroes = [...new Map([
     ...overview.data.heroes.map((stats) => [stats.hero.id, stats.hero] as const),
     ...heroes.map((stats) => [stats.hero.id, stats.hero] as const),
-  ]);
-  const itemById = new Map(itemsResult.ok ? itemsResult.value.map((item) => [item.id, item]) : []);
+    ...matchHeroOptions.map((hero) => [hero.id, hero] as const),
+  ]).values()];
+  const activeMatchPatch = patches.find((item) => item.id === matchFilters.matchPatch);
   const windowGames = heroes.reduce((sum, stats) => sum + stats.games, 0);
   const windowWins = heroes.reduce((sum, stats) => sum + stats.wins, 0);
   const windowWinRate = windowGames > 0 ? windowWins / windowGames : null;
@@ -106,7 +140,7 @@ export default async function PlayerPage({
         {windows.map((item) => (
           <a
             aria-current={window === item ? "page" : undefined}
-            href={`?window=${item}${patch ? `&patch=${encodeURIComponent(patch)}` : ""}`}
+            href={`?window=${item}${patch ? `&patch=${encodeURIComponent(patch)}` : ""}${matchFilterSuffix}`}
             key={item}
           >
             {windowLabel(item)}
@@ -116,13 +150,16 @@ export default async function PlayerPage({
 
       <form className="patch-filter" method="get">
         <input name="window" type="hidden" value={window} />
+        {[...matchFilterParams].map(([name, value]) => (
+          <input key={name} name={name} type="hidden" value={value} />
+        ))}
         <label htmlFor="player-patch">比赛版本</label>
         <select defaultValue={patch ?? ""} id="player-patch" name="patch">
           <option value="">全部版本</option>
           {patches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <button type="submit">应用版本</button>
-        {patch ? <a href={`?window=${window}`}>清除版本</a> : null}
+        {patch ? <a href={`?window=${window}${matchFilterSuffix}`}>清除版本</a> : null}
       </form>
 
       <section className="player-summary">
@@ -175,19 +212,24 @@ export default async function PlayerPage({
           className="player-content-grid__matches"
           eyebrow="MATCH LEDGER"
           title="比赛明细"
-          trailing={<span className="module-note">{activePatch ? `${activePatch.name} · ` : ""}{windowLabel(window)}</span>}
+          trailing={<span className="module-note">{activeMatchPatch ? `${activeMatchPatch.name} · ` : ""}每页 30 场</span>}
         >
           {!matchesResult.ok ? (
             <div className="section-state"><DataState error={matchesResult.error} retryHref={`/players/${encodeURIComponent(accountId)}?window=${window}${patch ? `&patch=${encodeURIComponent(patch)}` : ""}`} /></div>
-          ) : visibleMatches.length === 0 ? (
-            <>
-              <QualityNotice label="比赛明细" quality={matchesResult.value.meta.quality} />
-              <EmptyState detail="账号已定位，但当前还没有合格的已导入公开比赛。" title="没有比赛明细" />
-            </>
           ) : (
             <>
               <QualityNotice label="比赛明细" quality={matchesResult.value.meta.quality} />
-              <MatchLedger heroes={heroById} items={itemById} matches={visibleMatches} />
+              <MatchExplorer
+                accountId={accountId}
+                filterHeroes={matchHeroOptions}
+                filters={matchFilters}
+                heroFilterAvailable={allImportedHeroesResult.ok}
+                heroes={matchDisplayHeroes}
+                initialPage={matchesResult.value}
+                items={itemsResult.ok ? itemsResult.value : []}
+                key={JSON.stringify(matchFilters)}
+                patches={patches}
+              />
             </>
           )}
         </DataSection>

@@ -312,9 +312,13 @@ describe("live player synchronization", () => {
     expect(matches.data.items.map((match) => match.id)).toEqual(["8000000002", "8000000001"]);
     expect(matches.meta).not.toHaveProperty("sampleSize");
     expect(matches.meta.filtersApplied).toEqual({
-      window: "last_100",
+      window: "all_imported",
       patch: null,
       heroId: null,
+      outcome: null,
+      gameMode: null,
+      dateFrom: null,
+      dateTo: null,
     });
 
     const unknownPatch = playerOverviewResponseSchema.parse(
