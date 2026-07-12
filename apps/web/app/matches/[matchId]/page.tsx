@@ -1,6 +1,7 @@
 import { DataSection, MetaLine, StatusNotice } from "@dodo/ui";
 
 import { DataState } from "../../../components/data-state";
+import { MatchAnalyzer } from "../../../components/match-analyzer";
 import { MatchPlayerRow } from "../../../components/match-player-row";
 import { PageHeading } from "../../../components/page-heading";
 import { api, collectAllHeroes, collectAllItems, settle } from "../../../lib/api";
@@ -117,6 +118,12 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
           </DataSection>
         ))}
       </div>
+
+      <MatchAnalyzer
+        heroes={heroesResult.ok ? heroesResult.value : []}
+        items={itemsResult.ok ? itemsResult.value : []}
+        players={match.data.players}
+      />
 
       <MetaLine sources={match.meta.sources} updatedAt={match.meta.updatedAt} />
       <p className="data-disclaimer">

@@ -1,8 +1,6 @@
 import type { HeroSummary, ItemSummary, MatchDetail } from "@dodo/contracts";
 import Link from "next/link";
 
-import { abilityUpgradeContext, itemTimelineNotice } from "../lib/match-detail";
-import { formatGameTime } from "../lib/format";
 import { AssetImage } from "./asset-image";
 
 function ItemAsset({
@@ -65,13 +63,6 @@ export function MatchPlayerRow({
   player: MatchDetail["players"][number];
 }) {
   const hero = heroById.get(player.heroId);
-  const abilityBuild = [...player.abilityBuild].sort((left, right) => left.sequence - right.sequence);
-  const itemTimeline = player.itemTimelineStatus === "unavailable"
-    ? []
-    : [...player.itemTimeline].sort(
-      (left, right) => left.gameTimeSeconds - right.gameTimeSeconds,
-    );
-  const timelineNotice = itemTimelineNotice(player.itemTimelineStatus, itemTimeline.length);
 
   return (
     <div className="participant-table__row" role="row">
@@ -124,46 +115,6 @@ export function MatchPlayerRow({
           itemIds={player.neutralItemId ? [player.neutralItemId] : []}
           label="中立"
         />
-      </div>
-
-      <div className="participant-breakdown" data-label="加点与物品时间线" role="cell">
-        <details>
-          <summary>技能加点</summary>
-          {player.abilityBuildStatus === "unavailable" ? (
-            <p>上游未提供技能加点顺序。</p>
-          ) : abilityBuild.length === 0 ? (
-            <p>没有可展示的真实技能加点记录。</p>
-          ) : (
-            <ol className="ability-build">
-              {abilityBuild.map((event) => (
-                <li key={`${event.sequence}-${event.abilityId}`}>
-                  <strong>技能 #{event.abilityId}</strong>
-                  <small>{abilityUpgradeContext(event, player.abilityBuildStatus)}</small>
-                </li>
-              ))}
-            </ol>
-          )}
-        </details>
-
-        <details>
-          <summary>物品交易时间线</summary>
-          {timelineNotice ? <p>{timelineNotice}</p> : null}
-          {itemTimeline.length > 0 ? (
-            <ol className="item-timeline">
-              {itemTimeline.map((event, index) => {
-                const item = itemById.get(event.itemId);
-                return (
-                  <li key={`${event.gameTimeSeconds}-${event.itemId}-${index}`}>
-                    <time>{formatGameTime(event.gameTimeSeconds)}</time>
-                    <strong>{event.action === "purchase" ? "购买" : "出售"}</strong>
-                    <span>{item?.localizedName ?? `物品 #${event.itemId}`}</span>
-                    {event.charges !== null ? <small>{event.charges} 次充能</small> : null}
-                  </li>
-                );
-              })}
-            </ol>
-          ) : null}
-        </details>
       </div>
     </div>
   );

@@ -30,6 +30,7 @@ describe("match detail presentation", () => {
     expect(page).toContain("radiant.length === 5 && dire.length === 5");
     expect(page).toContain("完整详情后台补全中");
     expect(page).toContain("完整阵容已载入");
+    expect(page).toContain("<MatchAnalyzer");
     for (const field of [
       "level",
       "gpm",
@@ -41,10 +42,24 @@ describe("match detail presentation", () => {
       "finalItemIds",
       "backpackItemIds",
       "neutralItemId",
-      "abilityBuildStatus",
-      "itemTimelineStatus",
     ]) {
       expect(row).toContain(`player.${field}`);
     }
+  });
+
+  it("moves builds into one keyboard-accessible player analyzer", () => {
+    const analyzer = source("../components/match-analyzer.tsx");
+    const row = source("../components/match-player-row.tsx");
+
+    expect(analyzer).toContain('aria-pressed={selected}');
+    expect(analyzer).toContain('role="tablist"');
+    expect(analyzer).toContain('aria-selected={view === "abilities"}');
+    expect(analyzer).toContain('aria-selected={view === "items"}');
+    expect(analyzer).toContain("abilityUpgradeContext");
+    expect(analyzer).toContain("itemTimelineNotice");
+    expect(analyzer).toContain("player.abilityBuildStatus");
+    expect(analyzer).toContain("player.itemTimelineStatus");
+    expect(analyzer).toContain('event.action === "purchase" ? "+ 购买" : "− 出售"');
+    expect(row).not.toContain("participant-breakdown");
   });
 });
