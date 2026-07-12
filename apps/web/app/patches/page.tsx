@@ -5,6 +5,8 @@ import { PageHeading } from "../../components/page-heading";
 import { collectAllPatches, settle } from "../../lib/api";
 import { formatUtc } from "../../lib/format";
 
+export const dynamic = "force-dynamic";
+
 export default async function PatchesPage() {
   const result = await settle(collectAllPatches());
   if (!result.ok) {

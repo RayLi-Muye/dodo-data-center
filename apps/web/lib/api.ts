@@ -127,7 +127,7 @@ export const api = {
     fetchApi(
       patchesResponseSchema,
       `/v1/patches${queryString({ cursor, limit: 100 })}`,
-      { next: { revalidate: 3_600 } },
+      { cache: "no-store" },
     ),
   playerHeroes: (accountId: string, window: string, patch?: string, cursor?: string) =>
     fetchApi(
