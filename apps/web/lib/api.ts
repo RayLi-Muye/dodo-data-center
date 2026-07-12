@@ -100,7 +100,7 @@ export const api = {
   dataStatus: () => fetchApi(dataStatusResponseSchema, "/v1/data-status", { cache: "no-store" }),
   hero: (heroId: string) =>
     fetchApi(heroDetailResponseSchema, `/v1/heroes/${encodeURIComponent(heroId)}`, {
-      next: { revalidate: 3_600 },
+      cache: "no-store",
     }),
   heroes: (options: { cursor?: string | undefined; limit?: number; q?: string | undefined } = {}) =>
     fetchApi(

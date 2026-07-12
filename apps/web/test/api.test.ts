@@ -62,4 +62,34 @@ describe("server API client", () => {
       expect.objectContaining({ next: { revalidate: 3_600 } }),
     );
   });
+
+  it("does not cache hero details across live catalog refreshes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        id: "107",
+        name: "earth_spirit",
+        localizedName: "Earth Spirit",
+        primaryAttribute: "strength",
+        attackType: "melee",
+        roles: [],
+        patch: "unknown",
+        facets: [],
+        abilities: [],
+        sourceSnapshot: "opendota://constants/heroes@test",
+      },
+      meta: {
+        quality: "complete",
+        sources: ["opendota"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.hero("107");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v1\/heroes\/107$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
 });
