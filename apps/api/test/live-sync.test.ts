@@ -425,6 +425,36 @@ describe("live player synchronization", () => {
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
   });
 
+  it("keeps previously imported public data readable while a refresh is running", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      syncService: service,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const initial = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(initial.jobId);
+    let releaseProfile!: (profile: CanonicalPlayerProfile) => void;
+    provider.getPlayerProfile = vi.fn(
+      () => new Promise<CanonicalPlayerProfile>((resolve) => { releaseProfile = resolve; }),
+    );
+
+    const refresh = await service.requestSync(ACCOUNT_ID);
+    expect(refresh.status).toBe("syncing");
+    expect((await repository.getPlayer(ACCOUNT_ID))?.status).toBe("public_partial");
+    expect(
+      (await app.inject({ method: "GET", url: `/v1/players/${ACCOUNT_ID}/matches` })).statusCode,
+    ).toBe(200);
+
+    releaseProfile(profile);
+    await service.waitForJob(refresh.jobId);
+  });
+
   it("imports one history page without deleting recent matches or downgrading detail", async () => {
     const repository = await createLiveRepository();
     const provider = createProvider();

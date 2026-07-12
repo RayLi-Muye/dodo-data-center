@@ -238,7 +238,13 @@ export class PlayerSyncService {
       errorCode: null,
     };
     await this.#repository.upsertSyncJob(job);
-    await this.#repository.upsertPlayer(asPlayerProfile(accountId, "syncing", previousProfile));
+    const hasReadableImportedProfile =
+      previousProfile !== undefined &&
+      previousProfile.importedMatchCount > 0 &&
+      (previousProfile.status === "public_complete" || previousProfile.status === "public_partial");
+    if (!hasReadableImportedProfile) {
+      await this.#repository.upsertPlayer(asPlayerProfile(accountId, "syncing", previousProfile));
+    }
 
     const execution = Promise.resolve()
       .then(() => this.#execute(job, previousProfile))
