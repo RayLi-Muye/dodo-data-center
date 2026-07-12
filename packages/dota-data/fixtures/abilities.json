@@ -1,0 +1,26 @@
+{
+  "earth_spirit_boulder_smash": {
+    "dname": "Boulder Smash",
+    "desc": "Smashes a target in the direction Earth Spirit is facing."
+  },
+  "earth_spirit_geomagnetic_grip": {
+    "dname": "Geomagnetic Grip",
+    "desc": "Pulls a Stone Remnant toward Earth Spirit."
+  },
+  "earth_spirit_stone_caller": {
+    "dname": "Stone Remnant",
+    "desc": "Places a Stone Remnant.",
+    "is_innate": true
+  },
+  "earth_spirit_petrify": {
+    "dname": "Enchant Remnant",
+    "desc": "Temporarily turns a hero into a Stone Remnant."
+  },
+  "earth_spirit_magnetize": {
+    "dname": "Magnetize",
+    "desc": "Magnetizes nearby enemy units."
+  },
+  "special_bonus_unique_earth_spirit_4": {
+    "dname": "+150 Rolling Boulder Distance"
+  }
+}

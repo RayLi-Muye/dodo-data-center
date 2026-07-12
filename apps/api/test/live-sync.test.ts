@@ -14,6 +14,7 @@ import {
 import {
   OpenDotaProviderError,
   type CanonicalConstantsSnapshot,
+  type CanonicalHeroAbilityConstants,
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
   type CanonicalMatchDetail,
@@ -33,6 +34,7 @@ import { PlayerSyncService } from "../src/player-sync-service.js";
 
 const ACCOUNT_ID = "86745912";
 const FETCHED_AT = "2026-07-10T01:00:00.000Z";
+const ABILITIES_FETCHED_AT = "2026-07-10T01:00:00.500Z";
 const CLOCK_AT = "2026-07-10T01:00:01.000Z";
 const SOURCE = { source: "opendota" as const, fetchedAt: FETCHED_AT };
 
@@ -160,7 +162,58 @@ const heroes: CanonicalConstantsSnapshot<CanonicalHeroConstant> = {
       attackType: "melee",
       roles: ["Initiator", "Durable"],
     },
+    {
+      id: "107",
+      name: "earth_spirit",
+      localizedName: "Earth Spirit",
+      primaryAttribute: "strength",
+      attackType: "melee",
+      roles: ["Nuker", "Escape", "Disabler", "Initiator", "Durable"],
+    },
   ],
+};
+
+const heroAbilities: CanonicalHeroAbilityConstants = {
+  source: { source: "opendota", fetchedAt: ABILITIES_FETCHED_AT },
+  heroes: {
+    npc_dota_hero_earth_spirit: {
+      heroName: "npc_dota_hero_earth_spirit",
+      abilities: [
+        {
+          id: "5608",
+          name: "earth_spirit_boulder_smash",
+          localizedName: "Boulder Smash",
+          description: "Smashes a target in the direction Earth Spirit is facing.",
+          slot: 0,
+          type: "basic",
+        },
+        {
+          id: "5612",
+          name: "earth_spirit_magnetize",
+          localizedName: "Magnetize",
+          description: "Magnetizes nearby enemy units.",
+          slot: 1,
+          type: "ultimate",
+        },
+        {
+          id: "324",
+          name: "special_bonus_unique_earth_spirit_4",
+          localizedName: "+150 Rolling Boulder Distance",
+          description: "",
+          slot: 2,
+          type: "talent",
+        },
+      ],
+      facets: [
+        { name: "Resonance", description: "Stone Remnants resonate with Magnetize." },
+        {
+          name: "earth_spirit_stepping_stone",
+          description: "Rolling Boulder moves farther.",
+        },
+      ],
+      excludedAbilityNames: [],
+    },
+  },
 };
 
 const items: CanonicalConstantsSnapshot<CanonicalItemConstant> = {
@@ -238,6 +291,7 @@ const createProvider = (): PlayerDataProvider => ({
   ),
   getMatchDetail: vi.fn(async (matchId) => detailFor(matchId)),
   getHeroConstants: vi.fn(async () => heroes),
+  getHeroAbilityConstants: vi.fn(async () => heroAbilities),
   getItemConstants: vi.fn(async () => items),
   getPatchConstants: vi.fn(async () => patches),
 });
@@ -391,8 +445,78 @@ describe("live player synchronization", () => {
     expect(provider.getRecentMatches).toHaveBeenCalledWith(ACCOUNT_ID, 100);
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getHeroAbilityConstants).toHaveBeenCalledTimes(1);
     expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
     expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
+  });
+
+  it("joins exact hero ability IDs, talents, and facets into the live hero catalog", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    const earthSpiritRecent: CanonicalRecentMatches = {
+      ...recent,
+      matches: recent.matches.map((match, index) =>
+        index === 0
+          ? {
+              ...match,
+              player: {
+                ...match.player,
+                heroId: "107",
+                abilityBuild: [
+                  { abilityId: "5608", sequence: 1, heroLevel: null, gameTimeSeconds: null },
+                  { abilityId: "5612", sequence: 2, heroLevel: null, gameTimeSeconds: null },
+                ],
+                abilityBuildStatus: "ordered",
+              },
+            }
+          : match,
+      ),
+    };
+    provider.getRecentMatches = vi.fn(async () => earthSpiritRecent);
+    provider.getMatchDetail = vi.fn(async (matchId) => {
+      const match = earthSpiritRecent.matches.find((candidate) => candidate.id === matchId);
+      if (!match) throw new Error(`Missing test match ${matchId}`);
+      return {
+        ...detailFor(matchId),
+        players: [match.player],
+      };
+    });
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      syncService: service,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const accepted = syncJobResponseSchema.parse(
+      json(await app.inject({ method: "POST", url: `/v1/players/${ACCOUNT_ID}/sync` })),
+    );
+    await service.waitForJob(accepted.data.jobId);
+
+    const hero = heroDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/heroes/107" })),
+    );
+    expect(hero.data.abilities.map((ability) => ability.id)).toEqual(["5608", "5612", "324"]);
+    expect(hero.data.abilities.find((ability) => ability.id === "324")?.type).toBe("talent");
+    expect(hero.data.facets).toEqual(heroAbilities.heroes.npc_dota_hero_earth_spirit?.facets);
+    expect(hero.data.sourceSnapshot).toContain("hero_abilities");
+    expect(hero.meta.updatedAt).toBe(ABILITIES_FETCHED_AT);
+
+    const match = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/matches/8000000002" })),
+    );
+    expect(match.data.players[0]?.heroId).toBe("107");
+    expect(match.data.players[0]?.abilityBuild.map((event) => event.abilityId)).toEqual([
+      "5608",
+      "5612",
+    ]);
+    expect(
+      match.data.players[0]?.abilityBuild.every((event) =>
+        hero.data.abilities.some((ability) => ability.id === event.abilityId),
+      ),
+    ).toBe(true);
   });
 
   it("replaces repeated sync batches idempotently", async () => {
@@ -423,6 +547,42 @@ describe("live player synchronization", () => {
     expect(provider.getRecentMatches).toHaveBeenCalledTimes(2);
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
+  });
+
+  it("keeps the previous hero catalog when the ability catalog refresh is unavailable", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+
+    const first = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(first.jobId);
+    expect((await repository.getHero("107"))?.abilities.map((ability) => ability.id)).toEqual([
+      "5608",
+      "5612",
+      "324",
+    ]);
+
+    provider.getHeroAbilityConstants = vi.fn(async () => {
+      throw new OpenDotaProviderError(
+        "SOURCE_UNAVAILABLE",
+        "upstream_5xx",
+        "ability catalog unavailable",
+        true,
+        503,
+      );
+    });
+    const refresh = await service.requestSync(ACCOUNT_ID);
+    const terminal = await service.waitForJob(refresh.jobId);
+
+    expect(terminal).toMatchObject({
+      status: "source_unavailable",
+      errorCode: "SOURCE_UNAVAILABLE",
+    });
+    expect((await repository.getHero("107"))?.abilities.map((ability) => ability.id)).toEqual([
+      "5608",
+      "5612",
+      "324",
+    ]);
   });
 
   it("keeps previously imported public data readable while a refresh is running", async () => {

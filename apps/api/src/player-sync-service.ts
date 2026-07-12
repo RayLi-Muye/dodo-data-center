@@ -7,6 +7,7 @@ import type {
 } from "@dodo/contracts";
 import {
   OpenDotaProviderError,
+  type CanonicalHeroAbilitySet,
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
   type CanonicalMatchDetail,
@@ -32,12 +33,19 @@ type PlayerSyncServiceOptions = {
   clock?: () => Date;
 };
 
-const toHeroDetail = (hero: CanonicalHeroConstant, fetchedAt: string): HeroDetail => ({
+const toHeroDetail = (
+  hero: CanonicalHeroConstant,
+  abilitySet: CanonicalHeroAbilitySet | undefined,
+  heroFetchedAt: string,
+  abilityFetchedAt: string,
+): HeroDetail => ({
   ...hero,
   patch: UNKNOWN_PATCH,
-  facets: [],
-  abilities: [],
-  sourceSnapshot: `opendota://constants/heroes@${fetchedAt}`,
+  facets: abilitySet?.facets ?? [],
+  abilities: abilitySet?.abilities ?? [],
+  sourceSnapshot:
+    `opendota://constants/heroes@${heroFetchedAt};` +
+    `opendota://constants/ability_ids+abilities+hero_abilities@${abilityFetchedAt}`,
 });
 
 const toItemDetails = (
@@ -266,9 +274,10 @@ export class PlayerSyncService {
     let fetchedProfile: CanonicalPlayerProfile | undefined;
     try {
       fetchedProfile = await this.#provider.getPlayerProfile(job.accountId);
-      const [recent, heroes, items, patches] = await Promise.all([
+      const [recent, heroes, heroAbilities, items, patches] = await Promise.all([
         this.#provider.getRecentMatches(job.accountId, 100),
         this.#provider.getHeroConstants(),
+        this.#provider.getHeroAbilityConstants(),
         this.#provider.getItemConstants(),
         this.#provider.getPatchConstants(),
       ]);
@@ -280,6 +289,10 @@ export class PlayerSyncService {
         fetchedProfile.status === "public_partial" || recent.quality === "partial"
           ? "partial"
           : "complete";
+      const heroCatalogFetchedAt =
+        heroes.source.fetchedAt > heroAbilities.source.fetchedAt
+          ? heroes.source.fetchedAt
+          : heroAbilities.source.fetchedAt;
       const itemIdByName = new Map(items.items.map((item) => [item.name, item.id]));
       const previousMatches = new Map(
         (await this.#repository.listPlayerMatches(job.accountId)).map((match) => [
@@ -310,11 +323,18 @@ export class PlayerSyncService {
       };
 
       await this.#repository.replaceHeroes(
-        heroes.items.map((hero) => toHeroDetail(hero, heroes.source.fetchedAt)),
+        heroes.items.map((hero) =>
+          toHeroDetail(
+            hero,
+            heroAbilities.heroes[`npc_dota_hero_${hero.name}`],
+            heroes.source.fetchedAt,
+            heroAbilities.source.fetchedAt,
+          ),
+        ),
         {
           source: "opendota",
           quality: "complete",
-          fetchedAt: heroes.source.fetchedAt,
+          fetchedAt: heroCatalogFetchedAt,
         },
       );
       await this.#repository.replaceItems(toItemDetails(items.items, items.source.fetchedAt), {

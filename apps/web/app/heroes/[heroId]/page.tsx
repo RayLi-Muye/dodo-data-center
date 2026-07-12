@@ -63,6 +63,7 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
               {hero.data.abilities.map((ability) => (
                 <li key={ability.id}>
                   <span className="ability-list__slot">{String(ability.slot + 1).padStart(2, "0")}</span>
+                  <AssetImage alt={`${ability.localizedName} 技能图标`} className="ability-list__icon" kind="ability" name={ability.name} />
                   <div>
                     <small>{abilityTypeLabel[ability.type]}</small>
                     <h3>{ability.localizedName}</h3>

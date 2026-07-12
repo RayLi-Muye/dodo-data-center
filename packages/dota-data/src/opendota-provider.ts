@@ -1,6 +1,8 @@
 import { OpenDotaProviderError } from "./errors.js";
 import type {
   CanonicalConstantsSnapshot,
+  CanonicalHeroAbilityConstant,
+  CanonicalHeroAbilityConstants,
   CanonicalHeroConstant,
   CanonicalItemConstant,
   CanonicalMatchDetail,
@@ -72,6 +74,11 @@ function payloadError(message: string): never {
 
 function readRecord(value: unknown, field: string): JsonRecord {
   return isRecord(value) ? value : payloadError(`${field} must be an object`);
+}
+
+function readNonEmptyRecord(value: unknown, field: string): JsonRecord {
+  const record = readRecord(value, field);
+  return Object.keys(record).length > 0 ? record : payloadError(`${field} must not be empty`);
 }
 
 function readArray(value: unknown, field: string): unknown[] {
@@ -614,6 +621,109 @@ export class OpenDotaProvider {
       .sort((a, b) => Number(a.id) - Number(b.id));
 
     return { items, source: sourceMetadata(fetchedAt) };
+  }
+
+  async getHeroAbilityConstants(): Promise<CanonicalHeroAbilityConstants> {
+    const [abilityIdsResponse, abilitiesResponse, heroAbilitiesResponse] = await Promise.all([
+      this.requestJson("constants/ability_ids"),
+      this.requestJson("constants/abilities"),
+      this.requestJson("constants/hero_abilities"),
+    ]);
+    const abilityIds = readNonEmptyRecord(abilityIdsResponse.payload, "ability ID constants");
+    const abilities = readNonEmptyRecord(abilitiesResponse.payload, "ability constants");
+    const heroAbilities = readNonEmptyRecord(
+      heroAbilitiesResponse.payload,
+      "hero ability constants",
+    );
+    const idByName = new Map<string, string>();
+
+    for (const [rawId, rawName] of Object.entries(abilityIds)) {
+      if (!/^\d+$/.test(rawId)) continue;
+      const id = readId(rawId, "ability ID key");
+      const name = readString(rawName, `ability ID ${id}`);
+      if (idByName.has(name)) payloadError(`ability name ${name} maps to multiple IDs`);
+      idByName.set(name, id);
+    }
+    if (idByName.size === 0) payloadError("ability ID constants contain no numeric IDs");
+
+    const heroes = Object.fromEntries(Object.entries(heroAbilities).map(([heroName, rawHero]) => {
+      const hero = readRecord(rawHero, `hero abilities.${heroName}`);
+      const ordinaryNames = readArray(hero.abilities, `hero abilities.${heroName}.abilities`)
+        .flatMap((name) => Array.isArray(name) ? name : [name])
+        .map((name) => readString(name, `hero abilities.${heroName}.ability`));
+      const rawTalents = readArray(hero.talents, `hero abilities.${heroName}.talents`)
+        .map((rawTalent, index) => {
+          const talent = readRecord(rawTalent, `hero abilities.${heroName}.talents[${index}]`);
+          return {
+            name: readString(talent.name, `hero abilities.${heroName}.talents[${index}].name`),
+            level: readInteger(talent.level, `hero abilities.${heroName}.talents[${index}].level`, 1),
+            index,
+          };
+        })
+        .sort((left, right) => left.level - right.level || left.index - right.index);
+      const excludedAbilityNames: string[] = [];
+      const normalizedAbilities: CanonicalHeroAbilityConstant[] = [];
+      const orderedAbilities = [
+        ...ordinaryNames.map((name, slot) => ({ name, slot, type: "ability" as const })),
+        ...rawTalents.map(({ name }, index) => ({
+          name,
+          slot: ordinaryNames.length + index,
+          type: "talent" as const,
+        })),
+      ];
+
+      for (const candidate of orderedAbilities) {
+        const id = idByName.get(candidate.name);
+        if (id === undefined) {
+          excludedAbilityNames.push(candidate.name);
+          continue;
+        }
+        const rawAbility = abilities[candidate.name];
+        const ability = isRecord(rawAbility) ? rawAbility : null;
+        if (ability === null) excludedAbilityNames.push(candidate.name);
+        const type = candidate.type === "talent"
+          ? "talent"
+          : ability?.is_innate === true
+            ? "innate"
+            : candidate.slot === 5
+              ? "ultimate"
+              : "basic";
+        normalizedAbilities.push({
+          id,
+          name: candidate.name,
+          localizedName: readNullableString(ability?.dname) ?? candidate.name,
+          description: readNullableString(ability?.desc) ?? "",
+          slot: candidate.slot,
+          type,
+        });
+      }
+
+      const facets = hero.facets === undefined
+        ? []
+        : readArray(hero.facets, `hero abilities.${heroName}.facets`).map((rawFacet, index) => {
+            const facet = readRecord(rawFacet, `hero abilities.${heroName}.facets[${index}]`);
+            return {
+              name:
+                readNullableString(facet.title) ??
+                readString(facet.name, `hero abilities.${heroName}.facets[${index}].name`),
+              description: readNullableString(facet.description) ?? "",
+            };
+          });
+
+      return [heroName, {
+        heroName,
+        abilities: normalizedAbilities,
+        facets,
+        excludedAbilityNames,
+      }];
+    }));
+    const fetchedAt = [
+      abilityIdsResponse.fetchedAt,
+      abilitiesResponse.fetchedAt,
+      heroAbilitiesResponse.fetchedAt,
+    ].reduce((latest, current) => current > latest ? current : latest);
+
+    return { heroes, source: sourceMetadata(fetchedAt) };
   }
 
   async getPatchConstants(): Promise<CanonicalConstantsSnapshot<CanonicalPatchSummary>> {

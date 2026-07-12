@@ -69,6 +69,10 @@ GET /v1/maps/{mapVersionId}/features?type=
 GET /v1/data-status
 ```
 
+`GET /v1/heroes/{heroId}` 的 `abilities` 使用比赛加点事件同一 numeric ability ID。技能名称与说明来自 `ability_ids + abilities + hero_abilities` 的同一次同步快照；普通技能保持英雄技能编排顺序，天赋随后按等级顺序排列。`is_innate=true` 标记先天技能，英雄技能源的索引 5 标记终极技能，其余普通技能标记为基础技能。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
+
+比赛详情展示技能名称时只能使用 `abilityBuild[].abilityId` 与英雄技能字典的精确 ID 匹配。未命中时保留 `技能 #<id>`，不能根据加点位置猜测技能。
+
 ## Error codes
 
 ```text

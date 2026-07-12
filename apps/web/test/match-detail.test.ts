@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { abilityUpgradeContext, itemTimelineNotice } from "../lib/match-detail";
+import {
+  abilityUpgradeContext,
+  itemTimelineNotice,
+  resolveHeroAbility,
+  type AbilitiesByHeroId,
+} from "../lib/match-detail";
 
 const source = (relativePath: string): string =>
   readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -22,6 +27,32 @@ describe("match detail presentation", () => {
     expect(itemTimelineNotice("complete", 2)).toBeNull();
   });
 
+  it("resolves ability IDs only inside the selected player's hero", () => {
+    const abilitiesByHeroId = {
+      axe: [{
+        description: "",
+        id: "shared-id",
+        localizedName: "战斗饥渴",
+        name: "axe_battle_hunger",
+        slot: 1,
+        type: "basic",
+      }],
+      bane: [{
+        description: "",
+        id: "shared-id",
+        localizedName: "虚弱",
+        name: "bane_enfeeble",
+        slot: 0,
+        type: "basic",
+      }],
+    } satisfies AbilitiesByHeroId;
+
+    expect(resolveHeroAbility(abilitiesByHeroId, "axe", "shared-id")?.name).toBe("axe_battle_hunger");
+    expect(resolveHeroAbility(abilitiesByHeroId, "bane", "shared-id")?.name).toBe("bane_enfeeble");
+    expect(resolveHeroAbility(abilitiesByHeroId, "axe", "missing-id")).toBeUndefined();
+    expect(resolveHeroAbility(abilitiesByHeroId, "missing-hero", "shared-id")).toBeUndefined();
+  });
+
   it("renders all frozen scoreboard fields and gates complete-lineup language", () => {
     const page = source("../app/matches/[matchId]/page.tsx");
     const row = source("../components/match-player-row.tsx");
@@ -31,6 +62,8 @@ describe("match detail presentation", () => {
     expect(page).toContain("完整详情后台补全中");
     expect(page).toContain("完整阵容已载入");
     expect(page).toContain("<MatchAnalyzer");
+    expect(page).toContain("matchHeroIds.map");
+    expect(page).toContain("abilitiesByHeroId={abilitiesByHeroId}");
     for (const field of [
       "level",
       "gpm",
@@ -56,10 +89,22 @@ describe("match detail presentation", () => {
     expect(analyzer).toContain('aria-selected={view === "abilities"}');
     expect(analyzer).toContain('aria-selected={view === "items"}');
     expect(analyzer).toContain("abilityUpgradeContext");
+    expect(analyzer).toContain("resolveHeroAbility(abilitiesByHeroId, player.heroId, event.abilityId)");
+    expect(analyzer).toContain("ability?.localizedName");
+    expect(analyzer).toContain("`技能 #${event.abilityId}`");
+    expect(analyzer).toContain('kind="ability"');
     expect(analyzer).toContain("itemTimelineNotice");
     expect(analyzer).toContain("player.abilityBuildStatus");
     expect(analyzer).toContain("player.itemTimelineStatus");
     expect(analyzer).toContain('event.action === "purchase" ? "+ 购买" : "− 出售"');
     expect(row).not.toContain("participant-breakdown");
+  });
+
+  it("renders ability icons on hero details without changing the empty state", () => {
+    const heroPage = source("../app/heroes/[heroId]/page.tsx");
+
+    expect(heroPage).toContain('className="ability-list__icon"');
+    expect(heroPage).toContain('kind="ability"');
+    expect(heroPage).toContain("技能资料待补充");
   });
 });

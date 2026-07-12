@@ -4,7 +4,12 @@ import type { HeroSummary, ItemSummary, MatchDetail } from "@dodo/contracts";
 import Link from "next/link";
 import { useState } from "react";
 
-import { abilityUpgradeContext, itemTimelineNotice } from "../lib/match-detail";
+import {
+  abilityUpgradeContext,
+  itemTimelineNotice,
+  resolveHeroAbility,
+  type AbilitiesByHeroId,
+} from "../lib/match-detail";
 import { formatGameTime } from "../lib/format";
 import { AssetImage } from "./asset-image";
 
@@ -20,10 +25,12 @@ function PlayerPortrait({ hero }: { hero: HeroSummary | undefined }) {
 }
 
 export function MatchAnalyzer({
+  abilitiesByHeroId,
   heroes,
   items,
   players,
 }: {
+  abilitiesByHeroId: AbilitiesByHeroId;
   heroes: HeroSummary[];
   items: ItemSummary[];
   players: MatchPlayer[];
@@ -120,15 +127,23 @@ export function MatchAnalyzer({
             <p className="match-analyzer__notice">没有可展示的真实技能加点记录。</p>
           ) : (
             <ol className="match-analyzer__ability-list">
-              {abilityBuild.map((event) => (
-                <li key={`${event.sequence}-${event.abilityId}`}>
-                  <span aria-label={`第 ${event.sequence} 次加点`}>{String(event.sequence).padStart(2, "0")}</span>
-                  <span>
-                    <strong>技能 #{event.abilityId}</strong>
-                    <small>{abilityUpgradeContext(event, player.abilityBuildStatus)}</small>
-                  </span>
-                </li>
-              ))}
+              {abilityBuild.map((event) => {
+                const ability = resolveHeroAbility(abilitiesByHeroId, player.heroId, event.abilityId);
+                return (
+                  <li key={`${event.sequence}-${event.abilityId}`}>
+                    <span aria-label={`第 ${event.sequence} 次加点`}>{String(event.sequence).padStart(2, "0")}</span>
+                    {ability ? (
+                      <AssetImage alt={`${ability.localizedName} 技能图标`} className="ability-thumb" kind="ability" name={ability.name} />
+                    ) : (
+                      <span aria-label={`技能 ${event.abilityId} 图标不可用`} className="asset-fallback asset-fallback--ability ability-thumb" role="img">?</span>
+                    )}
+                    <span>
+                      <strong>{ability?.localizedName ?? `技能 #${event.abilityId}`}</strong>
+                      <small>{abilityUpgradeContext(event, player.abilityBuildStatus)}</small>
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           )
         ) : (

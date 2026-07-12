@@ -141,6 +141,32 @@ export type CanonicalPatchSummary = {
   releasedAt: string;
 };
 
+export type CanonicalHeroAbilityConstant = {
+  id: string;
+  name: string;
+  localizedName: string;
+  description: string;
+  slot: number;
+  type: "innate" | "basic" | "ultimate" | "talent";
+};
+
+export type CanonicalHeroFacetConstant = {
+  name: string;
+  description: string;
+};
+
+export type CanonicalHeroAbilitySet = {
+  heroName: string;
+  abilities: CanonicalHeroAbilityConstant[];
+  facets: CanonicalHeroFacetConstant[];
+  excludedAbilityNames: string[];
+};
+
+export type CanonicalHeroAbilityConstants = {
+  heroes: Record<string, CanonicalHeroAbilitySet>;
+  source: OpenDotaSourceMetadata;
+};
+
 export type CanonicalConstantsSnapshot<T> = {
   items: T[];
   source: OpenDotaSourceMetadata;

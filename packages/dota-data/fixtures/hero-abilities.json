@@ -1,0 +1,28 @@
+{
+  "npc_dota_hero_earth_spirit": {
+    "abilities": [
+      "earth_spirit_boulder_smash",
+      "earth_spirit_missing_skill",
+      "earth_spirit_geomagnetic_grip",
+      "earth_spirit_stone_caller",
+      "earth_spirit_petrify",
+      "earth_spirit_magnetize"
+    ],
+    "talents": [
+      { "name": "earth_spirit_missing_talent", "level": 2 },
+      { "name": "special_bonus_unique_earth_spirit_4", "level": 1 }
+    ],
+    "facets": [
+      {
+        "name": "earth_spirit_resonance",
+        "title": "Resonance",
+        "description": "Stone Remnants resonate with Magnetize."
+      },
+      {
+        "name": "earth_spirit_stepping_stone",
+        "title": "",
+        "description": "Rolling Boulder moves farther."
+      }
+    ]
+  }
+}

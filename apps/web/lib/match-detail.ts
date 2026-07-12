@@ -1,6 +1,16 @@
-import type { MatchDetail } from "@dodo/contracts";
+import type { HeroDetail, MatchDetail } from "@dodo/contracts";
 
 import { formatGameTime } from "./format";
+
+export type AbilitiesByHeroId = Record<string, HeroDetail["abilities"]>;
+
+export function resolveHeroAbility(
+  abilitiesByHeroId: AbilitiesByHeroId,
+  heroId: string,
+  abilityId: string,
+): HeroDetail["abilities"][number] | undefined {
+  return abilitiesByHeroId[heroId]?.find((ability) => ability.id === abilityId);
+}
 
 export function abilityUpgradeContext(
   event: MatchDetail["players"][number]["abilityBuild"][number],

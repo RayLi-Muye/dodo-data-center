@@ -25,6 +25,15 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
   }
 
   const match = matchResult.value;
+  const matchHeroIds = [...new Set(match.data.players.map((player) => player.heroId))];
+  const heroDetailResults = await Promise.all(
+    matchHeroIds.map(async (heroId) => [heroId, await settle(api.hero(heroId))] as const),
+  );
+  const abilitiesByHeroId = Object.fromEntries(
+    heroDetailResults
+      .filter((entry) => entry[1].ok)
+      .map(([heroId, result]) => [heroId, result.ok ? result.value.data.abilities : []]),
+  );
   const heroById = new Map(heroesResult.ok ? heroesResult.value.map((hero) => [hero.id, hero]) : []);
   const itemById = new Map(itemsResult.ok ? itemsResult.value.map((item) => [item.id, item]) : []);
   const radiant = match.data.players.filter((player) => player.side === "radiant");
@@ -120,6 +129,7 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
       </div>
 
       <MatchAnalyzer
+        abilitiesByHeroId={abilitiesByHeroId}
         heroes={heroesResult.ok ? heroesResult.value : []}
         items={itemsResult.ok ? itemsResult.value : []}
         players={match.data.players}

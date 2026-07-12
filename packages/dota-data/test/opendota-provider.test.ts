@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import heroesFixture from "../fixtures/heroes.json";
+import abilityIdsFixture from "../fixtures/ability-ids.json";
+import abilitiesFixture from "../fixtures/abilities.json";
 import errorsFixture from "../fixtures/http-errors.json";
 import matchDetailFixture from "../fixtures/match-detail.json";
 import emptyMatchesFixture from "../fixtures/matches-empty.json";
@@ -9,6 +11,7 @@ import itemsFixture from "../fixtures/items.json";
 import patchesFixture from "../fixtures/patches.json";
 import partialProfileFixture from "../fixtures/profile-partial.json";
 import publicProfileFixture from "../fixtures/profile-public.json";
+import heroAbilitiesFixture from "../fixtures/hero-abilities.json";
 import { OpenDotaProviderError } from "../src/errors.js";
 import { OpenDotaProvider } from "../src/opendota-provider.js";
 
@@ -31,6 +34,34 @@ function providerFor(body: unknown, status = 200, headers?: HeadersInit) {
     clock: () => NOW,
   });
   return { provider, fetchImpl };
+}
+
+function providerForHeroAbilities({
+  abilityIds = abilityIdsFixture,
+  abilities = abilitiesFixture,
+  heroAbilities = heroAbilitiesFixture,
+}: {
+  abilityIds?: unknown;
+  abilities?: unknown;
+  heroAbilities?: unknown;
+} = {}) {
+  const responseByPath: Record<string, unknown> = {
+    "/api/constants/ability_ids": abilityIds,
+    "/api/constants/abilities": abilities,
+    "/api/constants/hero_abilities": heroAbilities,
+  };
+  const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+    const path = new URL(String(input)).pathname;
+    return jsonResponse(responseByPath[path]);
+  });
+  return {
+    provider: new OpenDotaProvider({
+      baseUrl: "https://opendota.fixture/api/",
+      fetchImpl,
+      clock: () => NOW,
+    }),
+    fetchImpl,
+  };
 }
 
 function summarizeLedgerWindow(
@@ -466,6 +497,92 @@ describe("OpenDotaProvider", () => {
     });
     expect(items.items.map((item) => item.id)).toEqual(["1", "2"]);
     expect(items.items[1]?.attributes).toEqual([{ label: "+", value: "45" }]);
+  });
+
+  it("joins hero abilities, talents, and facets without inventing missing IDs", async () => {
+    const { provider, fetchImpl } = providerForHeroAbilities();
+
+    const result = await provider.getHeroAbilityConstants();
+    const earthSpirit = result.heroes.npc_dota_hero_earth_spirit;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls.map(([input]) => String(input)).sort()).toEqual([
+      "https://opendota.fixture/api/constants/abilities",
+      "https://opendota.fixture/api/constants/ability_ids",
+      "https://opendota.fixture/api/constants/hero_abilities",
+    ]);
+    expect(earthSpirit?.abilities).toEqual([
+      {
+        id: "5608",
+        name: "earth_spirit_boulder_smash",
+        localizedName: "Boulder Smash",
+        description: "Smashes a target in the direction Earth Spirit is facing.",
+        slot: 0,
+        type: "basic",
+      },
+      {
+        id: "5610",
+        name: "earth_spirit_geomagnetic_grip",
+        localizedName: "Geomagnetic Grip",
+        description: "Pulls a Stone Remnant toward Earth Spirit.",
+        slot: 2,
+        type: "basic",
+      },
+      {
+        id: "1395",
+        name: "earth_spirit_stone_caller",
+        localizedName: "Stone Remnant",
+        description: "Places a Stone Remnant.",
+        slot: 3,
+        type: "innate",
+      },
+      {
+        id: "5648",
+        name: "earth_spirit_petrify",
+        localizedName: "Enchant Remnant",
+        description: "Temporarily turns a hero into a Stone Remnant.",
+        slot: 4,
+        type: "basic",
+      },
+      {
+        id: "5612",
+        name: "earth_spirit_magnetize",
+        localizedName: "Magnetize",
+        description: "Magnetizes nearby enemy units.",
+        slot: 5,
+        type: "ultimate",
+      },
+      {
+        id: "324",
+        name: "special_bonus_unique_earth_spirit_4",
+        localizedName: "+150 Rolling Boulder Distance",
+        description: "",
+        slot: 6,
+        type: "talent",
+      },
+    ]);
+    expect(earthSpirit?.excludedAbilityNames).toEqual([
+      "earth_spirit_missing_skill",
+      "earth_spirit_missing_talent",
+    ]);
+    expect(earthSpirit?.facets).toEqual([
+      { name: "Resonance", description: "Stone Remnants resonate with Magnetize." },
+      { name: "earth_spirit_stepping_stone", description: "Rolling Boulder moves farther." },
+    ]);
+    expect(result.source).toEqual({ source: "opendota", fetchedAt: NOW.toISOString() });
+  });
+
+  it.each([
+    { field: "ability IDs", input: { abilityIds: {} } },
+    { field: "abilities", input: { abilities: [] } },
+    { field: "hero abilities", input: { heroAbilities: null } },
+  ])("classifies malformed or empty $field constants as invalid", async ({ input }) => {
+    await expect(providerForHeroAbilities(input).provider.getHeroAbilityConstants())
+      .rejects.toMatchObject({
+        code: "SOURCE_UNAVAILABLE",
+        reason: "invalid_response",
+        retryable: true,
+      });
   });
 
   it("normalizes patch constants and sorts by release time then numeric ID", async () => {

@@ -7,6 +7,7 @@ export type PlayerDataProvider = Pick<
   | "getPlayerMatchesPage"
   | "getMatchDetail"
   | "getHeroConstants"
+  | "getHeroAbilityConstants"
   | "getItemConstants"
   | "getPatchConstants"
 >;
