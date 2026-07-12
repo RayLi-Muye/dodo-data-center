@@ -15,6 +15,8 @@ import {
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
   syncJobResponseSchema,
+  updateDetailResponseSchema,
+  updatesResponseSchema,
 } from "@dodo/contracts";
 import {
   createSeedRepository,
@@ -99,9 +101,32 @@ describe("Dodo API", () => {
       json(await app.inject({ method: "GET", url: "/v1/maps/seed-map/features" })),
     );
     patchesResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/patches" })));
+    updatesResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/updates" })));
+    updateDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates/7.41" })),
+    );
     dataStatusResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/data-status" })),
     );
+  });
+
+  it("lists official update summaries without groups and serves detail by version", async () => {
+    const list = updatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates?limit=1" })),
+    );
+    expect(list.data.items).toHaveLength(1);
+    expect(list.data.items[0]).toMatchObject({ version: "7.41", changeGroupCount: 1 });
+    expect(list.data.items[0]).not.toHaveProperty("groups");
+
+    const detail = updateDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates/7.41" })),
+    );
+    expect(detail.data.groups).toHaveLength(1);
+    expect(detail.data.groups[0]?.notes[0]?.text).toBe("Deterministic test-only update note.");
+
+    const missing = await app.inject({ method: "GET", url: "/v1/updates/does-not-exist" });
+    expect(missing.statusCode).toBe(404);
+    expect(apiErrorSchema.parse(json(missing)).error.code).toBe("NOT_FOUND");
   });
 
   it("resolves account ID, Steam ID64, and supported profile URLs", async () => {

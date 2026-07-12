@@ -274,12 +274,23 @@ export class PlayerSyncService {
     let fetchedProfile: CanonicalPlayerProfile | undefined;
     try {
       fetchedProfile = await this.#provider.getPlayerProfile(job.accountId);
+      const updateRefresh = Promise.resolve()
+        .then(() => this.#provider.getRecentUpdateReleases(5))
+        .then((updates) =>
+          this.#repository.replaceUpdateReleases(updates.items, {
+            source: "dota2_official",
+            quality: updates.excludedVersions.length === 0 ? "complete" : "partial",
+            fetchedAt: updates.source.fetchedAt,
+          }),
+        )
+        .catch(() => undefined);
       const [recent, heroes, heroAbilities, items, patches] = await Promise.all([
         this.#provider.getRecentMatches(job.accountId, 100),
         this.#provider.getHeroConstants(),
         this.#provider.getHeroAbilityConstants(),
         this.#provider.getItemConstants(),
         this.#provider.getPatchConstants(),
+        updateRefresh,
       ]);
       if (recent.accountId !== job.accountId) {
         throw new Error("Player data provider returned matches for a different account");

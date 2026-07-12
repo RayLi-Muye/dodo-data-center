@@ -69,6 +69,77 @@ describe("MemoryDodoRepository", () => {
     expect(await repository.getPatchSnapshot()).toEqual(snapshot);
   });
 
+  it("idempotently replaces update details while listing summaries only", async () => {
+    const repository = await createLiveRepository();
+    const snapshot = {
+      source: "dota2_official" as const,
+      quality: "complete" as const,
+      fetchedAt: "2026-07-12T02:00:00.000Z",
+    };
+    const releases = [
+      {
+        version: "7.41b",
+        releasedAt: "2026-07-12T01:00:00.000Z",
+        sourceUrl: "https://www.dota2.com/patches/7.41b",
+        changeGroupCount: 1,
+        contentStatus: "complete" as const,
+        excludedNoteCount: 0,
+        groups: [
+          {
+            kind: "general" as const,
+            subsection: "overview" as const,
+            entityId: null,
+            entityName: null,
+            relatedAbilityId: null,
+            title: null,
+            notes: [{ text: "Updated matchmaking.", info: null, indentLevel: 1 }],
+          },
+        ],
+      },
+      {
+        version: "7.41a",
+        releasedAt: "2026-07-11T01:00:00.000Z",
+        sourceUrl: "https://www.dota2.com/patches/7.41a",
+        changeGroupCount: 1,
+        contentStatus: "partial" as const,
+        excludedNoteCount: 2,
+        groups: [
+          {
+            kind: "hero" as const,
+            subsection: "overview" as const,
+            entityId: "107",
+            entityName: "Earth Spirit",
+            relatedAbilityId: null,
+            title: null,
+            notes: [{ text: "Strength increased.", info: null, indentLevel: 1 }],
+          },
+        ],
+      },
+    ];
+
+    await repository.replaceUpdateReleases(releases, snapshot);
+    await repository.replaceUpdateReleases(releases, snapshot);
+
+    const summaries = await repository.listUpdateReleases();
+    expect(summaries.map((release) => release.version)).toEqual(["7.41b", "7.41a"]);
+    expect(summaries[0]).not.toHaveProperty("groups");
+    expect(await repository.getUpdateRelease("7.41a")).toEqual(releases[1]);
+    expect(await repository.getUpdateSnapshot()).toEqual(snapshot);
+
+    const partialSnapshot = {
+      ...snapshot,
+      quality: "partial" as const,
+      fetchedAt: "2026-07-12T03:00:00.000Z",
+    };
+    await repository.replaceUpdateReleases([releases[0]!], partialSnapshot);
+    expect((await repository.listUpdateReleases()).map((release) => release.version)).toEqual([
+      "7.41b",
+      "7.41a",
+    ]);
+    expect(await repository.getUpdateRelease("7.41a")).toEqual(releases[1]);
+    expect(await repository.getUpdateSnapshot()).toEqual(partialSnapshot);
+  });
+
   it("replaces one player's recent match window without duplicating stored facts", async () => {
     const repository = await createSeedRepository();
     const newest = (await repository.listPlayerMatches(SEED_ACCOUNT_ID)).slice(0, 2);

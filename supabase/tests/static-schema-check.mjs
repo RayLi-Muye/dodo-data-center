@@ -22,6 +22,7 @@ const requiredTables = [
   "provider_health",
   "static_snapshots",
   "patches",
+  "update_releases",
   "player_history_sync",
 ];
 
@@ -38,6 +39,7 @@ const requiredColumns = {
   provider_health: ["source", "payload", "checked_at", "updated_at"],
   static_snapshots: ["kind", "payload", "updated_at"],
   patches: ["id", "payload", "released_at", "updated_at"],
+  update_releases: ["version", "payload", "released_at", "updated_at"],
   player_history_sync: ["account_id", "payload", "updated_at"],
 };
 
@@ -60,7 +62,7 @@ const checks = [
     "stable recent index",
     /on dodo\.player_matches \(account_id, start_time desc, match_id desc\)/i,
   ],
-  ["static snapshot patch kind", /check \(kind in \('hero', 'item', 'patch'\)\)/i],
+  ["static snapshot update kind", /check \(kind in \('hero', 'item', 'patch', 'update'\)\)/i],
   ["anon schema revoke", /revoke all on schema dodo from anon;/i],
   ["authenticated schema revoke", /revoke all on schema dodo from authenticated;/i],
 ];
@@ -82,8 +84,8 @@ for (const [table, columns] of Object.entries(requiredColumns)) {
   }
 }
 
-if (payloadTables.length !== 12) {
-  missing.push(`expected 12 non-null payload tables, found ${payloadTables.length}`);
+if (payloadTables.length !== 13) {
+  missing.push(`expected 13 non-null payload tables, found ${payloadTables.length}`);
 }
 
 if (!/schemas = \["public", "graphql_public"\]/.test(config) || /schemas = \[[^\]]*"dodo"/.test(config)) {

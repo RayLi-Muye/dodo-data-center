@@ -10,6 +10,7 @@ import {
   playerProfileSchema,
   syncJobSchema,
   timestampSchema,
+  updateReleaseDetailSchema,
   type HeroDetail,
   type ItemDetail,
   type MapVersion,
@@ -18,6 +19,8 @@ import {
   type PlayerHistorySync,
   type PlayerProfile,
   type SyncJob,
+  type UpdateReleaseDetail,
+  type UpdateReleaseSummary,
 } from "@dodo/contracts";
 import postgres, { type Sql } from "postgres";
 
@@ -433,6 +436,31 @@ export class PostgresDodoRepository implements DodoRepository {
     });
   }
 
+  async replaceUpdateReleases(
+    releases: UpdateReleaseDetail[],
+    snapshot: StaticDataSnapshot,
+  ): Promise<void> {
+    await this.#sql.begin(async (sql) => {
+      await sql`
+        select pg_advisory_xact_lock(hashtextextended('catalog:updates', 0))
+      `;
+      if (snapshot.quality === "complete") await sql`delete from dodo.update_releases`;
+      for (const release of releases) {
+        await sql`
+          insert into dodo.update_releases (version, payload, released_at, updated_at)
+          values (
+            ${release.version}, ${sql.json(toJson(release))}, ${release.releasedAt}, now()
+          )
+          on conflict (version) do update set
+            payload = excluded.payload,
+            released_at = excluded.released_at,
+            updated_at = now()
+        `;
+      }
+      await this.#upsertSnapshot(sql, "update", snapshot);
+    });
+  }
+
   async upsertProviderHealth(health: ProviderHealth): Promise<void> {
     await this.#sql`
       insert into dodo.provider_health (source, payload, checked_at, updated_at)
@@ -481,6 +509,27 @@ export class PostgresDodoRepository implements DodoRepository {
 
   async getPatchSnapshot(): Promise<StaticDataSnapshot | undefined> {
     return this.#getSnapshot("patch");
+  }
+
+  async listUpdateReleases(): Promise<UpdateReleaseSummary[]> {
+    const rows = await this.#sql<JsonRow[]>`
+      select payload from dodo.update_releases order by released_at desc, version desc
+    `;
+    return rows.map((row) => {
+      const { groups: _groups, ...summary } = updateReleaseDetailSchema.parse(row.payload);
+      return summary;
+    });
+  }
+
+  async getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined> {
+    const [row] = await this.#sql<JsonRow[]>`
+      select payload from dodo.update_releases where version = ${version}
+    `;
+    return row ? updateReleaseDetailSchema.parse(row.payload) : undefined;
+  }
+
+  async getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#getSnapshot("update");
   }
 
   async getCurrentMap(): Promise<MapVersion | undefined> {
@@ -612,7 +661,9 @@ export class PostgresDodoRepository implements DodoRepository {
     return row ? parse(row.payload) : undefined;
   }
 
-  async #getSnapshot(kind: "hero" | "item" | "patch"): Promise<StaticDataSnapshot | undefined> {
+  async #getSnapshot(
+    kind: "hero" | "item" | "patch" | "update",
+  ): Promise<StaticDataSnapshot | undefined> {
     return this.#getPayload(
       this.#sql`select payload from dodo.static_snapshots where kind = ${kind}`,
       parseSnapshot,
@@ -642,7 +693,7 @@ export class PostgresDodoRepository implements DodoRepository {
 
   async #upsertSnapshot(
     sql: QuerySql,
-    kind: "hero" | "item" | "patch",
+    kind: "hero" | "item" | "patch" | "update",
     snapshot: StaticDataSnapshot,
   ): Promise<void> {
     await sql`

@@ -11,9 +11,11 @@ import {
   playerOverviewResponseSchema,
   patchesResponseSchema,
   dataStatusResponseSchema,
+  updateDetailResponseSchema,
+  updatesResponseSchema,
 } from "@dodo/contracts";
 import type { ApiError } from "@dodo/contracts";
-import type { HeroSummary, ItemSummary, PatchSummary, PlayerHeroStats, ResponseMeta } from "@dodo/contracts";
+import type { HeroSummary, ItemSummary, PatchSummary, PlayerHeroStats, ResponseMeta, UpdateReleaseSummary } from "@dodo/contracts";
 import type { z } from "zod";
 
 const FALLBACK_API_BASE_URL = "http://127.0.0.1:3001";
@@ -129,6 +131,18 @@ export const api = {
       `/v1/patches${queryString({ cursor, limit: 100 })}`,
       { cache: "no-store" },
     ),
+  update: (version: string) =>
+    fetchApi(
+      updateDetailResponseSchema,
+      `/v1/updates/${encodeURIComponent(version)}`,
+      { cache: "no-store" },
+    ),
+  updates: (cursor?: string) =>
+    fetchApi(
+      updatesResponseSchema,
+      `/v1/updates${queryString({ cursor, limit: 100 })}`,
+      { cache: "no-store" },
+    ),
   playerHeroes: (accountId: string, window: string, patch?: string, cursor?: string) =>
     fetchApi(
       playerHeroesResponseSchema,
@@ -197,6 +211,17 @@ export async function collectAllPatches() {
   let cursor: string | undefined;
   do {
     const page = await api.patches(cursor);
+    items.push(...page.data.items);
+    cursor = page.data.nextCursor ?? undefined;
+  } while (cursor);
+  return items;
+}
+
+export async function collectAllUpdates() {
+  const items: UpdateReleaseSummary[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await api.updates(cursor);
     items.push(...page.data.items);
     cursor = page.data.nextCursor ?? undefined;
   } while (cursor);

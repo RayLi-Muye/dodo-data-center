@@ -6,6 +6,7 @@ export const timestampSchema = z.iso.datetime().refine((value) => value.endsWith
 });
 
 export const dataSourceSchema = z.enum([
+  "dota2_official",
   "opendota",
   "steam",
   "dotaconstants",
@@ -133,6 +134,49 @@ export const patchSummarySchema = z.object({
   id: identifierSchema,
   name: z.string().min(1).max(32),
   releasedAt: timestampSchema,
+});
+
+export const updateSectionKindSchema = z.enum([
+  "general",
+  "hero",
+  "item",
+  "neutral_item",
+  "neutral_creep",
+]);
+
+export const updateSubsectionSchema = z.enum([
+  "overview",
+  "ability",
+  "talent",
+]);
+
+export const updateNoteSchema = z.object({
+  text: z.string().min(1).max(2_000),
+  info: z.string().min(1).max(2_000).nullable(),
+  indentLevel: z.number().int().min(1).max(8),
+});
+
+export const updateChangeGroupSchema = z.object({
+  kind: updateSectionKindSchema,
+  subsection: updateSubsectionSchema,
+  entityId: identifierSchema.nullable(),
+  entityName: z.string().min(1).max(160).nullable(),
+  relatedAbilityId: identifierSchema.nullable(),
+  title: z.string().min(1).max(160).nullable(),
+  notes: z.array(updateNoteSchema).min(1),
+});
+
+export const updateReleaseSummarySchema = z.object({
+  version: z.string().min(1).max(32),
+  releasedAt: timestampSchema,
+  sourceUrl: z.string().url().max(256),
+  changeGroupCount: z.number().int().nonnegative(),
+  contentStatus: z.enum(["complete", "partial"]),
+  excludedNoteCount: z.number().int().nonnegative(),
+});
+
+export const updateReleaseDetailSchema = updateReleaseSummarySchema.extend({
+  groups: z.array(updateChangeGroupSchema),
 });
 
 export const mapFeaturesQuerySchema = paginationQuerySchema.extend({
@@ -402,6 +446,10 @@ export const mapFeaturesResponseSchema = createOperationResponseSchema(createPag
 export const patchesResponseSchema = createOperationResponseSchema(
   createPaginatedDataSchema(patchSummarySchema),
 );
+export const updatesResponseSchema = createOperationResponseSchema(
+  createPaginatedDataSchema(updateReleaseSummarySchema),
+);
+export const updateDetailResponseSchema = createOperationResponseSchema(updateReleaseDetailSchema);
 
 export const dataStatusSchema = z.object({
   status: z.enum(["ready", "degraded", "unavailable"]),
@@ -435,6 +483,8 @@ export type PlayerOverview = z.infer<typeof playerOverviewSchema>;
 export type MapFeature = z.infer<typeof mapFeatureSchema>;
 export type MapVersion = z.infer<typeof mapVersionSchema>;
 export type PatchSummary = z.infer<typeof patchSummarySchema>;
+export type UpdateReleaseSummary = z.infer<typeof updateReleaseSummarySchema>;
+export type UpdateReleaseDetail = z.infer<typeof updateReleaseDetailSchema>;
 export type SyncJob = z.infer<typeof syncJobSchema>;
 export type PlayerHistorySync = z.infer<typeof playerHistorySyncSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;

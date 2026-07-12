@@ -60,6 +60,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
         dodo.player_history_sync,
         dodo.provider_health,
         dodo.static_snapshots,
+        dodo.update_releases,
         dodo.heroes,
         dodo.items,
         dodo.patches,
@@ -78,11 +79,21 @@ describeWithDatabase("PostgresDodoRepository", () => {
     const hero = await fixtures.getHero("1");
     const item = await fixtures.getItem("1");
     const patch = await fixtures.getPatch(SEED_PATCH);
+    const update = await fixtures.getUpdateRelease("7.41");
     const map = await fixtures.getCurrentMap();
     const primaryPlayer = await fixtures.getPlayer(SEED_ACCOUNT_ID);
     const sharedPlayer = await fixtures.getPlayer(SEED_PARTIAL_ACCOUNT_ID);
     const matches = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID)).slice(0, 2);
-    if (!hero || !item || !patch || !map || !primaryPlayer || !sharedPlayer || matches.length !== 2) {
+    if (
+      !hero ||
+      !item ||
+      !patch ||
+      !update ||
+      !map ||
+      !primaryPlayer ||
+      !sharedPlayer ||
+      matches.length !== 2
+    ) {
       throw new Error("Seed fixtures are incomplete");
     }
 
@@ -94,6 +105,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     await repository.replaceHeroes([hero], snapshot);
     await repository.replaceItems([item], snapshot);
     await repository.replacePatches([patch], snapshot);
+    await repository.replaceUpdateReleases([update], snapshot);
     await repository.upsertMap(map);
     await repository.upsertPlayer(primaryPlayer);
     await repository.upsertPlayer(sharedPlayer);
@@ -168,6 +180,18 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(await repository.getItemSnapshot()).toEqual(snapshot);
     expect(await repository.listPatches()).toEqual([patch]);
     expect(await repository.getPatchSnapshot()).toEqual(snapshot);
+    expect(await repository.listUpdateReleases()).toEqual([
+      {
+        version: update.version,
+        releasedAt: update.releasedAt,
+        sourceUrl: update.sourceUrl,
+        changeGroupCount: update.changeGroupCount,
+        contentStatus: update.contentStatus,
+        excludedNoteCount: update.excludedNoteCount,
+      },
+    ]);
+    expect(await repository.getUpdateRelease(update.version)).toEqual(update);
+    expect(await repository.getUpdateSnapshot()).toEqual(snapshot);
     expect(await repository.getCurrentMap()).toEqual(map);
     expect(await repository.getPlayerSyncBatch(SEED_ACCOUNT_ID)).toMatchObject({ sampleSize: 1 });
     expect(await repository.getPlayerSyncFailure(SEED_ACCOUNT_ID)).toMatchObject({ source: "seed" });

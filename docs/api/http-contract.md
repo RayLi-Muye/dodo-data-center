@@ -16,6 +16,8 @@ GET  /v1/players/{accountId}/heroes?window=last_20|last_50|last_100|all_imported
 GET  /v1/players/{accountId}/heroes/{heroId}?window=last_100
 GET  /v1/matches/{matchId}
 GET  /v1/patches?cursor=&limit=
+GET  /v1/updates?cursor=&limit=
+GET  /v1/updates/{version}
 ```
 
 `POST /sync` 返回 `202` 和 `jobId`，不得让 HTTP 请求等待全量同步。
@@ -72,6 +74,10 @@ GET /v1/data-status
 `GET /v1/heroes/{heroId}` 的 `abilities` 使用比赛加点事件同一 numeric ability ID。技能名称与说明来自 `ability_ids + abilities + hero_abilities` 的同一次同步快照；普通技能保持英雄技能编排顺序，天赋随后按等级顺序排列。`is_innate=true` 标记先天技能，英雄技能源的索引 5 标记终极技能，其余普通技能标记为基础技能。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
 
 比赛详情展示技能名称时只能使用 `abilityBuild[].abilityId` 与英雄技能字典的精确 ID 匹配。未命中时保留 `技能 #<id>`，不能根据加点位置猜测技能。
+
+`/v1/patches` 保留为比赛数据使用的 OpenDota major patch ID 目录；`/v1/updates` 使用 Dota 2 官方 `patchnoteslist` 与 `patchnotes` datafeed，版本键可包含小版本后缀（例如 `7.41d`）。两者不得互相替代或伪造映射。
+
+`GET /v1/updates/{version}` 返回通用、英雄、物品、中立物品与中立野怪分组。英雄技能与天赋分别使用 `ability`、`talent` subsection；无法安全转为纯文本的条目必须计入 `excludedNoteCount`，并将 `contentStatus` 标为 `partial`。公开响应不得包含上游 HTML，且必须保留 Dota 2 官方 `sourceUrl`。
 
 ## Error codes
 

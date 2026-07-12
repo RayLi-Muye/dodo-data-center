@@ -92,4 +92,44 @@ describe("server API client", () => {
       expect.objectContaining({ cache: "no-store" }),
     );
   });
+
+  it("validates official update lists and details without caching them", async () => {
+    const meta = {
+      quality: "complete",
+      sources: ["dota2_official"],
+      updatedAt: "2026-07-12T00:00:00.000Z",
+    };
+    const summary = {
+      changeGroupCount: 2,
+      contentStatus: "complete",
+      excludedNoteCount: 0,
+      releasedAt: "2026-07-11T00:00:00.000Z",
+      sourceUrl: "https://www.dota2.com/patches/7.41d",
+      version: "7.41d",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { items: [summary], nextCursor: null },
+        meta,
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { ...summary, groups: [] },
+        meta,
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.updates();
+    await api.update("7.41d");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/\/v1\/updates\?limit=100$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/\/v1\/updates\/7\.41d$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
 });

@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import { OpenDotaProvider } from "@dodo/dota-data";
+import { Dota2OfficialProvider, OpenDotaProvider } from "@dodo/dota-data";
 import {
   createLiveRepository,
   createSeedRepository,
@@ -52,14 +52,19 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
   let syncService = options.syncService;
   let historySyncService = options.historySyncService;
   if (dataMode === "live" && (!syncService || !historySyncService)) {
-    const provider =
-      options.playerDataProvider ??
-      new OpenDotaProvider({
+    const provider = options.playerDataProvider ?? (() => {
+      const openDotaProvider = new OpenDotaProvider({
         ...(process.env.OPENDOTA_API_BASE_URL
           ? { baseUrl: process.env.OPENDOTA_API_BASE_URL }
           : {}),
         ...(process.env.OPENDOTA_API_KEY ? { apiKey: process.env.OPENDOTA_API_KEY } : {}),
       });
+      const officialProvider = new Dota2OfficialProvider();
+      return Object.assign(openDotaProvider, {
+        getRecentUpdateReleases: (limit: number) =>
+          officialProvider.getRecentUpdateReleases(limit),
+      });
+    })();
     syncService ??= new PlayerSyncService({ repository, provider, clock });
     historySyncService ??= new PlayerHistorySyncService({ repository, provider, clock });
   }

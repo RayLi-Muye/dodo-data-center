@@ -10,6 +10,9 @@ import {
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
   syncJobResponseSchema,
+  updateDetailResponseSchema,
+  updatesResponseSchema,
+  type UpdateReleaseDetail,
 } from "@dodo/contracts";
 import {
   OpenDotaProviderError,
@@ -258,6 +261,26 @@ const patches: CanonicalConstantsSnapshot<CanonicalPatchSummary> = {
   ],
 };
 
+const officialUpdate: UpdateReleaseDetail = {
+  version: "7.41b",
+  releasedAt: "2026-07-09T00:00:00.000Z",
+  sourceUrl: "https://www.dota2.com/patches/7.41b",
+  changeGroupCount: 1,
+  contentStatus: "complete",
+  excludedNoteCount: 0,
+  groups: [
+    {
+      kind: "hero",
+      subsection: "overview",
+      entityId: "107",
+      entityName: "Earth Spirit",
+      relatedAbilityId: null,
+      title: null,
+      notes: [{ text: "Strength increased by 1.", info: null, indentLevel: 1 }],
+    },
+  ],
+};
+
 const detailFor = (matchId: string): CanonicalMatchDetail => {
   const match = recent.matches.find((candidate) => candidate.id === matchId);
   if (!match) throw new Error(`Missing test match ${matchId}`);
@@ -294,6 +317,11 @@ const createProvider = (): PlayerDataProvider => ({
   getHeroAbilityConstants: vi.fn(async () => heroAbilities),
   getItemConstants: vi.fn(async () => items),
   getPatchConstants: vi.fn(async () => patches),
+  getRecentUpdateReleases: vi.fn(async () => ({
+    items: [officialUpdate],
+    excludedVersions: [],
+    source: { source: "dota2_official" as const, fetchedAt: FETCHED_AT },
+  })),
 });
 
 const json = (response: { body: string }): unknown => JSON.parse(response.body);
@@ -448,6 +476,28 @@ describe("live player synchronization", () => {
     expect(provider.getHeroAbilityConstants).toHaveBeenCalledTimes(1);
     expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
     expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getRecentUpdateReleases).toHaveBeenCalledWith(5);
+
+    const updateList = updatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates" })),
+    );
+    expect(updateList.data.items).toEqual([
+      {
+        version: officialUpdate.version,
+        releasedAt: officialUpdate.releasedAt,
+        sourceUrl: officialUpdate.sourceUrl,
+        changeGroupCount: officialUpdate.changeGroupCount,
+        contentStatus: officialUpdate.contentStatus,
+        excludedNoteCount: officialUpdate.excludedNoteCount,
+      },
+    ]);
+    expect(updateList.data.items[0]).not.toHaveProperty("groups");
+    expect(updateList.meta).toMatchObject({ sources: ["dota2_official"] });
+
+    const updateDetail = updateDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates/7.41b" })),
+    );
+    expect(updateDetail.data).toEqual(officialUpdate);
   });
 
   it("joins exact hero ability IDs, talents, and facets into the live hero catalog", async () => {
@@ -583,6 +633,43 @@ describe("live player synchronization", () => {
       "5612",
       "324",
     ]);
+  });
+
+  it("keeps old updates readable when their non-critical refresh fails", async () => {
+    const repository = await createLiveRepository();
+    const oldUpdate = { ...officialUpdate, version: "7.41a" };
+    await repository.replaceUpdateReleases([oldUpdate], {
+      source: "dota2_official",
+      quality: "complete",
+      fetchedAt: "2026-07-09T00:00:00.000Z",
+    });
+    const provider = createProvider();
+    provider.getRecentUpdateReleases = vi.fn(async () => {
+      throw new Error("test-only official update failure");
+    });
+    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      syncService: service,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const accepted = syncJobResponseSchema.parse(
+      json(await app.inject({ method: "POST", url: `/v1/players/${ACCOUNT_ID}/sync` })),
+    );
+    const terminal = await service.waitForJob(accepted.data.jobId);
+    expect(terminal?.status).toBe("public_partial");
+
+    const list = updatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates" })),
+    );
+    expect(list.data.items.map((release) => release.version)).toEqual(["7.41a"]);
+    expect(list.meta).toMatchObject({
+      sources: ["dota2_official"],
+      updatedAt: "2026-07-09T00:00:00.000Z",
+    });
   });
 
   it("keeps previously imported public data readable while a refresh is running", async () => {

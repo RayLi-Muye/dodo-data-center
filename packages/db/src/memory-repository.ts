@@ -7,6 +7,8 @@ import type {
   PlayerHistorySync,
   PlayerProfile,
   SyncJob,
+  UpdateReleaseDetail,
+  UpdateReleaseSummary,
 } from "@dodo/contracts";
 
 import type { DodoRepository, StoredMatch } from "./types.js";
@@ -42,6 +44,7 @@ export class MemoryDodoRepository implements DodoRepository {
   readonly #items = new Map<string, ItemDetail>();
   readonly #maps = new Map<string, MapVersion>();
   readonly #patches = new Map<string, PatchSummary>();
+  #updateReleases = new Map<string, UpdateReleaseDetail>();
   readonly #players = new Map<string, PlayerProfile>();
   readonly #matches = new Map<string, StoredMatch>();
   readonly #playerMatchIds = new Map<string, Set<string>>();
@@ -53,6 +56,7 @@ export class MemoryDodoRepository implements DodoRepository {
   #heroSnapshot: StaticDataSnapshot | undefined;
   #itemSnapshot: StaticDataSnapshot | undefined;
   #patchSnapshot: StaticDataSnapshot | undefined;
+  #updateSnapshot: StaticDataSnapshot | undefined;
   #currentMapId: string | undefined;
 
   async upsertHero(hero: HeroDetail): Promise<void> {
@@ -187,6 +191,19 @@ export class MemoryDodoRepository implements DodoRepository {
     this.#patchSnapshot = clone(snapshot);
   }
 
+  async replaceUpdateReleases(
+    releases: UpdateReleaseDetail[],
+    snapshot: StaticDataSnapshot,
+  ): Promise<void> {
+    const next =
+      snapshot.quality === "partial"
+        ? new Map([...this.#updateReleases].map(([version, release]) => [version, clone(release)]))
+        : new Map<string, UpdateReleaseDetail>();
+    for (const release of releases) next.set(release.version, clone(release));
+    this.#updateReleases = next;
+    this.#updateSnapshot = clone(snapshot);
+  }
+
   async upsertProviderHealth(health: ProviderHealth): Promise<void> {
     this.#providerHealth.set(health.source, clone(health));
   }
@@ -238,6 +255,25 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async getPatchSnapshot(): Promise<StaticDataSnapshot | undefined> {
     return this.#patchSnapshot ? clone(this.#patchSnapshot) : undefined;
+  }
+
+  async listUpdateReleases(): Promise<UpdateReleaseSummary[]> {
+    return [...this.#updateReleases.values()]
+      .sort(
+        (left, right) =>
+          Date.parse(right.releasedAt) - Date.parse(left.releasedAt) ||
+          right.version.localeCompare(left.version),
+      )
+      .map(({ groups: _groups, ...summary }) => clone(summary));
+  }
+
+  async getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined> {
+    const release = this.#updateReleases.get(version);
+    return release ? clone(release) : undefined;
+  }
+
+  async getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#updateSnapshot ? clone(this.#updateSnapshot) : undefined;
   }
 
   async getCurrentMap(): Promise<MapVersion | undefined> {

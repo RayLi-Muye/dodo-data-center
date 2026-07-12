@@ -5,6 +5,7 @@ import type {
   MatchDetail,
   PatchSummary,
   PlayerProfile,
+  UpdateReleaseDetail,
 } from "@dodo/contracts";
 
 import { MemoryDodoRepository } from "./memory-repository.js";
@@ -155,6 +156,26 @@ const patchSeed: PatchSummary[] = [
   },
 ];
 
+const updateSeed: UpdateReleaseDetail = {
+  version: "7.41",
+  releasedAt: SEED_UPDATED_AT,
+  sourceUrl: "https://www.dota2.com/patches/7.41",
+  changeGroupCount: 1,
+  contentStatus: "complete",
+  excludedNoteCount: 0,
+  groups: [
+    {
+      kind: "general",
+      subsection: "overview",
+      entityId: null,
+      entityName: null,
+      relatedAbilityId: null,
+      title: "Seed gameplay update",
+      notes: [{ text: "Deterministic test-only update note.", info: null, indentLevel: 1 }],
+    },
+  ],
+};
+
 const playerSeeds: PlayerProfile[] = [
   {
     accountId: SEED_ACCOUNT_ID,
@@ -270,6 +291,11 @@ export const seedRepository = async (repository: DodoRepository): Promise<DodoRe
   for (const hero of heroSeed) await repository.upsertHero(hero);
   for (const item of itemSeed) await repository.upsertItem(item);
   await repository.replacePatches(patchSeed, {
+    source: "seed",
+    quality: "complete",
+    fetchedAt: SEED_UPDATED_AT,
+  });
+  await repository.replaceUpdateReleases([updateSeed], {
     source: "seed",
     quality: "complete",
     fetchedAt: SEED_UPDATED_AT,

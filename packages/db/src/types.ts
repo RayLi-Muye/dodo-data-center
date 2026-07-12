@@ -9,6 +9,8 @@ import type {
   PlayerHistorySync,
   PlayerProfile,
   SyncJob,
+  UpdateReleaseDetail,
+  UpdateReleaseSummary,
 } from "@dodo/contracts";
 
 export type DataSource = OperationMeta["sources"][number];
@@ -84,6 +86,10 @@ export interface DodoRepository {
   replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void>;
   replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void>;
   replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void>;
+  replaceUpdateReleases(
+    releases: UpdateReleaseDetail[],
+    snapshot: StaticDataSnapshot,
+  ): Promise<void>;
   upsertProviderHealth(health: ProviderHealth): Promise<void>;
   getHero(id: string): Promise<HeroDetail | undefined>;
   listHeroes(): Promise<HeroDetail[]>;
@@ -94,6 +100,9 @@ export interface DodoRepository {
   getPatch(id: string): Promise<PatchSummary | undefined>;
   listPatches(): Promise<PatchSummary[]>;
   getPatchSnapshot(): Promise<StaticDataSnapshot | undefined>;
+  listUpdateReleases(): Promise<UpdateReleaseSummary[]>;
+  getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined>;
+  getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined>;
   getCurrentMap(): Promise<MapVersion | undefined>;
   getMap(id: string): Promise<MapVersion | undefined>;
   getPlayer(accountId: string): Promise<PlayerProfile | undefined>;

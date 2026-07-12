@@ -60,6 +60,7 @@ import type { PlayerHistorySyncService } from "./player-history-sync-service.js"
 
 const detailQuerySchema = z.object({ patch: z.string().trim().max(32).optional() });
 const mapVersionParamsSchema = z.object({ mapVersionId: identifierSchema });
+const updateVersionParamsSchema = z.object({ version: identifierSchema });
 
 const parse = <T extends z.ZodType>(
   schema: T,
@@ -408,6 +409,16 @@ export const registerRoutes = async (
     status?: PlayerProfile["status"],
     retryAfterSeconds: number | null = null,
   ) => createErrorMeta(status, retryAfterSeconds, await defaultDescriptor());
+  const updateDescriptor = async (): Promise<MetaDescriptor> => {
+    const snapshot = await repository.getUpdateSnapshot();
+    return snapshot
+      ? descriptorFromSnapshot(snapshot)
+      : {
+          updatedAt: new Date(0).toISOString(),
+          sources: ["dota2_official"],
+          quality: "partial",
+        };
+  };
   const playerDescriptor = async (accountId: string): Promise<MetaDescriptor> => {
     const batch = await repository.getPlayerSyncBatch(accountId);
     return batch ? descriptorFromBatch(batch) : defaultDescriptor();
@@ -757,6 +768,39 @@ export const registerRoutes = async (
         snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
       ),
     };
+  });
+
+  app.get("/v1/updates", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const query = parse(paginationQuerySchema, request.query, errorMeta);
+    const releases = await repository.listUpdateReleases();
+    return {
+      data: paginate(
+        releases,
+        query.limit,
+        query.cursor,
+        (release) => release.version,
+        errorMeta,
+      ),
+      meta: createOperationMeta(await updateDescriptor()),
+    };
+  });
+
+  app.get("/v1/updates/:version", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const { version } = parse(updateVersionParamsSchema, request.params, errorMeta);
+    const descriptor = await updateDescriptor();
+    const release = await repository.getUpdateRelease(version);
+    if (!release) {
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Official update release was not found.",
+        false,
+        createErrorMeta("not_found", null, descriptor),
+      );
+    }
+    return { data: release, meta: createOperationMeta(descriptor) };
   });
 
   app.get("/v1/heroes", async (request) => {
