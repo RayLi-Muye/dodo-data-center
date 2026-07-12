@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted for the MVP synchronization performance pass.
+Accepted for the MVP synchronization performance pass. The cache mechanics remain accepted;
+the literal TTL values are provisional pending the Dota domain review recorded in
+`docs/prd/dota2-domain-context.md`.
 
 ## Context
 
@@ -20,6 +22,11 @@ A repeated public-account refresh currently rewrites the same hero, item, patch,
 - Compare the latest player matches with persisted documents and write only new or materially changed matches. Existing enriched details remain authoritative over a repeated summary response.
 - Batch match document and player-membership writes in set-based PostgreSQL statements. Keep deterministic advisory locking and document merge behavior.
 - Keep recent-match detail enrichment asynchronous within the existing job for this pass; separating it into another durable job is a later slice.
+
+The six-hour and thirty-minute values above describe the deployed performance pass, not a
+permanent statement about Dota's update cadence. The follow-up design separates 30-minute
+player discovery from a lightweight official Patch sentinel and event-driven static catalog
+invalidation. New TTL values require a dedicated ADR after the product freshness SLA is frozen.
 
 ## Why not Redis yet
 

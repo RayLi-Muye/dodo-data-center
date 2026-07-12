@@ -203,3 +203,20 @@ DONE
 - Railway 部署 `cf06f58d-09d9-4929-8f6f-4ffc40fababc` 成功，健康检查为 ready。
 - 公开账号 `224328273` 连续两次同步均为 `public_complete`：第一轮 7.268 秒，第二轮 5.617 秒；此前重复同步基线约 113.55 秒。
 - 同步后 100 场统计 `coverageRate=1`；英雄、物品、更新与最新比赛接口均为 200，最新比赛详情保留 10 名玩家。
+
+## Wave 11: Dota domain review
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-011 Dota domain and source audit | Root | 版本、英雄、物品、比赛、地图、数据可得性与 TTL 语义 | Wave 10 | REVIEW |
+| DOMAIN-011 product semantics confirmation | Root / Product owner | 模式默认值、小版本归属、历史百科和地图范围 | ROOT-011 | READY |
+| DATA-011 official current-data provider | Data Source Agent | 待领域语义确认后授权 | DOMAIN-011 | READY |
+
+## Wave 11 evidence
+
+- 官方 patch list、hero/item/ability datafeed、Steam match fields、OpenDota current constants 与真实比赛响应已完成交叉审计。
+- 2024 年以来官方列表有 27 个版本记录，全部版本中位间隔约 29 天；不带字母的编号版本中位间隔约 99 天。
+- OpenDota `patch=60` 只能表达 7.41 大版本族；具体 7.41a–d 需要用官方发布时间与比赛开始时间推导并标记来源。
+- 7.41 已移除 facets，但生产英雄页仍展示 deprecated facets；当前英雄/物品版本为 unknown。
+- 真实比赛存在 `item_neutral` 与 `item_neutral2`，当前 canonical 模型只保留前者。
+- 生产地图仍为无真实地点的 seed map，却标记 complete；新功能开发暂停，等待领域口径确认与正确性修复。
