@@ -151,7 +151,7 @@ DONE
 | DATA-009 OpenDota patch catalog | Data Source Agent | `packages/dota-data/**` | ROOT-009 | ACCEPTED |
 | API-009 patch persistence and combined filters | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-009, DATA-009 | ACCEPTED |
 | WEB-009 player filters and Update tab | Root | `apps/web/**` | API-009 | ACCEPTED |
-| DEPLOY-009 patch migration and live smoke | Root | Supabase、Railway、Vercel | ROOT-009, API-009, WEB-009 | RUNNING |
+| DEPLOY-009 patch migration and live smoke | Root | Supabase、Railway、Vercel | ROOT-009, API-009, WEB-009 | ACCEPTED |
 
 ## Wave 9 local evidence
 
@@ -160,6 +160,10 @@ DONE
 - `GET /v1/patches` 使用游标分页和最新版本优先；玩家 URL 保留 `window` 与 `patch`。
 - “更新”主导航和 Patch 时间线已加入；本波只交付版本目录，改动正文属于下一纵切。
 - 静态数据库35项断言、全仓 typecheck、生产 build 和113项常规测试通过；3项专用 PostgreSQL 测试按设计跳过。
+- Supabase migration `20260712000100_patch_catalog` 已应用；Railway `7a8e11cf-4db8-4c43-926d-ccc387de1c2f` 与 Vercel `c5daf87` 均成功。
+- 线上 Patch 目录返回61项，最新为 `7.41 / id 60`；账号 `224328273` 的 `last_20 + patch=60` 返回20场且版本集合仅为60。
+- 浏览器确认“更新”导航、61行 Patch 时间线、7.41选中状态、20场样本和版本筛选URL持久化均正常。
+- Patch 页面改为动态读取，避免构建时空目录缓存一小时。
 
 ## Wave 7: Player refresh experience
 
