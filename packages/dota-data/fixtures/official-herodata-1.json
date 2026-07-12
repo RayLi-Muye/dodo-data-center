@@ -1,0 +1,102 @@
+{
+  "result": {
+    "status": 1,
+    "data": {
+      "heroes": [
+        {
+          "id": 1,
+          "name": "npc_dota_hero_antimage",
+          "name_loc": "Anti-Mage",
+          "primary_attr": 1,
+          "attack_capability": 1,
+          "role_levels": [3, 0, 1, 0, 0, 0, 3, 0, 0],
+          "abilities": [
+            {
+              "id": 5004,
+              "name": "antimage_blink",
+              "name_loc": "Blink",
+              "desc_loc": "<h1>Active: Blink</h1> Teleport up to %blink_range% units.",
+              "type": 0,
+              "ability_is_innate": false,
+              "special_values": [
+                {
+                  "name": "blink_range",
+                  "values_float": [875, 950, 1025, 1100],
+                  "heading_loc": "CAST RANGE:"
+                }
+              ]
+            },
+            {
+              "id": 0,
+              "name": "generic_hidden",
+              "name_loc": "Hidden",
+              "desc_loc": "Not player-visible.",
+              "type": 0,
+              "ability_is_innate": false,
+              "special_values": []
+            },
+            {
+              "id": 1447,
+              "name": "antimage_persecutor",
+              "name_loc": "Persecutor",
+              "desc_loc": "Slows by {s:slow}%.",
+              "type": 0,
+              "ability_is_innate": true,
+              "special_values": [
+                {
+                  "name": "slow",
+                  "values_float": [24],
+                  "heading_loc": "SLOW:"
+                }
+              ]
+            }
+          ],
+          "talents": [
+            {
+              "id": 1495,
+              "name": "special_bonus_hp_regen_3",
+              "name_loc": "+{s:value} Health Regen",
+              "desc_loc": "",
+              "type": 2,
+              "ability_is_innate": false,
+              "special_values": [
+                {
+                  "name": "value",
+                  "values_float": [3],
+                  "heading_loc": ""
+                }
+              ]
+            },
+            {
+              "id": 1496,
+              "name": "special_bonus_hidden_fixture",
+              "name_loc": "",
+              "desc_loc": "",
+              "type": 2,
+              "ability_is_innate": false,
+              "special_values": []
+            },
+            {
+              "id": 1497,
+              "name": "special_bonus_unresolved_fixture",
+              "name_loc": "+{s:missing_value} Unresolved Fixture",
+              "desc_loc": "",
+              "type": 2,
+              "ability_is_innate": false,
+              "special_values": []
+            }
+          ],
+          "facets": [
+            {
+              "name": "mana_thirst",
+              "title_loc": "Mana Thirst",
+              "description_loc": "Historical facet.",
+              "deprecated": true
+            }
+          ],
+          "facet_abilities": []
+        }
+      ]
+    }
+  }
+}

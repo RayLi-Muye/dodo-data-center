@@ -222,6 +222,7 @@ function normalizePlayer(
     .map(readOptionalId)
     .filter((itemId): itemId is string => itemId !== null && itemId !== "0");
   const neutralItemId = readOptionalId(raw.item_neutral);
+  const neutralItemEnhancementId = readOptionalId(raw.item_neutral2);
 
   const abilityBuild = Array.isArray(raw.ability_upgrades_arr)
     ? raw.ability_upgrades_arr.map((abilityId, index) => ({
@@ -273,6 +274,8 @@ function normalizePlayer(
     finalItemIds,
     backpackItemIds,
     neutralItemId: neutralItemId === "0" ? null : neutralItemId,
+    neutralItemEnhancementId:
+      neutralItemEnhancementId === "0" ? null : neutralItemEnhancementId,
     abilityBuild,
     abilityBuildStatus,
     itemTimeline,
@@ -290,6 +293,7 @@ function normalizePlayerMatch(rawValue: unknown, accountId: string): CanonicalPl
     patchId: readOptionalId(raw.patch),
     gameMode: readId(raw.game_mode, "match.game_mode"),
     region: readOptionalId(raw.region),
+    lobbyType: readOptionalId(raw.lobby_type),
     radiantWin,
     player: normalizePlayer(raw, radiantWin, accountId),
   };
@@ -575,6 +579,7 @@ export class OpenDotaProvider {
           primaryAttribute: normalizePrimaryAttribute(hero.primary_attr),
           attackType: normalizeAttackType(hero.attack_type),
           roles,
+          officialVersion: null,
         } satisfies CanonicalHeroConstant;
       })
       .sort((a, b) => Number(a.id) - Number(b.id));
@@ -586,7 +591,7 @@ export class OpenDotaProvider {
     const { payload, fetchedAt } = await this.requestJson("constants/items");
     const root = readRecord(payload, "item constants");
     const items = Object.entries(root)
-      .map(([name, value]) => {
+      .map(([name, value]): CanonicalItemConstant | null => {
         const item = readRecord(value, `item.${name}`);
         const id = readOptionalId(item.id);
         if (id === null) return null;
@@ -615,6 +620,9 @@ export class OpenDotaProvider {
           description: readNullableString(item.desc) ?? "",
           attributes,
           componentNames,
+          kind: "item",
+          availabilityStatus: "unverified",
+          officialVersion: null,
         } satisfies CanonicalItemConstant;
       })
       .filter((item): item is CanonicalItemConstant => item !== null)
@@ -713,6 +721,7 @@ export class OpenDotaProvider {
       return [heroName, {
         heroName,
         abilities: normalizedAbilities,
+        facetsStatus: "unavailable" as const,
         facets,
         excludedAbilityNames,
       }];

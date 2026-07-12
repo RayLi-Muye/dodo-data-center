@@ -6,6 +6,7 @@ import type {
   SyncJob,
 } from "@dodo/contracts";
 import {
+  Dota2OfficialProviderError,
   OpenDotaProviderError,
   type CanonicalHeroAbilitySet,
   type CanonicalHeroConstant,
@@ -27,9 +28,8 @@ import { createHash } from "node:crypto";
 
 import type { PlayerDataProvider } from "./player-data-provider.js";
 
-const UNKNOWN_PATCH = "unknown";
-const STATIC_TTL_MS = 6 * 60 * 60 * 1_000;
-const UPDATE_TTL_MS = 30 * 60 * 1_000;
+export const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+export const UPDATE_TTL_MS = 2 * 60 * 60 * 1_000;
 
 const stableValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -43,10 +43,17 @@ const stableValue = (value: unknown): unknown => {
   return value;
 };
 
-const contentHash = (value: unknown): string =>
+export const contentHash = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(stableValue(value))).digest("hex");
 
-const snapshotIsFresh = (
+const inferOfficialVersion = (
+  startTime: string,
+  releases: Array<{ version: string; releasedAt: string }>,
+): string | null =>
+  releases.find((release) => Date.parse(release.releasedAt) <= Date.parse(startTime))?.version ??
+  null;
+
+export const snapshotIsFresh = (
   snapshot: StaticDataSnapshot | undefined,
   now: string,
   ttlMs: number,
@@ -55,13 +62,14 @@ const snapshotIsFresh = (
   Date.parse(now) - Date.parse(snapshot.checkedAt) >= 0 &&
   Date.parse(now) - Date.parse(snapshot.checkedAt) < ttlMs;
 
-const nextSnapshot = (
+export const nextSnapshot = (
   previous: StaticDataSnapshot | undefined,
   source: StaticDataSnapshot["source"],
   quality: DataQuality,
   fetchedAt: string,
   hash: string,
   checkedAt: string,
+  officialVersion: string | null,
 ): StaticDataSnapshot => ({
   source,
   quality,
@@ -69,6 +77,7 @@ const nextSnapshot = (
   checkedAt,
   changedAt: previous?.contentHash === hash ? previous.changedAt : checkedAt,
   contentHash: hash,
+  officialVersion,
 });
 
 type PlayerSyncServiceOptions = {
@@ -77,24 +86,27 @@ type PlayerSyncServiceOptions = {
   clock?: () => Date;
 };
 
-const toHeroDetail = (
+export const toHeroDetail = (
   hero: CanonicalHeroConstant,
   abilitySet: CanonicalHeroAbilitySet | undefined,
   heroFetchedAt: string,
   abilityFetchedAt: string,
+  officialVersion: string | null,
 ): HeroDetail => ({
   ...hero,
-  patch: UNKNOWN_PATCH,
+  officialVersion,
+  facetsStatus: abilitySet?.facetsStatus ?? "unavailable",
   facets: abilitySet?.facets ?? [],
   abilities: abilitySet?.abilities ?? [],
   sourceSnapshot:
-    `opendota://constants/heroes@${heroFetchedAt};` +
-    `opendota://constants/ability_ids+abilities+hero_abilities@${abilityFetchedAt}`,
+    `dota2-official://datafeed/herolist+herodata@${heroFetchedAt};` +
+    `dota2-official://datafeed/herodata/abilities@${abilityFetchedAt}`,
 });
 
-const toItemDetails = (
+export const toItemDetails = (
   items: CanonicalItemConstant[],
   fetchedAt: string,
+  officialVersion: string | null,
 ): ItemDetail[] => {
   const idByName = new Map(items.map((item) => [item.name, item.id]));
   return items.map((item) => ({
@@ -103,14 +115,16 @@ const toItemDetails = (
     localizedName: item.localizedName,
     cost: item.cost ?? 0,
     category: item.category ?? "unknown",
-    patch: UNKNOWN_PATCH,
+    kind: item.kind,
+    availabilityStatus: item.availabilityStatus,
+    officialVersion,
     description: item.description,
     attributes: item.attributes,
     components: item.componentNames.flatMap((name) => {
       const id = idByName.get(name);
       return id === undefined ? [] : [id];
     }),
-    sourceSnapshot: `opendota://constants/items@${fetchedAt}`,
+    sourceSnapshot: `dota2-official://datafeed/itemlist+itemdata@${fetchedAt}`,
   }));
 };
 
@@ -125,6 +139,9 @@ const toMatchPlayer = (
   });
   return {
     ...rest,
+    neutralItemEnhancementId:
+      (player as CanonicalMatchPlayer & { neutralItemEnhancementId?: string | null })
+        .neutralItemEnhancementId ?? null,
     itemTimeline: knownTransactions.map(({ itemKey: _itemKey, ...transaction }) => transaction),
     itemTimelineStatus:
       knownTransactions.length === itemTimeline.length
@@ -136,19 +153,23 @@ const toMatchPlayer = (
 export const toMatchSummaryDetail = (
   match: CanonicalPlayerMatch,
   itemIdByName: ReadonlyMap<string, string>,
+  officialVersion: string | null = null,
 ): MatchDetail => {
   return {
     id: match.id,
     startTime: match.startTime,
     durationSeconds: match.durationSeconds,
-    patch: match.patchId ?? UNKNOWN_PATCH,
+    officialVersion,
+    openDotaPatchId: match.patchId,
+    officialVersionSource: officialVersion ? "start_time_inferred" : "unavailable",
     gameMode: match.gameMode,
+    lobbyType:
+      (match as CanonicalPlayerMatch & { lobbyType?: string | null }).lobbyType ?? null,
     region: match.region,
     radiantWin: match.radiantWin,
     players: [toMatchPlayer(match.player, itemIdByName)],
     detailStatus: "summary",
     parseStatus: "unparsed",
-    lobbyType: null,
     cluster: null,
     radiantScore: null,
     direScore: null,
@@ -158,11 +179,14 @@ export const toMatchSummaryDetail = (
 const toEnrichedMatchDetail = (
   match: CanonicalMatchDetail,
   itemIdByName: ReadonlyMap<string, string>,
+  officialVersion: string | null,
 ): MatchDetail => ({
   id: match.id,
   startTime: match.startTime,
   durationSeconds: match.durationSeconds,
-  patch: match.patchId ?? UNKNOWN_PATCH,
+  officialVersion,
+  openDotaPatchId: match.patchId,
+  officialVersionSource: officialVersion ? "start_time_inferred" : "unavailable",
   gameMode: match.gameMode,
   region: match.region,
   radiantWin: match.radiantWin,
@@ -318,139 +342,15 @@ export class PlayerSyncService {
     let fetchedProfile: CanonicalPlayerProfile | undefined;
     try {
       fetchedProfile = await this.#provider.getPlayerProfile(job.accountId);
-      const checkedAt = this.#clock().toISOString();
-      const [heroSnapshot, itemSnapshot, patchSnapshot, updateSnapshot] = await Promise.all([
-        this.#repository.getHeroSnapshot(),
-        this.#repository.getItemSnapshot(),
-        this.#repository.getPatchSnapshot(),
-        this.#repository.getUpdateSnapshot(),
-      ]);
-      const updateRefresh = snapshotIsFresh(updateSnapshot, checkedAt, UPDATE_TTL_MS)
-        ? Promise.resolve()
-        : Promise.resolve()
-            .then(() => this.#provider.getRecentUpdateReleases(5))
-            .then(async (updates) => {
-              const hash = contentHash(updates.items);
-              const snapshot = nextSnapshot(
-                updateSnapshot,
-                "dota2_official",
-                updates.excludedVersions.length === 0 ? "complete" : "partial",
-                updates.source.fetchedAt,
-                hash,
-                checkedAt,
-              );
-              if (updateSnapshot?.contentHash === hash) {
-                await this.#repository.touchStaticSnapshot(
-                  "update",
-                  updateSnapshot.contentHash,
-                  snapshot,
-                );
-              } else await this.#repository.replaceUpdateReleases(updates.items, snapshot);
-            })
-            .catch(() => undefined);
-      const heroRefresh = snapshotIsFresh(heroSnapshot, checkedAt, STATIC_TTL_MS)
-        ? Promise.resolve()
-        : Promise.all([
-            this.#provider.getHeroConstants(),
-            this.#provider.getHeroAbilityConstants(),
-          ])
-            .then(async ([heroes, heroAbilities]) => {
-              const hash = contentHash([heroes.items, heroAbilities.heroes]);
-              const fetchedAt =
-                heroes.source.fetchedAt > heroAbilities.source.fetchedAt
-                  ? heroes.source.fetchedAt
-                  : heroAbilities.source.fetchedAt;
-              const snapshot = nextSnapshot(
-                heroSnapshot,
-                "opendota",
-                "complete",
-                fetchedAt,
-                hash,
-                checkedAt,
-              );
-              if (heroSnapshot?.contentHash === hash) {
-                await this.#repository.touchStaticSnapshot(
-                  "hero",
-                  heroSnapshot.contentHash,
-                  snapshot,
-                );
-              } else {
-                await this.#repository.replaceHeroes(
-                  heroes.items.map((hero) =>
-                    toHeroDetail(
-                      hero,
-                      heroAbilities.heroes[`npc_dota_hero_${hero.name}`],
-                      heroes.source.fetchedAt,
-                      heroAbilities.source.fetchedAt,
-                    ),
-                  ),
-                  snapshot,
-                );
-              }
-            })
-            .catch((error) => {
-              if (!heroSnapshot) throw error;
-            });
-      const itemRefresh = snapshotIsFresh(itemSnapshot, checkedAt, STATIC_TTL_MS)
-        ? this.#repository.listItems()
-        : this.#provider
-            .getItemConstants()
-            .then(async (items) => {
-              const details = toItemDetails(items.items, items.source.fetchedAt);
-              const hash = contentHash(items.items);
-              const snapshot = nextSnapshot(
-                itemSnapshot,
-                "opendota",
-                "complete",
-                items.source.fetchedAt,
-                hash,
-                checkedAt,
-              );
-              if (itemSnapshot?.contentHash === hash) {
-                await this.#repository.touchStaticSnapshot(
-                  "item",
-                  itemSnapshot.contentHash,
-                  snapshot,
-                );
-              } else await this.#repository.replaceItems(details, snapshot);
-              return details;
-            })
-            .catch((error) => {
-              if (!itemSnapshot) throw error;
-              return this.#repository.listItems();
-            });
-      const patchRefresh = snapshotIsFresh(patchSnapshot, checkedAt, STATIC_TTL_MS)
-        ? Promise.resolve()
-        : this.#provider
-            .getPatchConstants()
-            .then(async (patches) => {
-              const hash = contentHash(patches.items);
-              const snapshot = nextSnapshot(
-                patchSnapshot,
-                "opendota",
-                "complete",
-                patches.source.fetchedAt,
-                hash,
-                checkedAt,
-              );
-              if (patchSnapshot?.contentHash === hash) {
-                await this.#repository.touchStaticSnapshot(
-                  "patch",
-                  patchSnapshot.contentHash,
-                  snapshot,
-                );
-              } else await this.#repository.replacePatches(patches.items, snapshot);
-            })
-            .catch((error) => {
-              if (!patchSnapshot) throw error;
-            });
-      const [recent, itemDetails] = await Promise.all([
+      const [recent, itemDetails, patches] = await Promise.all([
         this.#provider.getRecentMatches(job.accountId, 100),
-        itemRefresh,
-        heroRefresh,
-        patchRefresh,
-        updateRefresh,
+        this.#repository.listItems(),
+        this.#repository.listPatches(),
       ]);
+      const effectiveVersionReleases = patches.map((patch) => ({
+        version: patch.name,
+        releasedAt: patch.releasedAt,
+      }));
       if (recent.accountId !== job.accountId) {
         throw new Error("Player data provider returned matches for a different account");
       }
@@ -470,7 +370,11 @@ export class PlayerSyncService {
         const previous = previousMatches.get(match.id);
         if (previous?.detail.detailStatus === "enriched") return previous;
         return {
-          detail: toMatchSummaryDetail(match, itemIdByName),
+          detail: toMatchSummaryDetail(
+            match,
+            itemIdByName,
+            inferOfficialVersion(match.startTime, effectiveVersionReleases),
+          ),
           importedAt: recent.source.fetchedAt,
           source: "opendota",
           quality,
@@ -512,7 +416,11 @@ export class PlayerSyncService {
             if (canonical.id !== candidate.detail.id) {
               throw new Error("Match detail provider returned a different match");
             }
-            detail = toEnrichedMatchDetail(canonical, itemIdByName);
+            detail = toEnrichedMatchDetail(
+              canonical,
+              itemIdByName,
+              inferOfficialVersion(canonical.startTime, effectiveVersionReleases),
+            );
           } catch {
             continue;
           }
@@ -553,6 +461,31 @@ export class PlayerSyncService {
       });
     } catch (error) {
       const completedAt = this.#clock().toISOString();
+      if (error instanceof Dota2OfficialProviderError) {
+        const status =
+          error.code === "DOTA2_OFFICIAL_RATE_LIMITED"
+            ? "source_rate_limited"
+            : "source_unavailable";
+        await this.#repository.upsertPlayer(
+          asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
+        );
+        await this.#repository.upsertPlayerSyncFailure({
+          accountId: job.accountId,
+          source: "dota2_official",
+          checkedAt: completedAt,
+          retryAfterSeconds: null,
+        });
+        await this.#repository.upsertSyncJob({
+          ...job,
+          status,
+          completedAt,
+          errorCode:
+            status === "source_rate_limited"
+              ? "SOURCE_RATE_LIMITED"
+              : "SOURCE_UNAVAILABLE",
+        });
+        return;
+      }
       if (error instanceof OpenDotaProviderError) {
         const status = statusForProviderError(error);
         if (error.qualityContext) {

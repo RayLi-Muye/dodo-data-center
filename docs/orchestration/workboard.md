@@ -208,9 +208,12 @@ DONE
 
 | Task | Owner | Scope | Depends on | State |
 |---|---|---|---|---|
-| ROOT-011 Dota domain and source audit | Root | 版本、英雄、物品、比赛、地图、数据可得性与 TTL 语义 | Wave 10 | REVIEW |
-| DOMAIN-011 product semantics confirmation | Root / Product owner | 模式默认值、小版本归属、历史百科和地图范围 | ROOT-011 | READY |
-| DATA-011 official current-data provider | Data Source Agent | 待领域语义确认后授权 | DOMAIN-011 | READY |
+| ROOT-011 Dota domain and source audit | Root | 版本、英雄、物品、比赛、地图、数据可得性与 TTL 语义 | Wave 10 | ACCEPTED |
+| DOMAIN-011 product semantics confirmation | Root / Product owner | 模式默认值、小版本归属、历史百科和地图范围 | ROOT-011 | ACCEPTED |
+| DATA-011 official current-data provider | Data Source Agent | `packages/dota-data/**` | DOMAIN-011 | ACCEPTED |
+| API-011 static catalog ownership and version semantics | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-011 | ACCEPTED |
+| WEB-011 data-quality and game-population UI | Web Agent | `apps/web/**`, `packages/ui/**` | API-011 | ACCEPTED |
+| QA-011 Dota correctness gate | QA Agent | read-only | API-011, WEB-011 | ACCEPTED |
 
 ## Wave 11 evidence
 
@@ -220,3 +223,12 @@ DONE
 - 7.41 已移除 facets，但生产英雄页仍展示 deprecated facets；当前英雄/物品版本为 unknown。
 - 真实比赛存在 `item_neutral` 与 `item_neutral2`，当前 canonical 模型只保留前者。
 - 生产地图仍为无真实地点的 seed map，却标记 complete；新功能开发暂停，等待领域口径确认与正确性修复。
+- 产品已确认所有已导入公开模式作为个人历史默认范围，并提供独立的 Ranked/Normal lobby 与 Turbo game-mode 筛选。
+- 静态规则数据迁移到 Dota 2 official current-data；玩家同步与静态目录刷新解耦，官方 Patch 哨兵 2 小时检查、完整目录按版本事件或 7 天哈希复核。
+- 地图 seed 已从 seed 与迁移中移除；在交付可审计 geometry 前接口必须返回 `MAP_UNAVAILABLE`。
+- Live 官方验证为 7.41d、127 个英雄和 501 个成功解析的物品定义；英雄与物品快照按未安全解析的模板/条目诚实标记 partial，物品可购买性统一为 unverified。
+- 公开账号 `224328273` 的 100 场导入、7.41d 时间推定、Ranked lobby 筛选、十人详情和第二中立强化字段均完成 API 与浏览器对账。
+- 全仓 typecheck、生产 build、187 项常规测试、22 项真实 PostgreSQL 测试和 41 项 schema 检查通过；QA-011 无 P0/P1。
+- 390×844 竖屏验证无横向溢出；质量提示、Ranked/Normal/Turbo 选择、官方物品可用性声明与中立附魔均在真实页面可见。
+- Supabase migrations 004/005 已应用：移除精确匹配的 seed map，并允许 `dota2_official` provider health；本地与远端 migration history 一致。
+- 已知 P2：partial 目录 merge 仍可能保留 legacy row，列表级来源不能逐行表达；Patch 发布时间边界尚未细分低置信度窗口。

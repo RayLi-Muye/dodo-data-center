@@ -266,9 +266,10 @@ const filterPlayerMatches = (
       const startedAt = Date.parse(match.detail.startTime);
       return (
         (!query.heroId || player.heroId === query.heroId) &&
-        (!query.patch || match.detail.patch === query.patch) &&
+        (!query.patch || match.detail.officialVersion === query.patch) &&
         (!query.outcome || (query.outcome === "win" ? player.isWin : !player.isWin)) &&
         (!query.gameMode || match.detail.gameMode === query.gameMode) &&
+        (!query.lobbyType || match.detail.lobbyType === query.lobbyType) &&
         (dateFrom === undefined || startedAt >= dateFrom) &&
         (dateTo === undefined || startedAt <= dateTo)
       );
@@ -286,7 +287,9 @@ const toItemSummary = (item: ItemDetail): ItemSummary => ({
   localizedName: item.localizedName,
   cost: item.cost,
   category: item.category,
-  patch: item.patch,
+  kind: item.kind,
+  availabilityStatus: item.availabilityStatus,
+  officialVersion: item.officialVersion,
 });
 
 const itemNameOrder = <T extends { localizedName: string; id: string }>(left: T, right: T) =>
@@ -323,7 +326,7 @@ const descriptorFromBatch = (batch: PlayerSyncBatch): MetaDescriptor => ({
 });
 
 const descriptorFromSnapshot = (snapshot: StaticDataSnapshot): MetaDescriptor => ({
-  updatedAt: snapshot.fetchedAt,
+  updatedAt: snapshot.checkedAt,
   sources: [snapshot.source],
   quality: snapshot.quality,
 });
@@ -333,6 +336,25 @@ const descriptorFromMatch = (match: StoredMatch): MetaDescriptor => ({
   sources: [match.source],
   quality: match.quality,
 });
+
+const inferStoredMatchVersion = (
+  match: StoredMatch,
+  releases: Array<{ version: string; releasedAt: string }>,
+): StoredMatch => {
+  if (match.detail.officialVersion !== null) return match;
+  const release = releases.find(
+    (candidate) => Date.parse(candidate.releasedAt) <= Date.parse(match.detail.startTime),
+  );
+  if (!release) return match;
+  return {
+    ...match,
+    detail: {
+      ...match.detail,
+      officialVersion: release.version,
+      officialVersionSource: "start_time_inferred",
+    },
+  };
+};
 
 type MetricWindow = PlayerHeroStats["window"];
 
@@ -362,7 +384,7 @@ const selectPlayerWindow = (
   patch?: string,
 ): StoredMatch[] => {
   const patchMatches = patch
-    ? matches.filter((match) => match.detail.patch === patch)
+    ? matches.filter((match) => match.detail.officialVersion === patch)
     : matches;
   if (patch || window === "all_imported") return selectWindow(patchMatches, window);
   if (!batch) return selectWindow(matches, window);
@@ -392,6 +414,17 @@ export const registerRoutes = async (
   repository: DodoRepository,
   { dataMode, syncService, historySyncService }: RegisterRoutesOptions,
 ): Promise<void> => {
+  const listVersionedMatches = async (accountId: string): Promise<StoredMatch[]> => {
+    const [matches, patches] = await Promise.all([
+      repository.listPlayerMatches(accountId),
+      repository.listPatches(),
+    ]);
+    const releases = patches.map((patch) => ({
+      version: patch.name,
+      releasedAt: patch.releasedAt,
+    }));
+    return matches.map((match) => inferStoredMatchVersion(match, releases));
+  };
   const defaultDescriptor = async (): Promise<MetaDescriptor> => {
     if (dataMode === "seed") {
       return { updatedAt: SEED_UPDATED_AT, sources: ["seed"], quality: "complete" };
@@ -409,16 +442,26 @@ export const registerRoutes = async (
     status?: PlayerProfile["status"],
     retryAfterSeconds: number | null = null,
   ) => createErrorMeta(status, retryAfterSeconds, await defaultDescriptor());
-  const updateDescriptor = async (): Promise<MetaDescriptor> => {
-    const snapshot = await repository.getUpdateSnapshot();
-    return snapshot
-      ? descriptorFromSnapshot(snapshot)
-      : {
-          updatedAt: new Date(0).toISOString(),
-          sources: ["dota2_official"],
-          quality: "partial",
-        };
-  };
+  const staticUnavailableError = (resource: string, snapshot?: StaticDataSnapshot) =>
+    new ApiHttpError(
+      503,
+      "SOURCE_UNAVAILABLE",
+      snapshot
+        ? `${resource} catalog snapshot is partial and cannot confirm absence.`
+        : `${resource} catalog has not completed an official snapshot yet.`,
+      true,
+      createErrorMeta(
+        "source_unavailable",
+        null,
+        snapshot
+          ? descriptorFromSnapshot(snapshot)
+          : {
+              updatedAt: new Date(0).toISOString(),
+              sources: ["dota2_official"],
+              quality: "partial",
+            },
+      ),
+    );
   const playerDescriptor = async (accountId: string): Promise<MetaDescriptor> => {
     const batch = await repository.getPlayerSyncBatch(accountId);
     return batch ? descriptorFromBatch(batch) : defaultDescriptor();
@@ -580,7 +623,7 @@ export const registerRoutes = async (
     const accountId = parseAccountId(request.params, errorMeta);
     const query = parse(playerWindowQuerySchema, request.query, errorMeta);
     const profile = await accessiblePlayer(accountId);
-    const matches = await repository.listPlayerMatches(accountId);
+    const matches = await listVersionedMatches(accountId);
     const batch = await repository.getPlayerSyncBatch(accountId);
     const selectedMatches = selectPlayerWindow(matches, batch, query.window, query.patch);
     const data = calculateOverview(
@@ -625,7 +668,7 @@ export const registerRoutes = async (
     const batch = await repository.getPlayerSyncBatch(accountId);
     const matches = selectWindow(
       filterPlayerMatches(
-        await repository.listPlayerMatches(accountId),
+        await listVersionedMatches(accountId),
         accountId,
         query,
         errorMeta,
@@ -646,6 +689,7 @@ export const registerRoutes = async (
           heroId: query.heroId ?? null,
           outcome: query.outcome ?? null,
           gameMode: query.gameMode ?? null,
+          lobbyType: query.lobbyType ?? null,
           dateFrom: query.dateFrom ?? null,
           dateTo: query.dateTo ?? null,
         },
@@ -658,7 +702,7 @@ export const registerRoutes = async (
     const accountId = parseAccountId(request.params, errorMeta);
     const profile = await accessiblePlayer(accountId);
     const query = parse(playerHeroesQuerySchema, request.query, errorMeta);
-    const matches = await repository.listPlayerMatches(accountId);
+    const matches = await listVersionedMatches(accountId);
     const batch = await repository.getPlayerSyncBatch(accountId);
     const selectedMatches = selectPlayerWindow(matches, batch, query.window, query.patch);
     const heroStats = calculateHeroList(
@@ -705,7 +749,7 @@ export const registerRoutes = async (
       throw new ApiHttpError(404, "NOT_FOUND", "Hero was not found.", false, errorMeta);
     }
     const selectedMatches = selectPlayerWindow(
-      await repository.listPlayerMatches(accountId),
+      await listVersionedMatches(accountId),
       await repository.getPlayerSyncBatch(accountId),
       window,
       patch,
@@ -750,7 +794,14 @@ export const registerRoutes = async (
   app.get("/v1/matches/:matchId", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const { matchId } = parse(matchIdParamsSchema, request.params, errorMeta);
-    const match = await repository.getMatch(matchId);
+    const storedMatch = await repository.getMatch(matchId);
+    const patches = storedMatch ? await repository.listPatches() : [];
+    const match = storedMatch
+      ? inferStoredMatchVersion(
+          storedMatch,
+          patches.map((patch) => ({ version: patch.name, releasedAt: patch.releasedAt })),
+        )
+      : undefined;
     if (!match) {
       throw new ApiHttpError(404, "NOT_FOUND", "Match was not found.", false, errorMeta);
     }
@@ -762,10 +813,11 @@ export const registerRoutes = async (
     const query = parse(paginationQuerySchema, request.query, errorMeta);
     const patches = await repository.listPatches();
     const snapshot = await repository.getPatchSnapshot();
+    if (!snapshot) throw staticUnavailableError("Patch");
     return {
       data: paginate(patches, query.limit, query.cursor, (patch) => patch.id, errorMeta),
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -773,7 +825,13 @@ export const registerRoutes = async (
   app.get("/v1/updates", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const query = parse(paginationQuerySchema, request.query, errorMeta);
-    const releases = await repository.listUpdateReleases();
+    const [releases, snapshot] = await Promise.all([
+      repository.listUpdateReleases(),
+      repository.getUpdateSnapshot(),
+    ]);
+    if (!snapshot || (snapshot.quality === "partial" && releases.length === 0)) {
+      throw staticUnavailableError("Update", snapshot);
+    }
     return {
       data: paginate(
         releases,
@@ -782,16 +840,21 @@ export const registerRoutes = async (
         (release) => release.version,
         errorMeta,
       ),
-      meta: createOperationMeta(await updateDescriptor()),
+      meta: createOperationMeta(descriptorFromSnapshot(snapshot)),
     };
   });
 
   app.get("/v1/updates/:version", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const { version } = parse(updateVersionParamsSchema, request.params, errorMeta);
-    const descriptor = await updateDescriptor();
-    const release = await repository.getUpdateRelease(version);
+    const [release, snapshot] = await Promise.all([
+      repository.getUpdateRelease(version),
+      repository.getUpdateSnapshot(),
+    ]);
+    if (!snapshot) throw staticUnavailableError("Update");
+    const descriptor = descriptorFromSnapshot(snapshot);
     if (!release) {
+      if (snapshot.quality === "partial") throw staticUnavailableError("Update", snapshot);
       throw new ApiHttpError(
         404,
         "NOT_FOUND",
@@ -807,21 +870,22 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
     const search = query.q?.toLocaleLowerCase();
+    const snapshot = await repository.getHeroSnapshot();
+    if (!snapshot) throw staticUnavailableError("Hero");
     const heroes = (await repository.listHeroes())
       .filter(
         (hero) =>
-          (!query.patch || hero.patch === query.patch) &&
+          (!query.patch || hero.officialVersion === query.patch) &&
           (!search ||
             hero.name.toLocaleLowerCase().includes(search) ||
             hero.localizedName.toLocaleLowerCase().includes(search)),
       )
       .map(toHeroSummary)
       .sort(itemNameOrder);
-    const snapshot = await repository.getHeroSnapshot();
     return {
       data: paginate(heroes, query.limit, query.cursor, (hero) => hero.id, errorMeta),
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -830,15 +894,25 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const { heroId } = parse(heroIdParamsSchema, request.params, errorMeta);
     const { patch } = parse(detailQuerySchema, request.query, errorMeta);
-    const hero = await repository.getHero(heroId);
-    if (!hero || (patch && hero.patch !== patch)) {
-      throw new ApiHttpError(404, "NOT_FOUND", "Hero was not found.", false, errorMeta);
+    const [hero, snapshot] = await Promise.all([
+      repository.getHero(heroId),
+      repository.getHeroSnapshot(),
+    ]);
+    if (!snapshot) throw staticUnavailableError("Hero");
+    if (!hero || (patch && hero.officialVersion !== patch)) {
+      if (snapshot.quality === "partial") throw staticUnavailableError("Hero", snapshot);
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Hero was not found.",
+        false,
+        createErrorMeta("not_found", null, descriptorFromSnapshot(snapshot)),
+      );
     }
-    const snapshot = await repository.getHeroSnapshot();
     return {
       data: hero,
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -847,21 +921,22 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
     const search = query.q?.toLocaleLowerCase();
+    const snapshot = await repository.getItemSnapshot();
+    if (!snapshot) throw staticUnavailableError("Item");
     const items = (await repository.listItems())
       .filter(
         (item) =>
-          (!query.patch || item.patch === query.patch) &&
+          (!query.patch || item.officialVersion === query.patch) &&
           (!search ||
             item.name.toLocaleLowerCase().includes(search) ||
             item.localizedName.toLocaleLowerCase().includes(search)),
       )
       .map(toItemSummary)
       .sort(itemNameOrder);
-    const snapshot = await repository.getItemSnapshot();
     return {
       data: paginate(items, query.limit, query.cursor, (item) => item.id, errorMeta),
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -870,15 +945,25 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const { itemId } = parse(itemIdParamsSchema, request.params, errorMeta);
     const { patch } = parse(detailQuerySchema, request.query, errorMeta);
-    const item = await repository.getItem(itemId);
-    if (!item || (patch && item.patch !== patch)) {
-      throw new ApiHttpError(404, "NOT_FOUND", "Item was not found.", false, errorMeta);
+    const [item, snapshot] = await Promise.all([
+      repository.getItem(itemId),
+      repository.getItemSnapshot(),
+    ]);
+    if (!snapshot) throw staticUnavailableError("Item");
+    if (!item || (patch && item.officialVersion !== patch)) {
+      if (snapshot.quality === "partial") throw staticUnavailableError("Item", snapshot);
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Item was not found.",
+        false,
+        createErrorMeta("not_found", null, descriptorFromSnapshot(snapshot)),
+      );
     }
-    const snapshot = await repository.getItemSnapshot();
     return {
       data: item,
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -887,11 +972,15 @@ export const registerRoutes = async (
     const map = await repository.getCurrentMap();
     if (!map) {
       throw new ApiHttpError(
-        404,
-        "NOT_FOUND",
-        "Current map was not found.",
-        false,
-        await defaultErrorMeta(),
+        503,
+        "MAP_UNAVAILABLE",
+        "No verified current map is available.",
+        true,
+        createErrorMeta("source_unavailable", null, {
+          updatedAt: new Date(0).toISOString(),
+          sources: ["curated_map"],
+          quality: "partial",
+        }),
       );
     }
     return {
@@ -932,16 +1021,33 @@ export const registerRoutes = async (
     if (dataMode === "live") {
       const health = await repository.getProviderHealth("opendota");
       if (!health) throw new Error("Live provider health was not initialized");
+      const officialHealth =
+        (await repository.getProviderHealth("dota2_official")) ??
+        {
+          source: "dota2_official" as const,
+          status: "unavailable" as const,
+          checkedAt: new Date(0).toISOString(),
+          message: "The first official catalog check has not completed yet.",
+        };
+      const providers = [health, officialHealth];
+      const status = providers.some((provider) => provider.status === "unavailable")
+        ? "unavailable"
+        : providers.some((provider) => provider.status === "degraded")
+          ? "degraded"
+          : "ready";
+      const latestHealth = providers.reduce((latest, provider) =>
+        provider.checkedAt > latest.checkedAt ? provider : latest,
+      );
       return {
         data: {
-          status: health.status,
+          status,
           latestMatchAt: await repository.getLatestMatchAt(),
-          providers: [health],
+          providers,
         },
         meta: createOperationMeta({
-          updatedAt: health.checkedAt,
-          sources: [health.source],
-          quality: qualityForProviderStatus(health.status),
+          updatedAt: latestHealth.checkedAt,
+          sources: providers.map((provider) => provider.source),
+          quality: qualityForProviderStatus(status),
         }),
       };
     }

@@ -35,10 +35,10 @@
 - `last_20`, `last_50`, `last_100`：先按 `start_time DESC, match_id DESC` 排序再截取。
 - `all_imported`：只有在 UI 明确标注“全部已导入比赛”时可用。
 - 不足 N 场时使用实际样本，不填充、不外推。
-- `patch` 与窗口组合时，先按 Patch ID 过滤，再应用最近 N 场；不得先截取全局最近 N 场后再过滤。
+- `patch` 与窗口组合时，先按推定的官方小版本过滤，再应用最近 N 场；不得先截取全局最近 N 场后再过滤。
 - `all_imported + patch` 表示该版本内全部已导入的合格公开比赛。
 - 比赛浏览的 `limit=30` 是展示分页大小，不是统计窗口或导入覆盖上限。
-- 比赛浏览先应用英雄、Patch、胜负、模式和 UTC 日期筛选，再排序分页；“某英雄最近 30 场”不得从账号全局最近 30 场中二次过滤。
+- 比赛浏览先应用英雄、Patch、胜负、game mode、lobby type 和 UTC 日期筛选，再排序分页；“某英雄最近 30 场”不得从账号全局最近 30 场中二次过滤。
 
 ## History coverage
 
@@ -81,3 +81,5 @@ quality
 - `itemTimelineStatus=unavailable`：没有可靠交易日志；空数组不表示玩家没有购买物品。
 - `itemTimelineStatus=partial`：只有部分交易类型或时间可用，例如只有购买日志而没有出售日志。
 - `itemTimelineStatus=complete`：数据源明确提供完整购买和出售事件；不得通过最终装备差异推断。
+- `officialVersion`：使用官方版本发布时间与比赛 `start_time` 推定；必须同时返回 `openDotaPatchId` 和 `officialVersionSource`，不得把推定值描述为上游原始字段。
+- `neutralItemId` 与 `neutralItemEnhancementId` 分别保存中立物品本体和强化项；不得丢弃、合并或互相替代。

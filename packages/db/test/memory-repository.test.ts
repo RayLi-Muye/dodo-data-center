@@ -55,6 +55,7 @@ describe("MemoryDodoRepository", () => {
       checkedAt: "2026-07-12T01:00:00.000Z",
       changedAt: "2026-07-12T01:00:00.000Z",
       contentHash: null,
+      officialVersion: null,
     };
 
     expect(await repository.getPatch(SEED_PATCH)).toMatchObject({ releasedAt: SEED_UPDATED_AT });
@@ -82,6 +83,7 @@ describe("MemoryDodoRepository", () => {
       checkedAt: changedAt,
       changedAt,
       contentHash: "new",
+      officialVersion: null,
     };
     await repository.replacePatches(
       [{ id: "60", name: "7.39", releasedAt: changedAt }],
@@ -109,6 +111,7 @@ describe("MemoryDodoRepository", () => {
       checkedAt: "2026-07-12T02:00:00.000Z",
       changedAt: "2026-07-12T02:00:00.000Z",
       contentHash: "first",
+      officialVersion: null,
     };
     const releases = [
       {
@@ -265,6 +268,37 @@ describe("MemoryDodoRepository", () => {
 
     expect(await repository.getPlayer(SEED_ACCOUNT_ID)).toBeUndefined();
     expect(await repository.listPlayerMatches(SEED_ACCOUNT_ID)).toEqual([]);
-    expect((await repository.getCurrentMap())?.sourceSnapshot).toBe("curated-map://maps/seed-map");
+    expect(await repository.getCurrentMap()).toBeUndefined();
+  });
+
+  it("keeps failed hero and item entries during a partial official refresh", async () => {
+    const repository = await createSeedRepository();
+    const heroes = await repository.listHeroes();
+    const items = await repository.listItems();
+    const snapshot = {
+      source: "dota2_official" as const,
+      quality: "partial" as const,
+      fetchedAt: "2026-07-13T00:00:00.000Z",
+      checkedAt: "2026-07-13T00:00:01.000Z",
+      changedAt: "2026-07-13T00:00:01.000Z",
+      contentHash: "partial-current",
+      officialVersion: "7.41d",
+    };
+
+    await repository.replaceHeroes(
+      [{ ...heroes[0]!, officialVersion: "7.41d" }],
+      snapshot,
+    );
+    await repository.replaceItems(
+      [{ ...items[0]!, officialVersion: "7.41d" }],
+      snapshot,
+    );
+
+    expect(await repository.listHeroes()).toHaveLength(heroes.length);
+    expect((await repository.getHero(heroes[0]!.id))?.officialVersion).toBe("7.41d");
+    expect((await repository.getHero(heroes[1]!.id))?.officialVersion).toBe(SEED_PATCH);
+    expect(await repository.listItems()).toHaveLength(items.length);
+    expect((await repository.getItem(items[0]!.id))?.officialVersion).toBe("7.41d");
+    expect((await repository.getItem(items[1]!.id))?.officialVersion).toBe(SEED_PATCH);
   });
 });

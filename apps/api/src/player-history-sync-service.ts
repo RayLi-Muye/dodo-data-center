@@ -1,4 +1,4 @@
-import type { PatchSummary, PlayerHistorySync } from "@dodo/contracts";
+import type { PlayerHistorySync } from "@dodo/contracts";
 import {
   OpenDotaProviderError,
   type CanonicalPlayerMatch,
@@ -10,7 +10,6 @@ import { toMatchSummaryDetail } from "./player-sync-service.js";
 
 const PAGE_SIZE = 100;
 const SYNC_LEASE_MS = 5 * 60 * 1000;
-const UNKNOWN_PATCH = "unknown";
 
 type PlayerHistorySyncServiceOptions = {
   repository: DodoRepository;
@@ -32,13 +31,12 @@ const idleState = (accountId: string, updatedAt: string): PlayerHistorySync => (
   errorCode: null,
 });
 
-const inferPatchId = (match: CanonicalPlayerMatch, patches: PatchSummary[]): string => {
-  if (match.patchId !== null) return match.patchId;
-  const startedAt = Date.parse(match.startTime);
-  return (
-    patches.find((patch) => Date.parse(patch.releasedAt) <= startedAt)?.id ?? UNKNOWN_PATCH
-  );
-};
+const inferOfficialVersion = (
+  match: CanonicalPlayerMatch,
+  releases: Array<{ version: string; releasedAt: string }>,
+): string | null =>
+  releases.find((release) => Date.parse(release.releasedAt) <= Date.parse(match.startTime))
+    ?.version ?? null;
 
 const oldestOf = (current: string | null, matches: CanonicalPlayerMatch[]): string | null => {
   const candidates = [...matches.map((match) => match.startTime), ...(current ? [current] : [])];
@@ -122,19 +120,19 @@ export class PlayerHistorySyncService {
 
   async #execute(current: PlayerHistorySync): Promise<void> {
     try {
-      const [page, items] = await Promise.all([
+      const [page, items, patches] = await Promise.all([
         this.#provider.getPlayerMatchesPage(
           current.accountId,
           current.pageSize,
           current.nextOffset,
         ),
-        this.#provider.getItemConstants(),
+        this.#repository.listItems(),
+        this.#repository.listPatches(),
       ]);
       if (page.accountId !== current.accountId || page.offset !== current.nextOffset) {
         throw new Error("Player data provider returned a different history page");
       }
-      const patches = await this.#repository.listPatches();
-      const itemIdByName = new Map(items.items.map((item) => [item.name, item.id]));
+      const itemIdByName = new Map(items.map((item) => [item.name, item.id]));
       const existing = new Map(
         (await this.#repository.listPlayerMatches(current.accountId)).map((match) => [
           match.detail.id,
@@ -144,9 +142,18 @@ export class PlayerHistorySyncService {
       const storedMatches: StoredMatch[] = page.matches.map((match) => {
         const previous = existing.get(match.id);
         if (previous?.detail.detailStatus === "enriched") return previous;
-        const attributed = { ...match, patchId: inferPatchId(match, patches) };
         return {
-          detail: toMatchSummaryDetail(attributed, itemIdByName),
+          detail: toMatchSummaryDetail(
+            match,
+            itemIdByName,
+            inferOfficialVersion(
+              match,
+              patches.map((patch) => ({
+                version: patch.name,
+                releasedAt: patch.releasedAt,
+              })),
+            ),
+          ),
           importedAt: page.source.fetchedAt,
           source: "opendota",
           quality: page.quality,

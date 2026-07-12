@@ -6,8 +6,12 @@ export type PlayerDataProvider = Pick<
   | "getRecentMatches"
   | "getPlayerMatchesPage"
   | "getMatchDetail"
-  | "getHeroConstants"
-  | "getHeroAbilityConstants"
-  | "getItemConstants"
-  | "getPatchConstants"
-> & Pick<Dota2OfficialProvider, "getRecentUpdateReleases">;
+> &
+  Pick<
+    Dota2OfficialProvider,
+    | "getHeroConstants"
+    | "getHeroAbilityConstants"
+    | "getItemConstants"
+    | "getPatchConstants"
+    | "getRecentUpdateReleases"
+  >;

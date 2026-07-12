@@ -101,6 +101,7 @@ export const playerMatchesQuerySchema = paginationQuerySchema.extend({
   patch: identifierSchema.optional(),
   outcome: z.enum(["win", "loss"]).optional(),
   gameMode: z.string().trim().min(1).max(64).optional(),
+  lobbyType: z.string().trim().min(1).max(64).optional(),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 }).refine(
@@ -190,7 +191,7 @@ export const heroSummarySchema = z.object({
   primaryAttribute: z.enum(["strength", "agility", "intelligence", "universal"]),
   attackType: z.enum(["melee", "ranged"]),
   roles: z.array(z.string()),
-  patch: z.string().min(1),
+  officialVersion: z.string().min(1).nullable(),
 });
 
 export const abilitySchema = z.object({
@@ -203,6 +204,7 @@ export const abilitySchema = z.object({
 });
 
 export const heroDetailSchema = heroSummarySchema.extend({
+  facetsStatus: z.enum(["active", "removed", "unavailable"]),
   facets: z.array(z.object({ name: z.string(), description: z.string() })),
   abilities: z.array(abilitySchema),
   sourceSnapshot: z.string().min(1),
@@ -214,7 +216,9 @@ export const itemSummarySchema = z.object({
   localizedName: z.string().min(1),
   cost: z.number().int().nonnegative(),
   category: z.string().min(1),
-  patch: z.string().min(1),
+  kind: z.enum(["item", "recipe", "neutral_item", "neutral_enhancement"]),
+  availabilityStatus: z.enum(["verified_current", "unverified"]),
+  officialVersion: z.string().min(1).nullable(),
 });
 
 export const itemDetailSchema = itemSummarySchema.extend({
@@ -259,6 +263,7 @@ export const matchPlayerSchema = z.object({
   finalItemIds: z.array(identifierSchema),
   backpackItemIds: z.array(identifierSchema),
   neutralItemId: identifierSchema.nullable(),
+  neutralItemEnhancementId: identifierSchema.nullable(),
   abilityBuild: z.array(abilityUpgradeEventSchema),
   abilityBuildStatus: z.enum(["unavailable", "ordered", "timed"]),
   itemTimeline: z.array(itemTransactionSchema),
@@ -269,8 +274,11 @@ export const matchSummarySchema = z.object({
   id: identifierSchema,
   startTime: timestampSchema,
   durationSeconds: z.number().int().positive(),
-  patch: z.string().min(1),
+  officialVersion: z.string().min(1).nullable(),
+  openDotaPatchId: identifierSchema.nullable(),
+  officialVersionSource: z.enum(["start_time_inferred", "unavailable"]),
   gameMode: z.string().min(1),
+  lobbyType: z.string().nullable(),
   region: z.string().nullable(),
   radiantWin: z.boolean(),
   player: matchPlayerSchema,
@@ -280,7 +288,6 @@ export const matchDetailSchema = matchSummarySchema.omit({ player: true }).exten
   players: z.array(matchPlayerSchema).min(1).max(10),
   detailStatus: z.enum(["summary", "enriched"]),
   parseStatus: z.enum(["unparsed", "parsed", "pending"]),
-  lobbyType: z.string().nullable(),
   cluster: z.string().nullable(),
   radiantScore: z.number().int().nonnegative().nullable(),
   direScore: z.number().int().nonnegative().nullable(),
@@ -405,6 +412,7 @@ export const apiErrorCodeSchema = z.enum([
   "SOURCE_RATE_LIMITED",
   "SOURCE_UNAVAILABLE",
   "PARSE_PENDING",
+  "MAP_UNAVAILABLE",
   "SYNC_IN_PROGRESS",
   "VALIDATION_ERROR",
   "INTERNAL_ERROR",

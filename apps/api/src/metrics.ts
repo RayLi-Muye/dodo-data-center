@@ -25,7 +25,7 @@ export const toHeroSummary = (hero: HeroDetail): HeroSummary => ({
   primaryAttribute: hero.primaryAttribute,
   attackType: hero.attackType,
   roles: hero.roles,
-  patch: hero.patch,
+  officialVersion: hero.officialVersion,
 });
 
 const targetPlayer = (match: MatchDetail, accountId: string): MatchPlayer => {
@@ -38,8 +38,11 @@ export const toMatchSummary = (match: MatchDetail, accountId: string): MatchSumm
   id: match.id,
   startTime: match.startTime,
   durationSeconds: match.durationSeconds,
-  patch: match.patch,
+  officialVersion: match.officialVersion,
+  openDotaPatchId: match.openDotaPatchId,
+  officialVersionSource: match.officialVersionSource,
   gameMode: match.gameMode,
+  lobbyType: match.lobbyType,
   region: match.region,
   radiantWin: match.radiantWin,
   player: targetPlayer(match, accountId),

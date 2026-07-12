@@ -499,6 +499,17 @@ button.text-action {
   font-size: var(--text-xs);
 }
 
+.module-quality--complete {
+  border-color: color-mix(in oklab, var(--positive) 35%, transparent);
+  background: color-mix(in oklab, var(--positive) 8%, var(--surface));
+  color: var(--positive);
+}
+
+.module-quality--complete strong,
+.module-quality--complete p > span {
+  color: var(--positive);
+}
+
 .module-quality--stale {
   border-color: var(--line-strong);
   background: var(--surface-raised);

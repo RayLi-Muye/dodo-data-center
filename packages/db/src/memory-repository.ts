@@ -26,6 +26,7 @@ const normalizeSnapshot = (snapshot: StaticDataSnapshot): StaticDataSnapshot => 
   checkedAt: snapshot.checkedAt ?? snapshot.fetchedAt,
   changedAt: snapshot.changedAt ?? snapshot.fetchedAt,
   contentHash: snapshot.contentHash ?? null,
+  officialVersion: snapshot.officialVersion ?? null,
 });
 
 const compareDecimalIdDescending = (left: string, right: string): number => {
@@ -180,13 +181,13 @@ export class MemoryDodoRepository implements DodoRepository {
   }
 
   async replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void> {
-    this.#heroes.clear();
+    if (snapshot.quality === "complete") this.#heroes.clear();
     for (const hero of heroes) await this.upsertHero(hero);
     this.#heroSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
   async replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void> {
-    this.#items.clear();
+    if (snapshot.quality === "complete") this.#items.clear();
     for (const item of items) await this.upsertItem(item);
     this.#itemSnapshot = clone(normalizeSnapshot(snapshot));
   }

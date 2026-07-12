@@ -1,16 +1,17 @@
-import type { PatchSummary } from "@dodo/contracts";
-import { DataSection, StatusNotice } from "@dodo/ui";
+import type { OperationMeta, PatchSummary } from "@dodo/contracts";
+import { DataSection, MetaLine, StatusNotice } from "@dodo/ui";
 import Link from "next/link";
 
 import { DataState, EmptyState } from "../../components/data-state";
 import { PageHeading } from "../../components/page-heading";
+import { QualityNotice } from "../../components/quality-notice";
 import { UpdateChangeGroup } from "../../components/update-change-group";
 import {
   api,
   collectAllHeroes,
   collectAllItems,
-  collectAllPatches,
-  collectAllUpdates,
+  collectAllPatchesWithMeta,
+  collectAllUpdatesWithMeta,
   settle,
   type Settled,
 } from "../../lib/api";
@@ -32,26 +33,28 @@ const sectionLabels: Record<UpdateSection, string> = {
 const isSection = (value: string | undefined): value is UpdateSection =>
   sections.some((section) => section === value);
 
-function PatchDirectory({ result }: { result: Settled<PatchSummary[]> }) {
+function PatchDirectory({ result }: { result: Settled<{ items: PatchSummary[]; meta: OperationMeta }> }) {
   if (!result.ok) {
     return <DataState error={result.error} retryHref="/patches" />;
   }
-  const patches = [...result.value].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt));
+  const patches = [...result.value.items].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt));
   return (
-    <DataSection eyebrow="MATCH PATCH DIRECTORY" title={`${patches.length} 个比赛版本`}>
+    <DataSection eyebrow="OFFICIAL VERSION DIRECTORY" title={`${patches.length} 个官方版本`}>
+      <QualityNotice label="官方版本目录" quality={result.value.meta.quality} showComplete />
       <details className="update-patch-directory">
-        <summary>展开比赛数据使用的 Major Patch ID 目录</summary>
+        <summary>展开比赛筛选使用的官方小版本目录</summary>
         <ol className="patch-timeline">
           {patches.map((patch, index) => (
             <li key={patch.id}>
               <span>{String(index + 1).padStart(2, "0")}</span>
               <strong>{patch.name}</strong>
               <time dateTime={patch.releasedAt}>{formatUtc(patch.releasedAt)}</time>
-              <code>PATCH #{patch.id}</code>
+              <code>VERSION {patch.id}</code>
             </li>
           ))}
         </ol>
       </details>
+      <MetaLine sources={result.value.meta.sources} updatedAt={result.value.meta.updatedAt} />
     </DataSection>
   );
 }
@@ -64,14 +67,14 @@ export default async function PatchesPage({
   const query = await searchParams;
   const section = isSection(query.section) ? query.section : "general";
   const [updatesResult, patchesResult, heroesResult, itemsResult] = await Promise.all([
-    settle(collectAllUpdates()),
-    settle(collectAllPatches()),
+    settle(collectAllUpdatesWithMeta()),
+    settle(collectAllPatchesWithMeta()),
     settle(collectAllHeroes()),
     settle(collectAllItems()),
   ]);
 
   const updates = updatesResult.ok
-    ? [...updatesResult.value].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt))
+    ? [...updatesResult.value.items].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt))
     : [];
   const requestedVersion = query.version?.trim();
   const selectedVersion = requestedVersion && updates.some((update) => update.version === requestedVersion)
@@ -95,17 +98,23 @@ export default async function PatchesPage({
         title="版本更新"
       />
       <StatusNotice
-        detail="官方更新正文使用 7.41d 这类小版本号；页面底部的比赛版本目录使用统计数据源的 Major Patch ID。二者用途不同，不会伪造映射。"
-        title="官方更新与比赛版本目录"
+        detail="官方更新正文与比赛筛选统一使用 7.41d 这类官方小版本号；比赛标签中的推定状态会单独说明。"
+        title="统一的官方版本语义"
         tone="neutral"
       />
 
       {!updatesResult.ok ? (
         <DataState error={updatesResult.error} retryHref="/patches" />
       ) : updates.length === 0 ? (
-        <EmptyState detail="官方更新目录当前没有可展示的版本；比赛版本目录仍保留在页面底部。" title="没有官方更新记录" />
+        <>
+          <QualityNotice label="官方更新目录" quality={updatesResult.value.meta.quality} showComplete />
+          <MetaLine sources={updatesResult.value.meta.sources} updatedAt={updatesResult.value.meta.updatedAt} />
+          <EmptyState detail="官方更新目录当前没有可展示的版本；页面底部仍会呈现可用的官方版本筛选目录。" title="没有官方更新记录" />
+        </>
       ) : (
         <>
+          <QualityNotice label="官方更新目录" quality={updatesResult.value.meta.quality} showComplete />
+          <MetaLine sources={updatesResult.value.meta.sources} updatedAt={updatesResult.value.meta.updatedAt} />
           <nav aria-label="最近官方版本" className="update-version-switcher">
             {recentUpdates.map((update) => (
               <Link
@@ -146,6 +155,8 @@ export default async function PatchesPage({
                 title={`${detail.data.version} · ${sectionLabels[section]}`}
                 trailing={<span className="module-note">{groups.length} 组改动</span>}
               >
+                <QualityNotice label={`${detail.data.version} 更新正文`} quality={detail.meta.quality} showComplete />
+                <MetaLine sources={detail.meta.sources} updatedAt={detail.meta.updatedAt} />
                 <dl className="update-release-meta">
                   <div><dt>正文状态</dt><dd><code>{detail.data.contentStatus}</code></dd></div>
                   <div><dt>未收录条目</dt><dd>{detail.data.excludedNoteCount}</dd></div>

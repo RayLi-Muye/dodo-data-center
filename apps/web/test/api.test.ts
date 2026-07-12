@@ -72,7 +72,8 @@ describe("server API client", () => {
         primaryAttribute: "strength",
         attackType: "melee",
         roles: [],
-        patch: "unknown",
+        officialVersion: "7.41d",
+        facetsStatus: "removed",
         facets: [],
         abilities: [],
         sourceSnapshot: "opendota://constants/heroes@test",
@@ -89,6 +90,33 @@ describe("server API client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/v1\/heroes\/107$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("does not cache the current map availability response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        id: "map-7.41d",
+        patch: "7.41d",
+        coordinateSystem: "source2-world",
+        bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        features: [],
+        sourceSnapshot: "curated-map@test",
+        verifiedAt: "2026-07-12T00:00:00.000Z",
+      },
+      meta: {
+        quality: "complete",
+        sources: ["curated_map"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.map();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v1\/maps\/current$/),
       expect.objectContaining({ cache: "no-store" }),
     );
   });
@@ -129,6 +157,26 @@ describe("server API client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       expect.stringMatching(/\/v1\/updates\/7\.41d$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("forwards lobby and game-mode filters independently for player matches", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: { items: [], nextCursor: null },
+      meta: {
+        filtersApplied: { gameMode: "23", lobbyType: "7" },
+        quality: "complete",
+        sources: ["opendota"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.playerMatches("224328273", { gameMode: "23", lobbyType: "7", limit: 30 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v1\/players\/224328273\/matches\?.*gameMode=23.*limit=30.*lobbyType=7/),
       expect.objectContaining({ cache: "no-store" }),
     );
   });

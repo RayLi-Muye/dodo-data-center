@@ -5,7 +5,7 @@ import { MatchAnalyzer } from "../../../components/match-analyzer";
 import { MatchPlayerRow } from "../../../components/match-player-row";
 import { PageHeading } from "../../../components/page-heading";
 import { api, collectAllHeroes, collectAllItems, settle } from "../../../lib/api";
-import { formatDuration, formatUtc } from "../../../lib/format";
+import { formatDuration, formatUtc, gameModeLabel, matchVersionLabel } from "../../../lib/format";
 
 export default async function MatchPage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
@@ -46,7 +46,7 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
     <div className="page-shell match-page">
       <PageHeading
         eyebrow={`MATCH / ${match.data.id}`}
-        lead={`${match.data.patch} · ${match.data.gameMode} · ${match.data.region ?? "未知地区"} · UTC ${formatUtc(match.data.startTime)}`}
+        lead={`${matchVersionLabel(match.data)} · ${gameModeLabel(match.data.gameMode)} · ${match.data.region ?? "未知地区"} · UTC ${formatUtc(match.data.startTime)}`}
         title={match.data.radiantWin ? "天辉胜利" : "夜魇胜利"}
       />
 

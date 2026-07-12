@@ -75,6 +75,7 @@ describe("match detail presentation", () => {
       "finalItemIds",
       "backpackItemIds",
       "neutralItemId",
+      "neutralItemEnhancementId",
     ]) {
       expect(row).toContain(`player.${field}`);
     }

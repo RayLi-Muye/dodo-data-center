@@ -1,0 +1,15 @@
+{
+  "result": {
+    "data": {
+      "heroes": [
+        {
+          "id": 1,
+          "name": "npc_dota_hero_antimage",
+          "name_loc": "Anti-Mage",
+          "primary_attr": 1,
+          "complexity": 1
+        }
+      ]
+    }
+  }
+}

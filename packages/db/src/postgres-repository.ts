@@ -60,6 +60,7 @@ const withLegacyMatchDefaults = (value: unknown): unknown => {
           netWorth: player.netWorth ?? null,
           backpackItemIds: player.backpackItemIds ?? [],
           neutralItemId: player.neutralItemId ?? null,
+          neutralItemEnhancementId: player.neutralItemEnhancementId ?? null,
           abilityBuild: player.abilityBuild ?? [],
           abilityBuildStatus: player.abilityBuildStatus ?? "unavailable",
           itemTimeline: player.itemTimeline ?? [],
@@ -69,6 +70,11 @@ const withLegacyMatchDefaults = (value: unknown): unknown => {
     : value.players;
   return {
     ...value,
+    officialVersion: value.officialVersion ?? null,
+    openDotaPatchId:
+      value.openDotaPatchId ??
+      (typeof value.patch === "string" && /^\d+$/.test(value.patch) ? value.patch : null),
+    officialVersionSource: value.officialVersionSource ?? "unavailable",
     players,
     detailStatus: value.detailStatus ?? "summary",
     lobbyType: value.lobbyType ?? null,
@@ -80,6 +86,25 @@ const withLegacyMatchDefaults = (value: unknown): unknown => {
 
 const parseStoredMatchDetail = (value: unknown): MatchDetail =>
   matchDetailSchema.parse(withLegacyMatchDefaults(value));
+
+const parseStoredHero = (value: unknown): HeroDetail => {
+  if (!isRecord(value)) return heroDetailSchema.parse(value);
+  return heroDetailSchema.parse({
+    ...value,
+    officialVersion: value.officialVersion ?? null,
+    facetsStatus: value.facetsStatus ?? "unavailable",
+  });
+};
+
+const parseStoredItem = (value: unknown): ItemDetail => {
+  if (!isRecord(value)) return itemDetailSchema.parse(value);
+  return itemDetailSchema.parse({
+    ...value,
+    kind: value.kind ?? "item",
+    availabilityStatus: value.availabilityStatus ?? "unverified",
+    officialVersion: value.officialVersion ?? null,
+  });
+};
 
 const toJson = (value: unknown): postgres.JSONValue =>
   JSON.parse(JSON.stringify(value)) as postgres.JSONValue;
@@ -117,6 +142,8 @@ const parseSnapshot = (value: unknown): StaticDataSnapshot => {
       value.contentHash === null || typeof value.contentHash === "string"
         ? value.contentHash
         : null,
+    officialVersion:
+      typeof value.officialVersion === "string" ? value.officialVersion : null,
   };
 };
 
@@ -394,12 +421,13 @@ export class PostgresDodoRepository implements DodoRepository {
       await sql`
         select pg_advisory_xact_lock(hashtextextended('catalog:heroes', 0))
       `;
-      await sql`delete from dodo.heroes`;
+      if (snapshot.quality === "complete") await sql`delete from dodo.heroes`;
       await sql`
         insert into dodo.heroes (id, payload, updated_at)
         select id, payload, now()
         from jsonb_to_recordset(${sql.json(toJson(heroes.map((hero) => ({ id: hero.id, payload: hero }))))}::jsonb)
           as records(id text, payload jsonb)
+        on conflict (id) do update set payload = excluded.payload, updated_at = now()
       `;
       await this.#upsertSnapshot(sql, "hero", snapshot);
     });
@@ -410,12 +438,13 @@ export class PostgresDodoRepository implements DodoRepository {
       await sql`
         select pg_advisory_xact_lock(hashtextextended('catalog:items', 0))
       `;
-      await sql`delete from dodo.items`;
+      if (snapshot.quality === "complete") await sql`delete from dodo.items`;
       await sql`
         insert into dodo.items (id, payload, updated_at)
         select id, payload, now()
         from jsonb_to_recordset(${sql.json(toJson(items.map((item) => ({ id: item.id, payload: item }))))}::jsonb)
           as records(id text, payload jsonb)
+        on conflict (id) do update set payload = excluded.payload, updated_at = now()
       `;
       await this.#upsertSnapshot(sql, "item", snapshot);
     });
@@ -488,12 +517,12 @@ export class PostgresDodoRepository implements DodoRepository {
   }
 
   async getHero(id: string): Promise<HeroDetail | undefined> {
-    return this.#getDocument("heroes", id, heroDetailSchema.parse);
+    return this.#getDocument("heroes", id, parseStoredHero);
   }
 
   async listHeroes(): Promise<HeroDetail[]> {
     const rows = await this.#sql<JsonRow[]>`select payload from dodo.heroes order by id`;
-    return rows.map((row) => heroDetailSchema.parse(row.payload));
+    return rows.map((row) => parseStoredHero(row.payload));
   }
 
   async getHeroSnapshot(): Promise<StaticDataSnapshot | undefined> {
@@ -501,12 +530,12 @@ export class PostgresDodoRepository implements DodoRepository {
   }
 
   async getItem(id: string): Promise<ItemDetail | undefined> {
-    return this.#getDocument("items", id, itemDetailSchema.parse);
+    return this.#getDocument("items", id, parseStoredItem);
   }
 
   async listItems(): Promise<ItemDetail[]> {
     const rows = await this.#sql<JsonRow[]>`select payload from dodo.items order by id`;
-    return rows.map((row) => itemDetailSchema.parse(row.payload));
+    return rows.map((row) => parseStoredItem(row.payload));
   }
 
   async getItemSnapshot(): Promise<StaticDataSnapshot | undefined> {

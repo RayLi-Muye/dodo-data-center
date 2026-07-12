@@ -54,6 +54,7 @@ export type StaticDataSnapshot = {
   checkedAt: string;
   changedAt: string;
   contentHash: string | null;
+  officialVersion: string | null;
 };
 
 export type ProviderHealth = DataStatus["providers"][number];

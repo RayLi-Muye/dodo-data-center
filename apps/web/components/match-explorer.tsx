@@ -11,6 +11,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 
+import { gameModeLabel } from "../lib/format";
 import { MatchLedger } from "./match-ledger";
 
 export type MatchFilters = {
@@ -18,6 +19,7 @@ export type MatchFilters = {
   dateTo?: string | undefined;
   gameMode?: string | undefined;
   heroId?: string | undefined;
+  lobbyType?: string | undefined;
   matchPatch?: string | undefined;
   outcome?: "win" | "loss" | undefined;
 };
@@ -26,7 +28,9 @@ type MatchPage = {
   data: { items: MatchSummary[]; nextCursor: string | null };
 };
 
-const filterKeys = ["heroId", "matchPatch", "outcome", "gameMode", "dateFrom", "dateTo"] as const;
+const filterKeys = ["heroId", "matchPatch", "outcome", "lobbyType", "gameMode", "dateFrom", "dateTo"] as const;
+
+const commonGameModes = ["1", "2", "3", "4", "5", "12", "16", "18", "20", "22", "23"] as const;
 
 export function MatchExplorer({
   accountId,
@@ -55,10 +59,9 @@ export function MatchExplorer({
   const [message, setMessage] = useState<string | null>(null);
   const heroById = useMemo(() => new Map(heroes.map((hero) => [hero.id, hero])), [heroes]);
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
-  const gameModes = useMemo(
-    () => [...new Set(matches.map((match) => match.gameMode))].sort(),
-    [matches],
-  );
+  const gameModes = filters.gameMode && !commonGameModes.includes(filters.gameMode as typeof commonGameModes[number])
+    ? [...commonGameModes, filters.gameMode]
+    : commonGameModes;
 
   const navigateWithFilters = (values: MatchFilters) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -78,6 +81,7 @@ export function MatchExplorer({
       dateTo: String(data.get("dateTo") ?? "") || undefined,
       gameMode: String(data.get("gameMode") ?? "").trim() || undefined,
       heroId: String(data.get("heroId") ?? "") || undefined,
+      lobbyType: String(data.get("lobbyType") ?? "").trim() || undefined,
       matchPatch: String(data.get("matchPatch") ?? "") || undefined,
       outcome: outcome === "win" || outcome === "loss" ? outcome : undefined,
     });
@@ -96,6 +100,7 @@ export function MatchExplorer({
     if (filters.matchPatch) query.set("patch", filters.matchPatch);
     if (filters.outcome) query.set("outcome", filters.outcome);
     if (filters.gameMode) query.set("gameMode", filters.gameMode);
+    if (filters.lobbyType) query.set("lobbyType", filters.lobbyType);
     if (filters.dateFrom) query.set("dateFrom", filters.dateFrom);
     if (filters.dateTo) query.set("dateTo", filters.dateTo);
 
@@ -141,7 +146,7 @@ export function MatchExplorer({
             </select>
           </label>
           <label>
-            <span>比赛列表版本</span>
+            <span>官方小版本</span>
             <select defaultValue={filters.matchPatch ?? ""} name="matchPatch">
               <option value="">全部版本</option>
               {patches.map((patch) => <option key={patch.id} value={patch.id}>{patch.name}</option>)}
@@ -156,11 +161,19 @@ export function MatchExplorer({
             </select>
           </label>
           <label>
-            <span>游戏模式（名称或 ID）</span>
-            <input defaultValue={filters.gameMode ?? ""} list="player-match-game-modes" name="gameMode" placeholder="例如 All Draft 或 22…" type="text" />
-            <datalist id="player-match-game-modes">
-              {gameModes.map((mode) => <option key={mode} value={mode} />)}
-            </datalist>
+            <span>匹配类型</span>
+            <select defaultValue={filters.lobbyType ?? ""} name="lobbyType">
+              <option value="">全部匹配类型</option>
+              <option value="7">天梯匹配（Ranked）</option>
+              <option value="0">普通公开匹配（Normal）</option>
+            </select>
+          </label>
+          <label>
+            <span>游戏模式</span>
+            <select defaultValue={filters.gameMode ?? ""} name="gameMode">
+              <option value="">全部游戏模式</option>
+              {gameModes.map((mode) => <option key={mode} value={mode}>{gameModeLabel(mode)}{mode === "23" ? "（Turbo）" : ""}</option>)}
+            </select>
           </label>
           <label>
             <span>开始日期（UTC）</span>

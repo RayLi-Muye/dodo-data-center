@@ -33,6 +33,7 @@
       "backpack_0": 3,
       "backpack_1": 0,
       "item_neutral": 4,
+      "item_neutral2": 1592,
       "ability_upgrades_arr": [5010, 5011, 5010],
       "purchase_log": [
         { "time": -85, "key": "tango" },

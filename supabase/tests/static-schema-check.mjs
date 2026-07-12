@@ -63,6 +63,8 @@ const checks = [
     /on dodo\.player_matches \(account_id, start_time desc, match_id desc\)/i,
   ],
   ["static snapshot update kind", /check \(kind in \('hero', 'item', 'patch', 'update'\)\)/i],
+  ["official provider health source", /source in \([\s\S]*'dota2_official'[\s\S]*\)/i],
+  ["seed map removal", /delete from dodo\.maps[\s\S]*id = 'seed-map'/i],
   ["anon schema revoke", /revoke all on schema dodo from anon;/i],
   ["authenticated schema revoke", /revoke all on schema dodo from authenticated;/i],
 ];

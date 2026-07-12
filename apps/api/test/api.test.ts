@@ -23,6 +23,7 @@ import {
   SEED_ACCOUNT_ID,
   SEED_HISTORY_PRIVATE_ACCOUNT_ID,
   SEED_PARTIAL_ACCOUNT_ID,
+  SEED_UPDATED_AT,
 } from "@dodo/db";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -422,7 +423,11 @@ describe("Dodo API", () => {
     for (const [index, match] of importedMatches.entries()) {
       await repository.upsertMatch({
         ...match,
-        detail: { ...match.detail, patch: index < 10 ? "new-patch" : "old-patch" },
+        detail: {
+          ...match.detail,
+          officialVersion: index < 10 ? "new-patch" : "old-patch",
+          officialVersionSource: "start_time_inferred",
+        },
       });
     }
     await app.close();
@@ -457,6 +462,7 @@ describe("Dodo API", () => {
       heroId: null,
       outcome: null,
       gameMode: null,
+      lobbyType: null,
       dateFrom: null,
       dateTo: null,
     });
@@ -502,6 +508,43 @@ describe("Dodo API", () => {
     expect(allImported.data.nextCursor).toBeNull();
   });
 
+  it("infers an official version when reading a legacy major-patch match", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        officialVersion: null,
+        openDotaPatchId: "60",
+        officialVersionSource: "unavailable",
+      },
+    });
+    await repository.replacePatches(
+      [{ id: "7.41d", name: "7.41d", releasedAt: "2024-12-01T00:00:00.000Z" }],
+      {
+        source: "dota2_official",
+        quality: "complete",
+        fetchedAt: SEED_UPDATED_AT,
+        checkedAt: SEED_UPDATED_AT,
+        changedAt: SEED_UPDATED_AT,
+        contentHash: "official-patches",
+        officialVersion: "7.41d",
+      },
+    );
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const response = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: `/v1/matches/${stored.detail.id}` })),
+    );
+    expect(response.data).toMatchObject({
+      officialVersion: "7.41d",
+      openDotaPatchId: "60",
+      officialVersionSource: "start_time_inferred",
+    });
+  });
+
   it("defaults match browsing to 30 all-imported results", async () => {
     const response = playerMatchesResponseSchema.parse(
       json(
@@ -520,6 +563,7 @@ describe("Dodo API", () => {
       heroId: null,
       outcome: null,
       gameMode: null,
+      lobbyType: null,
       dateFrom: null,
       dateTo: null,
     });
@@ -534,6 +578,7 @@ describe("Dodo API", () => {
       "patch=seed-patch",
       "outcome=win",
       "gameMode=seed-ranked-all-pick",
+      "lobbyType=seed-lobby",
       "dateFrom=2024-12-29",
       "dateTo=2025-01-01",
       "window=last_20",
@@ -551,16 +596,18 @@ describe("Dodo API", () => {
     expect(first.data.items).toHaveLength(3);
     expect(first.data.items.every((match) => match.player.heroId === "1")).toBe(true);
     expect(first.data.items.every((match) => match.player.isWin)).toBe(true);
-    expect(first.data.items.every((match) => match.patch === "seed-patch")).toBe(true);
+    expect(first.data.items.every((match) => match.officialVersion === "seed-patch")).toBe(true);
     expect(first.data.items.every((match) => match.gameMode === "seed-ranked-all-pick")).toBe(
       true,
     );
+    expect(first.data.items.every((match) => match.lobbyType === "seed-lobby")).toBe(true);
     expect(first.meta.filtersApplied).toEqual({
       window: "last_20",
       patch: "seed-patch",
       heroId: "1",
       outcome: "win",
       gameMode: "seed-ranked-all-pick",
+      lobbyType: "seed-lobby",
       dateFrom: "2024-12-29",
       dateTo: "2025-01-01",
     });

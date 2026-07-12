@@ -26,7 +26,8 @@ const heroSeed: HeroDetail[] = [
     primaryAttribute: "agility",
     attackType: "melee",
     roles: ["Carry", "Escape"],
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
       {
@@ -47,7 +48,8 @@ const heroSeed: HeroDetail[] = [
     primaryAttribute: "strength",
     attackType: "melee",
     roles: ["Initiator", "Durable"],
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
       {
@@ -68,7 +70,8 @@ const heroSeed: HeroDetail[] = [
     primaryAttribute: "universal",
     attackType: "ranged",
     roles: ["Support", "Disabler"],
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
       {
@@ -91,7 +94,9 @@ const itemSeed: ItemDetail[] = [
     localizedName: "Seed Blink Dagger",
     cost: 2250,
     category: "mobility",
-    patch: SEED_PATCH,
+    kind: "item",
+    availabilityStatus: "unverified",
+    officialVersion: SEED_PATCH,
     description: "Deterministic test-only item.",
     attributes: [{ label: "Active", value: "Seed Blink" }],
     components: [],
@@ -103,7 +108,9 @@ const itemSeed: ItemDetail[] = [
     localizedName: "Seed Power Treads",
     cost: 1400,
     category: "boots",
-    patch: SEED_PATCH,
+    kind: "item",
+    availabilityStatus: "unverified",
+    officialVersion: SEED_PATCH,
     description: "Deterministic test-only item.",
     attributes: [{ label: "Move speed", value: "+45" }],
     components: [],
@@ -115,7 +122,9 @@ const itemSeed: ItemDetail[] = [
     localizedName: "Seed Black King Bar",
     cost: 4050,
     category: "defense",
-    patch: SEED_PATCH,
+    kind: "item",
+    availabilityStatus: "unverified",
+    officialVersion: SEED_PATCH,
     description: "Deterministic test-only item.",
     attributes: [{ label: "Active", value: "Seed Avatar" }],
     components: [],
@@ -234,7 +243,9 @@ const createMatch = (index: number): MatchDetail => {
     id,
     startTime,
     durationSeconds: 1800 + index,
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    openDotaPatchId: null,
+    officialVersionSource: "start_time_inferred",
     gameMode: "seed-ranked-all-pick",
     region: "seed-region",
     radiantWin,
@@ -273,6 +284,7 @@ const createMatch = (index: number): MatchDetail => {
         finalItemIds: [String((index % 3) + 1)],
         backpackItemIds: [],
         neutralItemId: null,
+        neutralItemEnhancementId: null,
         abilityBuild: [],
         abilityBuildStatus: "unavailable",
         itemTimeline: [],
@@ -288,8 +300,17 @@ export const seedCuratedMap = async (repository: DodoRepository): Promise<DodoRe
 };
 
 export const seedRepository = async (repository: DodoRepository): Promise<DodoRepository> => {
-  for (const hero of heroSeed) await repository.upsertHero(hero);
-  for (const item of itemSeed) await repository.upsertItem(item);
+  const staticSnapshot = {
+    source: "seed" as const,
+    quality: "complete" as const,
+    fetchedAt: SEED_UPDATED_AT,
+    checkedAt: SEED_UPDATED_AT,
+    changedAt: SEED_UPDATED_AT,
+    contentHash: null,
+    officialVersion: SEED_PATCH,
+  };
+  await repository.replaceHeroes(heroSeed, staticSnapshot);
+  await repository.replaceItems(itemSeed, staticSnapshot);
   await repository.replacePatches(patchSeed, {
     source: "seed",
     quality: "complete",
@@ -297,6 +318,7 @@ export const seedRepository = async (repository: DodoRepository): Promise<DodoRe
     checkedAt: SEED_UPDATED_AT,
     changedAt: SEED_UPDATED_AT,
     contentHash: null,
+    officialVersion: SEED_PATCH,
   });
   await repository.replaceUpdateReleases([updateSeed], {
     source: "seed",
@@ -305,6 +327,7 @@ export const seedRepository = async (repository: DodoRepository): Promise<DodoRe
     checkedAt: SEED_UPDATED_AT,
     changedAt: SEED_UPDATED_AT,
     contentHash: null,
+    officialVersion: SEED_PATCH,
   });
   await seedCuratedMap(repository);
   for (const player of playerSeeds) await repository.upsertPlayer(player);
@@ -323,4 +346,4 @@ export const createSeedRepository = async (): Promise<MemoryDodoRepository> =>
   (await seedRepository(new MemoryDodoRepository())) as MemoryDodoRepository;
 
 export const createLiveRepository = async (): Promise<MemoryDodoRepository> =>
-  (await seedCuratedMap(new MemoryDodoRepository())) as MemoryDodoRepository;
+  new MemoryDodoRepository();

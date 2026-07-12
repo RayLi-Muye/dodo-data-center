@@ -25,6 +25,7 @@ export default async function PlayerPage({
     dateTo?: string;
     gameMode?: string;
     heroId?: string;
+    lobbyType?: string;
     matchPatch?: string;
     outcome?: string;
     patch?: string;
@@ -41,6 +42,7 @@ export default async function PlayerPage({
     dateTo: /^\d{4}-\d{2}-\d{2}$/.test(query.dateTo ?? "") ? query.dateTo : undefined,
     gameMode: query.gameMode?.trim() || undefined,
     heroId: identifierSchema.safeParse(query.heroId).success ? query.heroId : undefined,
+    lobbyType: query.lobbyType === "7" || query.lobbyType === "0" ? query.lobbyType : undefined,
     matchPatch: identifierSchema.safeParse(query.matchPatch).success ? query.matchPatch : undefined,
     outcome: query.outcome === "win" || query.outcome === "loss" ? query.outcome : undefined,
   };
@@ -60,6 +62,7 @@ export default async function PlayerPage({
       gameMode: matchFilters.gameMode,
       heroId: matchFilters.heroId,
       limit: 30,
+      lobbyType: matchFilters.lobbyType,
       outcome: matchFilters.outcome,
       patch: matchFilters.matchPatch,
       window: "all_imported",
@@ -153,9 +156,9 @@ export default async function PlayerPage({
         {[...matchFilterParams].map(([name, value]) => (
           <input key={name} name={name} type="hidden" value={value} />
         ))}
-        <label htmlFor="player-patch">比赛版本</label>
+        <label htmlFor="player-patch">官方小版本</label>
         <select defaultValue={patch ?? ""} id="player-patch" name="patch">
-          <option value="">全部版本</option>
+          <option value="">全部官方版本</option>
           {patches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <button type="submit">应用版本</button>

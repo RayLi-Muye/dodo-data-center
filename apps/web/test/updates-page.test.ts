@@ -27,7 +27,8 @@ describe("official updates page", () => {
     expect(page).toContain("href={detail.data.sourceUrl}");
     expect(page).toContain('target="_blank"');
     expect(page).toContain("<PatchDirectory result={patchesResult}");
-    expect(page).toContain("比赛数据使用的 Major Patch ID 目录");
+    expect(page).toContain("比赛筛选使用的官方小版本目录");
+    expect(page).toContain("统一的官方版本语义");
   });
 
   it("resolves hero and item groups by exact entity ID and keeps safe fallbacks", () => {

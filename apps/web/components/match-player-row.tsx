@@ -113,7 +113,13 @@ export function MatchPlayerRow({
           emptyLabel="无中立物品记录"
           itemById={itemById}
           itemIds={player.neutralItemId ? [player.neutralItemId] : []}
-          label="中立"
+          label="中立物品"
+        />
+        <ItemGroup
+          emptyLabel="无中立附魔记录"
+          itemById={itemById}
+          itemIds={player.neutralItemEnhancementId ? [player.neutralItemEnhancementId] : []}
+          label="中立附魔"
         />
       </div>
     </div>

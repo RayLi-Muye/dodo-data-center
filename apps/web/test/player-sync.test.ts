@@ -30,6 +30,7 @@ const jobResponse = (status: SyncJob["status"]): Response =>
 
 describe("player sync workflow", () => {
   it("skips fresh automatic sync, starts stale automatic sync, and always allows manual sync", () => {
+    expect(PLAYER_SYNC_FRESHNESS_MS).toBe(30 * 60 * 1_000);
     expect(shouldStartPlayerSync(new Date(NOW - PLAYER_SYNC_FRESHNESS_MS + 1).toISOString(), false, NOW)).toBe(false);
     expect(shouldStartPlayerSync(new Date(NOW - PLAYER_SYNC_FRESHNESS_MS).toISOString(), false, NOW)).toBe(true);
     expect(shouldStartPlayerSync(new Date(NOW).toISOString(), true, NOW)).toBe(true);

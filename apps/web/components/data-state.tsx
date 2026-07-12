@@ -28,6 +28,8 @@ function presentationFor(error: unknown): StatePresentation {
       return { detail: "账号数据正在同步。同步完成前不会用空列表代替真实结果。", retryable: true, title: "正在同步公开比赛", tone: "neutral" };
     case "PARSE_PENDING":
       return { detail: "候选比赛仍在等待解析，暂时不足以生成可信统计。稍后可重新读取此资源。", retryable: true, title: "比赛等待解析", tone: "neutral" };
+    case "MAP_UNAVAILABLE":
+      return { detail: "当前还没有经过来源验证的地图快照。Dodo 不会用示例数据或空 geometry 冒充真实地图。", retryable: false, title: "当前地图资料不可用", tone: "warning" };
     case "NOT_FOUND":
       return { detail: "没有找到对应记录。请检查 ID，或返回首页查询另一个公开账号。", retryable: false, title: "记录不存在", tone: "warning" };
     case "INVALID_ACCOUNT_ID":

@@ -134,6 +134,8 @@ describe("OpenDotaProvider", () => {
       lastHits: null,
       heroDamage: null,
     });
+    expect(result.matches[0]?.lobbyType).toBe("7");
+    expect(result.matches[1]?.lobbyType).toBeNull();
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("?limit=100");
   });
 
@@ -380,6 +382,7 @@ describe("OpenDotaProvider", () => {
       finalItemIds: ["1", "2"],
       backpackItemIds: ["3"],
       neutralItemId: "4",
+      neutralItemEnhancementId: "1592",
       abilityBuildStatus: "ordered",
       abilityBuild: [
         { abilityId: "5010", sequence: 1, heroLevel: null, gameTimeSeconds: null },
@@ -415,6 +418,7 @@ describe("OpenDotaProvider", () => {
       netWorth: null,
       backpackItemIds: [],
       neutralItemId: null,
+      neutralItemEnhancementId: null,
       abilityBuild: [],
       abilityBuildStatus: "unavailable",
       itemTimeline: [],
@@ -497,6 +501,14 @@ describe("OpenDotaProvider", () => {
     });
     expect(items.items.map((item) => item.id)).toEqual(["1", "2"]);
     expect(items.items[1]?.attributes).toEqual([{ label: "+", value: "45" }]);
+    expect(items.items.map(({ id, kind, availabilityStatus }) => ({
+      id,
+      kind,
+      availabilityStatus,
+    }))).toEqual([
+      { id: "1", kind: "item", availabilityStatus: "unverified" },
+      { id: "2", kind: "item", availabilityStatus: "unverified" },
+    ]);
   });
 
   it("joins hero abilities, talents, and facets without inventing missing IDs", async () => {

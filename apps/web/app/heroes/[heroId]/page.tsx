@@ -4,7 +4,9 @@ import Link from "next/link";
 import { AssetImage } from "../../../components/asset-image";
 import { DataState, EmptyState } from "../../../components/data-state";
 import { PageHeading } from "../../../components/page-heading";
+import { QualityNotice } from "../../../components/quality-notice";
 import { api, settle } from "../../../lib/api";
+import { encyclopediaVersionLabel } from "../../../lib/format";
 
 const attributeLabel = {
   agility: "敏捷",
@@ -26,19 +28,20 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
   if (!result.ok) {
     return (
       <div className="page-shell">
-        <PageHeading eyebrow={`HERO / ${heroId}`} lead="当前版本英雄属性、定位、命石与技能资料。" title="英雄详情" />
+        <PageHeading eyebrow={`HERO / ${heroId}`} lead="当前数据快照中的英雄属性、定位与技能资料。" title="英雄详情" />
         <DataState error={result.error} retryHref={`/heroes/${encodeURIComponent(heroId)}`} />
       </div>
     );
   }
   const hero = result.value;
+  const versionLabel = encyclopediaVersionLabel(hero.data.officialVersion);
   return (
     <div className="page-shell hero-detail-page">
       <Link className="back-link" href="/heroes">← 返回英雄百科</Link>
       <section className="hero-profile">
         <AssetImage alt={`${hero.data.localizedName} 英雄图像`} className="hero-profile__image" kind="hero" name={hero.data.name} priority />
         <div className="hero-profile__main">
-          <p className="page-heading__eyebrow">HERO / {hero.data.id} / {hero.data.patch}</p>
+          <p className="page-heading__eyebrow">HERO / {hero.data.id} / {versionLabel}</p>
           <h1>{hero.data.localizedName}</h1>
           <p>{hero.data.name}</p>
           <div className="tag-row">
@@ -49,10 +52,12 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
         </div>
         <div className="hero-profile__index">
           <span>PATCH</span>
-          <strong>{hero.data.patch}</strong>
+          <strong>{versionLabel}</strong>
           <small>当前来源快照</small>
         </div>
       </section>
+
+      <QualityNotice label="英雄详情" quality={hero.meta.quality} showComplete />
 
       <div className="detail-grid">
         <DataSection className="detail-grid__main" eyebrow="ABILITY KIT" title="技能组">
@@ -76,13 +81,19 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
         </DataSection>
 
         <DataSection className="detail-grid__side" eyebrow="FACETS" title="命石 / 分支">
-          {hero.data.facets.length > 0 ? (
+          {hero.data.facetsStatus === "active" && hero.data.facets.length > 0 ? (
             <ul className="facet-list">
               {hero.data.facets.map((facet) => (
                 <li key={facet.name}><strong>{facet.name}</strong><p>{facet.description || "当前快照没有命石说明。"}</p></li>
               ))}
             </ul>
-          ) : <p className="detail-empty">当前快照没有命石资料。</p>}
+          ) : hero.data.facetsStatus === "removed" ? (
+            <p className="detail-empty">当前版本已移除命石机制，不展示历史命石数据。</p>
+          ) : hero.data.facetsStatus === "unavailable" ? (
+            <p className="detail-empty">当前来源不足以确认命石状态。</p>
+          ) : (
+            <p className="detail-empty">当前版本标记命石可用，但没有可展示的命石条目。</p>
+          )}
         </DataSection>
       </div>
 

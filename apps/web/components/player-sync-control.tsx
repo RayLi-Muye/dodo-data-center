@@ -15,7 +15,7 @@ import {
 type ControlState = PlayerSyncPresentation & { running: boolean };
 
 const idleState: ControlState = {
-  message: "数据超过 15 分钟会自动更新，也可立即刷新。",
+  message: "数据超过 30 分钟会自动更新，也可立即刷新。",
   running: false,
   successful: false,
   tone: "neutral",

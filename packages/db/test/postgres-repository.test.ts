@@ -104,6 +104,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
       checkedAt: SEED_UPDATED_AT,
       changedAt: SEED_UPDATED_AT,
       contentHash: null,
+      officialVersion: null,
     };
     await repository.replaceHeroes([hero], snapshot);
     await repository.replaceItems([item], snapshot);
@@ -212,6 +213,19 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(await repository.getLatestMatchAt()).toBe(matches[0]!.detail.startTime);
   });
 
+  it("persists official Dota provider health through the database source constraint", async () => {
+    const health = {
+      source: "dota2_official" as const,
+      status: "degraded" as const,
+      checkedAt: "2026-07-13T00:00:00.000Z",
+      message: "Official catalog refresh completed with partial data.",
+    };
+
+    await repository.upsertProviderHealth(health);
+
+    expect(await repository.getProviderHealth("dota2_official")).toEqual(health);
+  });
+
   it("serializes concurrent complete-window replacement for one account", async () => {
     const fixtures = await createSeedRepository();
     const matches = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID)).slice(0, 6);
@@ -281,6 +295,82 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(stored?.detail.players.some((candidate) => candidate.accountId === SEED_ACCOUNT_ID)).toBe(true);
   });
 
+  it("reads legacy match JSON into separated version and neutral fields", async () => {
+    const fixtures = await createSeedRepository();
+    const stored = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    const {
+      officialVersion: _officialVersion,
+      openDotaPatchId: _openDotaPatchId,
+      officialVersionSource: _officialVersionSource,
+      ...legacyDetail
+    } = stored.detail;
+    const legacyPlayers = legacyDetail.players.map((player) => {
+      const { neutralItemEnhancementId: _enhancement, ...legacyPlayer } = player;
+      return legacyPlayer;
+    });
+    const legacyPayload = { ...legacyDetail, patch: "60", players: legacyPlayers };
+    await admin`
+      insert into dodo.matches
+        (id, payload, start_time, imported_at, source, quality, updated_at)
+      values (
+        ${stored.detail.id}, ${admin.json(legacyPayload)}, ${stored.detail.startTime},
+        ${stored.importedAt}, ${stored.source}, ${stored.quality}, now()
+      )
+    `;
+
+    const restored = await repository.getMatch(stored.detail.id);
+    expect(restored?.detail).toMatchObject({
+      officialVersion: null,
+      openDotaPatchId: "60",
+      officialVersionSource: "unavailable",
+    });
+    expect(restored?.detail.players[0]?.neutralItemEnhancementId).toBeNull();
+
+    for (const legacyPatch of ["unknown", "seed-patch"]) {
+      await admin`
+        update dodo.matches
+        set payload = ${admin.json({ ...legacyPayload, patch: legacyPatch })}
+        where id = ${stored.detail.id}
+      `;
+      expect((await repository.getMatch(stored.detail.id))?.detail.openDotaPatchId).toBeNull();
+    }
+  });
+
+  it("marks legacy non-empty facets unavailable instead of active", async () => {
+    const fixtures = await createSeedRepository();
+    const hero = await fixtures.getHero("1");
+    if (!hero) throw new Error("Hero fixture missing");
+    const { facetsStatus: _facetsStatus, ...legacyHero } = hero;
+    await admin`
+      insert into dodo.heroes (id, payload, updated_at)
+      values (${hero.id}, ${admin.json(legacyHero)}, now())
+    `;
+
+    const restored = await repository.getHero(hero.id);
+    expect(restored?.facets).not.toEqual([]);
+    expect(restored?.facetsStatus).toBe("unavailable");
+  });
+
+  it("reads legacy items with conservative kind and availability defaults", async () => {
+    const fixtures = await createSeedRepository();
+    const item = await fixtures.getItem("1");
+    if (!item) throw new Error("Item fixture missing");
+    const {
+      kind: _kind,
+      availabilityStatus: _availabilityStatus,
+      ...legacyItem
+    } = item;
+    await admin`
+      insert into dodo.items (id, payload, updated_at)
+      values (${item.id}, ${admin.json(legacyItem)}, now())
+    `;
+
+    expect(await repository.getItem(item.id)).toMatchObject({
+      kind: "item",
+      availabilityStatus: "unverified",
+    });
+  });
+
   it("serializes concurrent static catalog replacement with matching snapshots", async () => {
     const fixtures = await createSeedRepository();
     const heroes = await fixtures.listHeroes();
@@ -295,6 +385,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
       checkedAt: "2025-01-02T01:00:00.000Z",
       changedAt: "2025-01-02T01:00:00.000Z",
       contentHash: "first",
+      officialVersion: null,
     };
     const secondSnapshot = {
       source: "seed" as const,
@@ -303,6 +394,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
       checkedAt: "2025-01-02T02:00:00.000Z",
       changedAt: "2025-01-02T02:00:00.000Z",
       contentHash: "second",
+      officialVersion: null,
     };
 
     await Promise.all([
@@ -355,6 +447,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
       checkedAt: changedAt,
       changedAt,
       contentHash: "new",
+      officialVersion: null,
     };
     await repository.replacePatches(
       [{ id: "60", name: "7.39", releasedAt: changedAt }],

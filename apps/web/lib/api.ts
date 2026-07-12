@@ -15,7 +15,7 @@ import {
   updatesResponseSchema,
 } from "@dodo/contracts";
 import type { ApiError } from "@dodo/contracts";
-import type { HeroSummary, ItemSummary, PatchSummary, PlayerHeroStats, ResponseMeta, UpdateReleaseSummary } from "@dodo/contracts";
+import type { HeroSummary, ItemSummary, OperationMeta, PatchSummary, PlayerHeroStats, ResponseMeta, UpdateReleaseSummary } from "@dodo/contracts";
 import type { z } from "zod";
 
 const FALLBACK_API_BASE_URL = "http://127.0.0.1:3001";
@@ -120,7 +120,7 @@ export const api = {
       `/v1/items${queryString({ cursor: options.cursor, limit: options.limit ?? 100, q: options.q })}`,
       { next: { revalidate: 3_600 } },
     ),
-  map: () => fetchApi(mapVersionResponseSchema, "/v1/maps/current", { next: { revalidate: 3_600 } }),
+  map: () => fetchApi(mapVersionResponseSchema, "/v1/maps/current", { cache: "no-store" }),
   match: (matchId: string) =>
     fetchApi(matchDetailResponseSchema, `/v1/matches/${encodeURIComponent(matchId)}`, {
       cache: "no-store",
@@ -158,6 +158,7 @@ export const api = {
       gameMode?: string | undefined;
       heroId?: string | undefined;
       limit?: number;
+      lobbyType?: string | undefined;
       outcome?: "win" | "loss" | undefined;
       patch?: string | undefined;
       window?: string | undefined;
@@ -172,6 +173,7 @@ export const api = {
         gameMode: options.gameMode,
         heroId: options.heroId,
         limit: options.limit ?? 30,
+        lobbyType: options.lobbyType,
         outcome: options.outcome,
         patch: options.patch,
         window: options.window ?? "all_imported",
@@ -207,25 +209,39 @@ export async function collectAllItems() {
 }
 
 export async function collectAllPatches() {
+  return (await collectAllPatchesWithMeta()).items;
+}
+
+export async function collectAllPatchesWithMeta() {
   const items: PatchSummary[] = [];
   let cursor: string | undefined;
+  let meta: OperationMeta | undefined;
   do {
     const page = await api.patches(cursor);
     items.push(...page.data.items);
+    meta ??= page.meta;
     cursor = page.data.nextCursor ?? undefined;
   } while (cursor);
-  return items;
+  if (!meta) throw new Error("Patch catalog did not return operation metadata.");
+  return { items, meta };
 }
 
 export async function collectAllUpdates() {
+  return (await collectAllUpdatesWithMeta()).items;
+}
+
+export async function collectAllUpdatesWithMeta() {
   const items: UpdateReleaseSummary[] = [];
   let cursor: string | undefined;
+  let meta: OperationMeta | undefined;
   do {
     const page = await api.updates(cursor);
     items.push(...page.data.items);
+    meta ??= page.meta;
     cursor = page.data.nextCursor ?? undefined;
   } while (cursor);
-  return items;
+  if (!meta) throw new Error("Update catalog did not return operation metadata.");
+  return { items, meta };
 }
 
 export async function collectAllPlayerHeroes(accountId: string, window: string, patch?: string) {

@@ -1,6 +1,6 @@
 import { apiErrorSchema, syncJobResponseSchema, type SyncJob } from "@dodo/contracts";
 
-export const PLAYER_SYNC_FRESHNESS_MS = 15 * 60 * 1_000;
+export const PLAYER_SYNC_FRESHNESS_MS = 30 * 60 * 1_000;
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const OVERALL_TIMEOUT_MS = 180_000;

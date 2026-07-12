@@ -23,6 +23,8 @@ import {
   type CanonicalMatchDetail,
   type CanonicalPlayerMatchesPage,
   type CanonicalPatchSummary,
+  type CanonicalOfficialConstantsSnapshot,
+  type CanonicalOfficialHeroAbilityConstants,
   type CanonicalPlayerProfile,
   type CanonicalRecentMatches,
 } from "@dodo/dota-data";
@@ -34,12 +36,14 @@ import { buildApp } from "../src/app.js";
 import type { PlayerDataProvider } from "../src/player-data-provider.js";
 import { PlayerHistorySyncService } from "../src/player-history-sync-service.js";
 import { PlayerSyncService } from "../src/player-sync-service.js";
+import { StaticCatalogService } from "../src/static-catalog-service.js";
 
 const ACCOUNT_ID = "86745912";
 const FETCHED_AT = "2026-07-10T01:00:00.000Z";
 const ABILITIES_FETCHED_AT = "2026-07-10T01:00:00.500Z";
 const CLOCK_AT = "2026-07-10T01:00:01.000Z";
 const SOURCE = { source: "opendota" as const, fetchedAt: FETCHED_AT };
+const OFFICIAL_SOURCE = { source: "dota2_official" as const, fetchedAt: FETCHED_AT };
 
 const profile: CanonicalPlayerProfile = {
   accountId: ACCOUNT_ID,
@@ -74,6 +78,7 @@ const recent: CanonicalRecentMatches = {
       durationSeconds: 2400,
       patchId: null,
       gameMode: "22",
+      lobbyType: "7",
       region: "3",
       radiantWin: true,
       player: {
@@ -98,6 +103,7 @@ const recent: CanonicalRecentMatches = {
         finalItemIds: ["1", "2"],
         backpackItemIds: [],
         neutralItemId: null,
+        neutralItemEnhancementId: "1592",
         abilityBuild: [],
         abilityBuildStatus: "unavailable",
         itemTimeline: [
@@ -113,6 +119,7 @@ const recent: CanonicalRecentMatches = {
       durationSeconds: 2100,
       patchId: "59",
       gameMode: "22",
+      lobbyType: "7",
       region: "3",
       radiantWin: true,
       player: {
@@ -137,6 +144,7 @@ const recent: CanonicalRecentMatches = {
         finalItemIds: ["1"],
         backpackItemIds: [],
         neutralItemId: null,
+        neutralItemEnhancementId: null,
         abilityBuild: [],
         abilityBuildStatus: "unavailable",
         itemTimeline: [],
@@ -146,8 +154,11 @@ const recent: CanonicalRecentMatches = {
   ],
 };
 
-const heroes: CanonicalConstantsSnapshot<CanonicalHeroConstant> = {
-  source: SOURCE,
+const heroes: CanonicalOfficialConstantsSnapshot<CanonicalHeroConstant> = {
+  source: OFFICIAL_SOURCE,
+  officialVersion: "7.41b",
+  quality: "complete",
+  exclusions: [],
   items: [
     {
       id: "1",
@@ -156,6 +167,7 @@ const heroes: CanonicalConstantsSnapshot<CanonicalHeroConstant> = {
       primaryAttribute: "agility",
       attackType: "melee",
       roles: ["Carry", "Escape"],
+      officialVersion: null,
     },
     {
       id: "2",
@@ -164,6 +176,7 @@ const heroes: CanonicalConstantsSnapshot<CanonicalHeroConstant> = {
       primaryAttribute: "strength",
       attackType: "melee",
       roles: ["Initiator", "Durable"],
+      officialVersion: null,
     },
     {
       id: "107",
@@ -172,15 +185,20 @@ const heroes: CanonicalConstantsSnapshot<CanonicalHeroConstant> = {
       primaryAttribute: "strength",
       attackType: "melee",
       roles: ["Nuker", "Escape", "Disabler", "Initiator", "Durable"],
+      officialVersion: null,
     },
   ],
 };
 
-const heroAbilities: CanonicalHeroAbilityConstants = {
-  source: { source: "opendota", fetchedAt: ABILITIES_FETCHED_AT },
+const heroAbilities: CanonicalOfficialHeroAbilityConstants = {
+  source: { source: "dota2_official", fetchedAt: ABILITIES_FETCHED_AT },
+  officialVersion: "7.41b",
+  quality: "complete",
+  exclusions: [],
   heroes: {
     npc_dota_hero_earth_spirit: {
       heroName: "npc_dota_hero_earth_spirit",
+      facetsStatus: "active",
       abilities: [
         {
           id: "5608",
@@ -219,8 +237,11 @@ const heroAbilities: CanonicalHeroAbilityConstants = {
   },
 };
 
-const items: CanonicalConstantsSnapshot<CanonicalItemConstant> = {
-  source: SOURCE,
+const items: CanonicalOfficialConstantsSnapshot<CanonicalItemConstant> = {
+  source: OFFICIAL_SOURCE,
+  officialVersion: "7.41b",
+  quality: "complete",
+  exclusions: [],
   items: [
     {
       id: "1",
@@ -228,9 +249,12 @@ const items: CanonicalConstantsSnapshot<CanonicalItemConstant> = {
       localizedName: "Blink Dagger",
       cost: 2250,
       category: "component",
+      kind: "item",
+      availabilityStatus: "verified_current",
       description: "Blink to a target point.",
       attributes: [],
       componentNames: [],
+      officialVersion: null,
     },
     {
       id: "2",
@@ -238,25 +262,31 @@ const items: CanonicalConstantsSnapshot<CanonicalItemConstant> = {
       localizedName: "Power Treads",
       cost: 1400,
       category: "common",
+      kind: "item",
+      availabilityStatus: "verified_current",
       description: "Attribute-switching boots.",
       attributes: [{ label: "Move speed", value: "+45" }],
       componentNames: ["blink"],
+      officialVersion: null,
     },
   ],
 };
 
-const patches: CanonicalConstantsSnapshot<CanonicalPatchSummary> = {
-  source: SOURCE,
+const patches: CanonicalOfficialConstantsSnapshot<CanonicalPatchSummary> = {
+  source: OFFICIAL_SOURCE,
+  officialVersion: "7.41b",
+  quality: "complete",
+  exclusions: [],
   items: [
     {
-      id: "59",
-      name: "7.38c",
-      releasedAt: "2026-03-27T00:00:00.000Z",
+      id: "7.41a",
+      name: "7.41a",
+      releasedAt: "2026-07-08T00:00:00.000Z",
     },
     {
-      id: "60",
-      name: "7.39",
-      releasedAt: "2026-05-21T00:00:00.000Z",
+      id: "7.41b",
+      name: "7.41b",
+      releasedAt: "2026-07-09T00:00:00.000Z",
     },
   ],
 };
@@ -324,6 +354,17 @@ const createProvider = (): PlayerDataProvider => ({
   })),
 });
 
+const createPreparedRepository = async () => {
+  const repository = await createLiveRepository();
+  const catalogs = new StaticCatalogService({
+    repository,
+    provider: createProvider(),
+    clock: () => new Date(CLOCK_AT),
+  });
+  await catalogs.refresh();
+  return repository;
+};
+
 const json = (response: { body: string }): unknown => JSON.parse(response.body);
 
 describe("live player synchronization", () => {
@@ -334,8 +375,128 @@ describe("live player synchronization", () => {
     app = undefined;
   });
 
-  it("imports provider data in the background with exact quality metadata", async () => {
+  it("returns official-source unavailable errors before static snapshots exist", async () => {
     const repository = await createLiveRepository();
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      playerDataProvider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const initialStatus = dataStatusResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/data-status" })),
+    );
+    expect(initialStatus.data.status).toBe("unavailable");
+    expect(initialStatus.data.providers).toEqual([
+      expect.objectContaining({ source: "opendota", status: "degraded" }),
+      expect.objectContaining({
+        source: "dota2_official",
+        status: "unavailable",
+        message: "The first official catalog check has not completed yet.",
+      }),
+    ]);
+
+    for (const url of [
+      "/v1/heroes",
+      "/v1/heroes/999",
+      "/v1/items",
+      "/v1/items/999",
+      "/v1/patches",
+      "/v1/updates",
+      "/v1/updates/7.41b",
+    ]) {
+      const response = await app.inject({ method: "GET", url });
+      const error = apiErrorSchema.parse(json(response));
+      expect(response.statusCode).toBe(503);
+      expect(error.error.code).toBe("SOURCE_UNAVAILABLE");
+      expect(error.meta?.sources).toEqual(["dota2_official"]);
+    }
+
+    const catalogs = new StaticCatalogService({
+      repository,
+      provider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+    await catalogs.refresh();
+
+    for (const url of ["/v1/heroes/999", "/v1/items/999", "/v1/updates/7.40z"]) {
+      const response = await app.inject({ method: "GET", url });
+      const error = apiErrorSchema.parse(json(response));
+      expect(response.statusCode).toBe(404);
+      expect(error.error.code).toBe("NOT_FOUND");
+      expect(error.meta?.sources).toEqual(["dota2_official"]);
+    }
+
+    const [heroSnapshot, itemSnapshot, updateSnapshot] = await Promise.all([
+      repository.getHeroSnapshot(),
+      repository.getItemSnapshot(),
+      repository.getUpdateSnapshot(),
+    ]);
+    if (!heroSnapshot || !itemSnapshot || !updateSnapshot) {
+      throw new Error("Static snapshot missing");
+    }
+    await repository.replaceHeroes(await repository.listHeroes(), {
+      ...heroSnapshot,
+      quality: "partial",
+    });
+    await repository.replaceItems(await repository.listItems(), {
+      ...itemSnapshot,
+      quality: "partial",
+    });
+    await repository.replaceUpdateReleases([officialUpdate], {
+      ...updateSnapshot,
+      quality: "partial",
+    });
+    expect((await app.inject({ method: "GET", url: "/v1/heroes" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/v1/items" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/v1/updates" })).statusCode).toBe(200);
+
+    for (const url of ["/v1/heroes/999", "/v1/items/999", "/v1/updates/7.40z"]) {
+      const response = await app.inject({ method: "GET", url });
+      const error = apiErrorSchema.parse(json(response));
+      expect(response.statusCode).toBe(503);
+      expect(error.error.code).toBe("SOURCE_UNAVAILABLE");
+      expect(error.meta).toMatchObject({
+        sources: ["dota2_official"],
+        updatedAt: CLOCK_AT,
+      });
+    }
+  });
+
+  it("does not report an empty partial update snapshot as an empty result", async () => {
+    const repository = await createLiveRepository();
+    await repository.replaceUpdateReleases([], {
+      source: "dota2_official",
+      quality: "partial",
+      fetchedAt: FETCHED_AT,
+      checkedAt: CLOCK_AT,
+      changedAt: FETCHED_AT,
+      contentHash: "legacy-empty-update",
+      officialVersion: "7.41b",
+    });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      playerDataProvider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/v1/updates" });
+    const error = apiErrorSchema.parse(json(response));
+    expect(response.statusCode).toBe(503);
+    expect(error.error.code).toBe("SOURCE_UNAVAILABLE");
+    expect(error.meta).toMatchObject({
+      status: "source_unavailable",
+      sources: ["dota2_official"],
+      updatedAt: CLOCK_AT,
+    });
+  });
+
+  it("imports provider data in the background with exact quality metadata", async () => {
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const service = new PlayerSyncService({
       repository,
@@ -392,6 +553,11 @@ describe("live player synchronization", () => {
       json(await app.inject({ method: "GET", url: `/v1/players/${ACCOUNT_ID}/matches` })),
     );
     expect(matches.data.items.map((match) => match.id)).toEqual(["8000000002", "8000000001"]);
+    expect(matches.data.items.map((match) => match.officialVersion)).toEqual([
+      "7.41b",
+      "7.41b",
+    ]);
+    expect(matches.data.items.map((match) => match.openDotaPatchId)).toEqual([null, "59"]);
     expect(matches.meta).not.toHaveProperty("sampleSize");
     expect(matches.meta.filtersApplied).toEqual({
       window: "all_imported",
@@ -399,6 +565,7 @@ describe("live player synchronization", () => {
       heroId: null,
       outcome: null,
       gameMode: null,
+      lobbyType: null,
       dateFrom: null,
       dateTo: null,
     });
@@ -411,7 +578,7 @@ describe("live player synchronization", () => {
         }),
       ),
     );
-    expect(unknownPatch.data.games).toBe(1);
+    expect(unknownPatch.data.games).toBe(0);
     expect(unknownPatch.meta.filtersApplied).toEqual({ window: "last_20", patch: "unknown" });
 
     const unknownMatches = playerMatchesResponseSchema.parse(
@@ -422,20 +589,25 @@ describe("live player synchronization", () => {
         }),
       ),
     );
-    expect(unknownMatches.data.items.map((match) => match.id)).toEqual(["8000000002"]);
+    expect(unknownMatches.data.items).toEqual([]);
 
     const patchCatalog = patchesResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/patches?limit=1" })),
     );
     expect(patchCatalog.data.items).toEqual([patches.items[1]]);
     expect(patchCatalog.data.nextCursor).not.toBeNull();
-    expect(patchCatalog.meta).toMatchObject({ updatedAt: FETCHED_AT, sources: ["opendota"] });
+    expect(patchCatalog.meta).toMatchObject({
+      updatedAt: CLOCK_AT,
+      sources: ["dota2_official"],
+    });
 
     const detail = matchDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/matches/8000000002" })),
     );
     expect(detail.data).toMatchObject({
-      patch: "unknown",
+      officialVersion: "7.41b",
+      openDotaPatchId: null,
+      officialVersionSource: "start_time_inferred",
       detailStatus: "enriched",
       parseStatus: "parsed",
       lobbyType: "7",
@@ -448,17 +620,32 @@ describe("live player synchronization", () => {
       { itemId: "1", action: "purchase", gameTimeSeconds: 900, charges: null },
     ]);
     expect(detail.data.players[0]?.itemTimelineStatus).toBe("partial");
+    expect(detail.data.players[0]?.neutralItemEnhancementId).toBe("1592");
+
+    const map = await app.inject({ method: "GET", url: "/v1/maps/current" });
+    expect(map.statusCode).toBe(503);
+    const mapError = apiErrorSchema.parse(json(map));
+    expect(mapError.error.code).toBe("MAP_UNAVAILABLE");
+    expect(mapError.meta?.sources).toEqual(["curated_map"]);
 
     const hero = heroDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/heroes/1" })),
     );
-    expect(hero.data).toMatchObject({ name: "antimage", patch: "unknown" });
-    expect(hero.meta.sources).toEqual(["opendota"]);
+    expect(hero.data).toMatchObject({
+      name: "antimage",
+      officialVersion: "7.41b",
+      facetsStatus: "unavailable",
+    });
+    expect(hero.meta.sources).toEqual(["dota2_official"]);
 
     const item = itemDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/items/2" })),
     );
-    expect(item.data).toMatchObject({ name: "power_treads", components: ["1"] });
+    expect(item.data).toMatchObject({
+      name: "power_treads",
+      components: ["1"],
+      officialVersion: "7.41b",
+    });
 
     const status = dataStatusResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/data-status" })),
@@ -468,15 +655,19 @@ describe("live player synchronization", () => {
       latestMatchAt: "2026-07-09T02:00:00.000Z",
     });
     expect(status.data.providers[0]).toMatchObject({ source: "opendota", status: "degraded" });
+    expect(status.data.providers[1]).toMatchObject({
+      source: "dota2_official",
+      status: "ready",
+    });
 
     expect(provider.getPlayerProfile).toHaveBeenCalledTimes(1);
     expect(provider.getRecentMatches).toHaveBeenCalledWith(ACCOUNT_ID, 100);
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
-    expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getHeroAbilityConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getRecentUpdateReleases).toHaveBeenCalledWith(5);
+    expect(provider.getHeroConstants).not.toHaveBeenCalled();
+    expect(provider.getHeroAbilityConstants).not.toHaveBeenCalled();
+    expect(provider.getItemConstants).not.toHaveBeenCalled();
+    expect(provider.getPatchConstants).not.toHaveBeenCalled();
+    expect(provider.getRecentUpdateReleases).not.toHaveBeenCalled();
 
     const updateList = updatesResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/updates" })),
@@ -501,7 +692,7 @@ describe("live player synchronization", () => {
   });
 
   it("joins exact hero ability IDs, talents, and facets into the live hero catalog", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const earthSpiritRecent: CanonicalRecentMatches = {
       ...recent,
@@ -551,8 +742,8 @@ describe("live player synchronization", () => {
     expect(hero.data.abilities.map((ability) => ability.id)).toEqual(["5608", "5612", "324"]);
     expect(hero.data.abilities.find((ability) => ability.id === "324")?.type).toBe("talent");
     expect(hero.data.facets).toEqual(heroAbilities.heroes.npc_dota_hero_earth_spirit?.facets);
-    expect(hero.data.sourceSnapshot).toContain("hero_abilities");
-    expect(hero.meta.updatedAt).toBe(ABILITIES_FETCHED_AT);
+    expect(hero.data.sourceSnapshot).toContain("herodata/abilities");
+    expect(hero.meta.updatedAt).toBe(CLOCK_AT);
 
     const match = matchDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/matches/8000000002" })),
@@ -570,7 +761,7 @@ describe("live player synchronization", () => {
   });
 
   it("replaces repeated sync batches idempotently", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const upsertMatches = vi.spyOn(repository, "upsertPlayerMatches");
     const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
@@ -596,18 +787,18 @@ describe("live player synchronization", () => {
       eligibleCount: 3,
     });
     expect(provider.getRecentMatches).toHaveBeenCalledTimes(2);
-    expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getHeroAbilityConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
-    expect(provider.getRecentUpdateReleases).toHaveBeenCalledTimes(1);
+    expect(provider.getHeroConstants).not.toHaveBeenCalled();
+    expect(provider.getHeroAbilityConstants).not.toHaveBeenCalled();
+    expect(provider.getItemConstants).not.toHaveBeenCalled();
+    expect(provider.getPatchConstants).not.toHaveBeenCalled();
+    expect(provider.getRecentUpdateReleases).not.toHaveBeenCalled();
     expect(upsertMatches).toHaveBeenLastCalledWith(ACCOUNT_ID, []);
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
   });
 
   it("reuses the previous hero catalog within its refresh TTL", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
 
@@ -640,24 +831,53 @@ describe("live player synchronization", () => {
     ]);
   });
 
+  it("refreshes a fresh legacy major-patch snapshot from the official index", async () => {
+    const repository = await createPreparedRepository();
+    await repository.replacePatches(
+      [{ id: "60", name: "7.41", releasedAt: "2026-03-24T00:00:00.000Z" }],
+      {
+        source: "opendota",
+        quality: "complete",
+        fetchedAt: FETCHED_AT,
+        checkedAt: CLOCK_AT,
+        changedAt: FETCHED_AT,
+        contentHash: "legacy-major-patches",
+        officialVersion: null,
+      },
+    );
+    const provider = createProvider();
+    const service = new StaticCatalogService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+    await service.refresh();
+
+    expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
+    expect(await repository.getPatchSnapshot()).toMatchObject({
+      source: "dota2_official",
+      officialVersion: "7.41b",
+    });
+    expect((await repository.listPatches()).map((patch) => patch.id)).toEqual([
+      "7.41b",
+      "7.41a",
+    ]);
+  });
+
   it("touches unchanged stale catalogs and advances changedAt only for changed content", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     let now = new Date(CLOCK_AT);
     const clock = () => now;
     const replaceHeroes = vi.spyOn(repository, "replaceHeroes");
-    const service = new PlayerSyncService({ repository, provider, clock });
-
-    const first = await service.requestSync(ACCOUNT_ID);
-    await service.waitForJob(first.jobId);
+    const service = new StaticCatalogService({ repository, provider, clock });
     const initial = await repository.getHeroSnapshot();
-    expect(replaceHeroes).toHaveBeenCalledTimes(1);
+    expect(replaceHeroes).not.toHaveBeenCalled();
 
-    now = new Date(Date.parse(CLOCK_AT) + 7 * 60 * 60 * 1_000);
-    const second = await service.requestSync(ACCOUNT_ID);
-    await service.waitForJob(second.jobId);
+    now = new Date(Date.parse(CLOCK_AT) + 8 * 24 * 60 * 60 * 1_000);
+    await service.refresh();
     const touched = await repository.getHeroSnapshot();
-    expect(replaceHeroes).toHaveBeenCalledTimes(1);
+    expect(replaceHeroes).not.toHaveBeenCalled();
     expect(touched?.checkedAt).toBe(now.toISOString());
     expect(touched?.changedAt).toBe(initial?.changedAt);
 
@@ -667,17 +887,64 @@ describe("live player synchronization", () => {
         hero.id === "107" ? { ...hero, roles: [...hero.roles, "Support"] } : hero,
       ),
     }));
-    now = new Date(Date.parse(CLOCK_AT) + 14 * 60 * 60 * 1_000);
-    const third = await service.requestSync(ACCOUNT_ID);
-    await service.waitForJob(third.jobId);
+    now = new Date(Date.parse(CLOCK_AT) + 16 * 24 * 60 * 60 * 1_000);
+    await service.refresh();
     const changed = await repository.getHeroSnapshot();
-    expect(replaceHeroes).toHaveBeenCalledTimes(2);
+    expect(replaceHeroes).toHaveBeenCalledTimes(1);
     expect(changed?.changedAt).toBe(now.toISOString());
     expect(changed?.contentHash).not.toBe(initial?.contentHash);
   });
 
+  it("settles fresh partial catalogs as degraded and retries them after the short TTL", async () => {
+    const repository = await createPreparedRepository();
+    const provider = createProvider();
+    let now = new Date(CLOCK_AT);
+    const service = new StaticCatalogService({ repository, provider, clock: () => now });
+    const [heroSnapshot, itemSnapshot] = await Promise.all([
+      repository.getHeroSnapshot(),
+      repository.getItemSnapshot(),
+    ]);
+    if (!heroSnapshot || !itemSnapshot) throw new Error("Static snapshot missing");
+    await repository.replaceHeroes(await repository.listHeroes(), {
+      ...heroSnapshot,
+      quality: "partial",
+    });
+    await repository.replaceItems(await repository.listItems(), {
+      ...itemSnapshot,
+      quality: "partial",
+    });
+    vi.mocked(provider.getHeroConstants).mockClear();
+    vi.mocked(provider.getHeroAbilityConstants).mockClear();
+    const upsertProviderHealth = vi.spyOn(repository, "upsertProviderHealth");
+
+    service.start();
+    await service.close();
+    expect(provider.getHeroConstants).not.toHaveBeenCalled();
+    expect(provider.getItemConstants).not.toHaveBeenCalled();
+    expect(provider.getPatchConstants).not.toHaveBeenCalled();
+    expect(provider.getRecentUpdateReleases).not.toHaveBeenCalled();
+    expect(upsertProviderHealth).toHaveBeenLastCalledWith({
+      source: "dota2_official",
+      status: "degraded",
+      checkedAt: CLOCK_AT,
+      message: "Official catalog refresh completed with partial data.",
+    });
+    expect(await repository.getProviderHealth("dota2_official")).toMatchObject({
+      status: "degraded",
+    });
+
+    now = new Date(Date.parse(CLOCK_AT) + 3 * 60 * 60 * 1_000);
+    await service.refresh();
+
+    expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getHeroAbilityConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
+    expect((await repository.getHeroSnapshot())?.quality).toBe("complete");
+    expect((await repository.getItemSnapshot())?.quality).toBe("complete");
+  });
+
   it("keeps old updates readable when their non-critical refresh fails", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const oldUpdate = { ...officialUpdate, version: "7.41a" };
     await repository.replaceUpdateReleases([oldUpdate], {
       source: "dota2_official",
@@ -686,38 +953,52 @@ describe("live player synchronization", () => {
       checkedAt: "2026-07-09T00:00:00.000Z",
       changedAt: "2026-07-09T00:00:00.000Z",
       contentHash: "old-update",
+      officialVersion: null,
     });
     const provider = createProvider();
     provider.getRecentUpdateReleases = vi.fn(async () => {
       throw new Error("test-only official update failure");
     });
-    const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
+    const service = new StaticCatalogService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+    service.start();
+    await service.close();
+
+    expect(provider.getRecentUpdateReleases).toHaveBeenCalledTimes(1);
+    expect((await repository.listUpdateReleases()).map((release) => release.version)).toEqual([
+      "7.41a",
+    ]);
+    expect(await repository.getProviderHealth("dota2_official")).toMatchObject({
+      status: "unavailable",
+    });
+    await repository.upsertProviderHealth({
+      source: "opendota",
+      status: "ready",
+      checkedAt: CLOCK_AT,
+      message: null,
+    });
     app = await buildApp({
       environment: "test",
       dataMode: "live",
       repository,
-      syncService: service,
+      playerDataProvider: provider,
       clock: () => new Date(CLOCK_AT),
     });
-
-    const accepted = syncJobResponseSchema.parse(
-      json(await app.inject({ method: "POST", url: `/v1/players/${ACCOUNT_ID}/sync` })),
+    const status = dataStatusResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/data-status" })),
     );
-    const terminal = await service.waitForJob(accepted.data.jobId);
-    expect(terminal?.status).toBe("public_partial");
-
-    const list = updatesResponseSchema.parse(
-      json(await app.inject({ method: "GET", url: "/v1/updates" })),
-    );
-    expect(list.data.items.map((release) => release.version)).toEqual(["7.41a"]);
-    expect(list.meta).toMatchObject({
-      sources: ["dota2_official"],
-      updatedAt: "2026-07-09T00:00:00.000Z",
-    });
+    expect(status.data.status).toBe("unavailable");
+    expect(status.data.providers.map((health) => health.source)).toEqual([
+      "opendota",
+      "dota2_official",
+    ]);
   });
 
   it("keeps previously imported public data readable while a refresh is running", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
     app = await buildApp({
@@ -747,7 +1028,7 @@ describe("live player synchronization", () => {
   });
 
   it("imports one history page without deleting recent matches or downgrading detail", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const recentService = new PlayerSyncService({
       repository,
@@ -814,7 +1095,7 @@ describe("live player synchronization", () => {
       reachedEnd: false,
     });
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
-    expect((await repository.getMatch(historical.id))?.detail.patch).toBe("60");
+    expect((await repository.getMatch(historical.id))?.detail.openDotaPatchId).toBeNull();
     expect(await repository.listPlayerMatches(ACCOUNT_ID)).toHaveLength(3);
 
     const allImported = playerMatchesResponseSchema.parse(
@@ -846,7 +1127,7 @@ describe("live player synchronization", () => {
   });
 
   it("does not advance a failed history page and resumes from the same offset", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     provider.getPlayerMatchesPage = vi.fn(async () => {
       throw new OpenDotaProviderError(
@@ -897,7 +1178,7 @@ describe("live player synchronization", () => {
   });
 
   it("honors a fresh persisted history-sync lease across service instances", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     await repository.commitPlayerHistoryPage(ACCOUNT_ID, [], {
       accountId: ACCOUNT_ID,
@@ -926,7 +1207,7 @@ describe("live player synchronization", () => {
   });
 
   it("keeps a failed detail as summary without failing the player sync", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     provider.getMatchDetail = vi.fn(async (matchId) => {
       if (matchId === "8000000002") throw new Error("test-only detail failure");
@@ -944,7 +1225,7 @@ describe("live player synchronization", () => {
   });
 
   it("enriches only the latest 20 matches with at most two requests in flight", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const template = recent.matches[0]!;
     const matches = Array.from({ length: 25 }, (_, index) => ({
@@ -989,7 +1270,7 @@ describe("live player synchronization", () => {
   });
 
   it("coalesces concurrent requests and reports a complete provider as ready", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     let releaseProfile!: (value: CanonicalPlayerProfile) => void;
     const profileGate = new Promise<CanonicalPlayerProfile>((resolve) => {
@@ -1037,7 +1318,7 @@ describe("live player synchronization", () => {
   });
 
   it("derives exact last-20, last-50, and last-100 metrics from the candidate ledger", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
     const excludedIndices = new Set([4, 24, 54, 84]);
     const allMatches = Array.from({ length: 100 }, (_, providerIndex) => {
@@ -1227,7 +1508,7 @@ describe("live player synchronization", () => {
   ])(
     "preserves the $name outcome instead of returning empty success",
     async ({ stage, error, jobStatus, errorCode, httpStatus, providerStatus }) => {
-      const repository = await createLiveRepository();
+      const repository = await createPreparedRepository();
       const provider = createProvider();
       if (stage === "profile") {
         provider.getPlayerProfile = vi.fn(async () => {
@@ -1285,9 +1566,9 @@ describe("live player synchronization", () => {
   );
 
   it("maps unexpected sync failures to a diagnosable failed terminal state", async () => {
-    const repository = await createLiveRepository();
+    const repository = await createPreparedRepository();
     const provider = createProvider();
-    provider.getHeroConstants = vi.fn(async () => {
+    provider.getRecentMatches = vi.fn(async () => {
       throw new Error("test-only unexpected failure");
     });
     const service = new PlayerSyncService({ repository, provider, clock: () => new Date(CLOCK_AT) });
