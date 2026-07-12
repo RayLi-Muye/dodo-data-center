@@ -14,7 +14,7 @@ const DEFAULT_ACCOUNT_ID = "123456789";
 
 export default async function HomePage() {
   const [overviewResult, statusResult, itemsResult] = await Promise.all([
-    settle(api.playerOverview(DEFAULT_ACCOUNT_ID)),
+    settle(api.playerOverview(DEFAULT_ACCOUNT_ID, "last_100")),
     settle(api.dataStatus()),
     settle(collectAllItems()),
   ]);

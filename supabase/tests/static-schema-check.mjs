@@ -1,11 +1,12 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const migrationUrl = new URL(
-  "../migrations/20260711000100_initial_persistence.sql",
-  import.meta.url,
-);
-const sql = readFileSync(fileURLToPath(migrationUrl), "utf8");
+const migrationsUrl = new URL("../migrations/", import.meta.url);
+const sql = readdirSync(fileURLToPath(migrationsUrl))
+  .filter((name) => name.endsWith(".sql"))
+  .sort()
+  .map((name) => readFileSync(fileURLToPath(new URL(name, migrationsUrl)), "utf8"))
+  .join("\n");
 const config = readFileSync(fileURLToPath(new URL("../config.toml", import.meta.url)), "utf8");
 
 const requiredTables = [
@@ -20,6 +21,7 @@ const requiredTables = [
   "player_sync_failures",
   "provider_health",
   "static_snapshots",
+  "patches",
 ];
 
 const requiredColumns = {
@@ -34,6 +36,7 @@ const requiredColumns = {
   player_sync_failures: ["account_id", "payload", "checked_at", "updated_at"],
   provider_health: ["source", "payload", "checked_at", "updated_at"],
   static_snapshots: ["kind", "payload", "updated_at"],
+  patches: ["id", "payload", "released_at", "updated_at"],
 };
 
 const checks = [
@@ -55,7 +58,7 @@ const checks = [
     "stable recent index",
     /on dodo\.player_matches \(account_id, start_time desc, match_id desc\)/i,
   ],
-  ["static snapshot kinds", /check \(kind in \('hero', 'item'\)\)/i],
+  ["static snapshot patch kind", /check \(kind in \('hero', 'item', 'patch'\)\)/i],
   ["anon schema revoke", /revoke all on schema dodo from anon;/i],
   ["authenticated schema revoke", /revoke all on schema dodo from authenticated;/i],
 ];
@@ -77,8 +80,8 @@ for (const [table, columns] of Object.entries(requiredColumns)) {
   }
 }
 
-if (payloadTables.length !== 10) {
-  missing.push(`expected 10 non-null payload tables, found ${payloadTables.length}`);
+if (payloadTables.length !== 11) {
+  missing.push(`expected 11 non-null payload tables, found ${payloadTables.length}`);
 }
 
 if (!/schemas = \["public", "graphql_public"\]/.test(config) || /schemas = \[[^\]]*"dodo"/.test(config)) {

@@ -1166,6 +1166,55 @@ button.text-action {
   color: var(--text-strong);
 }
 
+.patch-filter {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--line);
+  background: var(--surface-low);
+}
+
+.patch-filter label {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.patch-filter select,
+.patch-filter button,
+.patch-filter a {
+  min-height: 2.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.patch-filter select { padding-inline: var(--space-sm); }
+.patch-filter button,
+.patch-filter a { display: grid; place-items: center; padding-inline: var(--space-md); }
+.patch-filter button { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 700; }
+.patch-filter a { color: var(--text-muted); }
+
+.patch-timeline { margin: 0; padding: 0; list-style: none; }
+.patch-timeline li {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: center;
+  min-height: 3.5rem;
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--line);
+}
+.patch-timeline time,
+.patch-timeline code { grid-column: 2; }
+.patch-timeline li:last-child { border-bottom: 0; }
+.patch-timeline li > span,
+.patch-timeline time,
+.patch-timeline code { color: var(--text-muted); font-size: var(--text-xs); }
+.patch-timeline strong { color: var(--text-strong); font-family: var(--font-display); font-size: var(--text-lg); }
+
 .player-summary {
   display: grid;
   gap: var(--space-xl);
@@ -1801,6 +1850,11 @@ circle.map-feature,
 }
 
 @media (min-width: 40rem) {
+  .patch-filter { grid-template-columns: auto minmax(12rem, 1fr) auto auto; align-items: end; }
+  .patch-filter label { grid-column: 1 / -1; }
+  .patch-timeline li { grid-template-columns: 2.5rem minmax(5rem, 0.5fr) minmax(9rem, 1fr) auto; }
+  .patch-timeline time,
+  .patch-timeline code { grid-column: auto; }
   .page-shell { padding-inline: var(--space-lg); }
   .site-header__inner { grid-template-columns: auto minmax(0, 1fr) auto; padding-inline: var(--space-lg); }
   .site-header nav { grid-column: auto; justify-content: center; overflow: visible; }

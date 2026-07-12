@@ -38,4 +38,17 @@ describe("Web UI copy and touch contract", () => {
       accountSearch.indexOf("router.push"),
     );
   });
+
+  it("exposes the shared patch catalog and preserves player patch filters", () => {
+    const header = source("../components/site-header.tsx");
+    const playerPage = source("../app/players/[accountId]/page.tsx");
+    const patchesPage = source("../app/patches/page.tsx");
+    const api = source("../lib/api.ts");
+
+    expect(header).toContain('{ href: "/patches", label: "更新" }');
+    expect(playerPage).toContain('id="player-patch"');
+    expect(playerPage).toContain("patch=${encodeURIComponent(patch)}");
+    expect(patchesPage).toContain("collectAllPatches");
+    expect(api).toContain("patch, window");
+  });
 });

@@ -5,6 +5,7 @@ import {
   itemDetailSchema,
   mapVersionSchema,
   matchDetailSchema,
+  patchSummarySchema,
   playerProfileSchema,
   syncJobSchema,
   timestampSchema,
@@ -12,6 +13,7 @@ import {
   type ItemDetail,
   type MapVersion,
   type MatchDetail,
+  type PatchSummary,
   type PlayerProfile,
   type SyncJob,
 } from "@dodo/contracts";
@@ -357,6 +359,22 @@ export class PostgresDodoRepository implements DodoRepository {
     });
   }
 
+  async replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void> {
+    await this.#sql.begin(async (sql) => {
+      await sql`
+        select pg_advisory_xact_lock(hashtextextended('catalog:patches', 0))
+      `;
+      await sql`delete from dodo.patches`;
+      for (const patch of patches) {
+        await sql`
+          insert into dodo.patches (id, payload, released_at, updated_at)
+          values (${patch.id}, ${sql.json(toJson(patch))}, ${patch.releasedAt}, now())
+        `;
+      }
+      await this.#upsertSnapshot(sql, "patch", snapshot);
+    });
+  }
+
   async upsertProviderHealth(health: ProviderHealth): Promise<void> {
     await this.#sql`
       insert into dodo.provider_health (source, payload, checked_at, updated_at)
@@ -390,6 +408,21 @@ export class PostgresDodoRepository implements DodoRepository {
 
   async getItemSnapshot(): Promise<StaticDataSnapshot | undefined> {
     return this.#getSnapshot("item");
+  }
+
+  async getPatch(id: string): Promise<PatchSummary | undefined> {
+    return this.#getDocument("patches", id, patchSummarySchema.parse);
+  }
+
+  async listPatches(): Promise<PatchSummary[]> {
+    const rows = await this.#sql<JsonRow[]>`
+      select payload from dodo.patches order by released_at desc, id desc
+    `;
+    return rows.map((row) => patchSummarySchema.parse(row.payload));
+  }
+
+  async getPatchSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#getSnapshot("patch");
   }
 
   async getCurrentMap(): Promise<MapVersion | undefined> {
@@ -504,7 +537,7 @@ export class PostgresDodoRepository implements DodoRepository {
   }
 
   async #getDocument<T>(
-    table: "heroes" | "items" | "maps",
+    table: "heroes" | "items" | "maps" | "patches",
     id: string,
     parse: (value: unknown) => T,
   ): Promise<T | undefined> {
@@ -514,7 +547,7 @@ export class PostgresDodoRepository implements DodoRepository {
     return row ? parse(row.payload) : undefined;
   }
 
-  async #getSnapshot(kind: "hero" | "item"): Promise<StaticDataSnapshot | undefined> {
+  async #getSnapshot(kind: "hero" | "item" | "patch"): Promise<StaticDataSnapshot | undefined> {
     return this.#getPayload(
       this.#sql`select payload from dodo.static_snapshots where kind = ${kind}`,
       parseSnapshot,
@@ -544,7 +577,7 @@ export class PostgresDodoRepository implements DodoRepository {
 
   async #upsertSnapshot(
     sql: QuerySql,
-    kind: "hero" | "item",
+    kind: "hero" | "item" | "patch",
     snapshot: StaticDataSnapshot,
   ): Promise<void> {
     await sql`

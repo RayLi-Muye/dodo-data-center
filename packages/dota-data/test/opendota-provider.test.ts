@@ -6,6 +6,7 @@ import matchDetailFixture from "../fixtures/match-detail.json";
 import emptyMatchesFixture from "../fixtures/matches-empty.json";
 import publicMatchesFixture from "../fixtures/matches-public.json";
 import itemsFixture from "../fixtures/items.json";
+import patchesFixture from "../fixtures/patches.json";
 import partialProfileFixture from "../fixtures/profile-partial.json";
 import publicProfileFixture from "../fixtures/profile-public.json";
 import { OpenDotaProviderError } from "../src/errors.js";
@@ -400,6 +401,44 @@ describe("OpenDotaProvider", () => {
     });
     expect(items.items.map((item) => item.id)).toEqual(["1", "2"]);
     expect(items.items[1]?.attributes).toEqual([{ label: "+", value: "45" }]);
+  });
+
+  it("normalizes patch constants and sorts by release time then numeric ID", async () => {
+    const { provider, fetchImpl } = providerFor(patchesFixture);
+
+    await expect(provider.getPatchConstants()).resolves.toEqual({
+      items: [
+        { id: "57", name: "7.38", releasedAt: "2025-02-19T00:00:00.000Z" },
+        { id: "58", name: "7.39", releasedAt: "2025-05-21T00:00:00.000Z" },
+        { id: "59", name: "7.40", releasedAt: "2025-05-21T00:00:00.000Z" },
+      ],
+      source: { source: "opendota", fetchedAt: NOW.toISOString() },
+    });
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      "https://opendota.fixture/api/constants/patch",
+    );
+  });
+
+  it("classifies empty patch constants as an invalid response", async () => {
+    await expect(providerFor([]).provider.getPatchConstants()).rejects.toMatchObject({
+      code: "SOURCE_UNAVAILABLE",
+      reason: "invalid_response",
+      retryable: true,
+    });
+  });
+
+  it.each([
+    { field: "array", payload: {} },
+    { field: "id", payload: [{ id: -1, name: "7.39", date: "2025-05-21T00:00:00Z" }] },
+    { field: "name", payload: [{ id: 58, name: "", date: "2025-05-21T00:00:00Z" }] },
+    { field: "date", payload: [{ id: 58, name: "7.39", date: "May 21, 2025" }] },
+    { field: "calendar date", payload: [{ id: 58, name: "7.39", date: "2025-02-30T00:00:00Z" }] },
+  ])("classifies malformed patch $field data as an invalid response", async ({ payload }) => {
+    await expect(providerFor(payload).provider.getPatchConstants()).rejects.toMatchObject({
+      code: "SOURCE_UNAVAILABLE",
+      reason: "invalid_response",
+      retryable: true,
+    });
   });
 
   it.each([

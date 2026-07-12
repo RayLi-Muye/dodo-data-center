@@ -3,6 +3,7 @@ import type {
   ItemDetail,
   MapVersion,
   MatchDetail,
+  PatchSummary,
   PlayerProfile,
 } from "@dodo/contracts";
 
@@ -146,6 +147,14 @@ const mapSeed: MapVersion = {
   verifiedAt: SEED_UPDATED_AT,
 };
 
+const patchSeed: PatchSummary[] = [
+  {
+    id: SEED_PATCH,
+    name: "Seed Patch",
+    releasedAt: SEED_UPDATED_AT,
+  },
+];
+
 const playerSeeds: PlayerProfile[] = [
   {
     accountId: SEED_ACCOUNT_ID,
@@ -260,6 +269,11 @@ export const seedCuratedMap = async (repository: DodoRepository): Promise<DodoRe
 export const seedRepository = async (repository: DodoRepository): Promise<DodoRepository> => {
   for (const hero of heroSeed) await repository.upsertHero(hero);
   for (const item of itemSeed) await repository.upsertItem(item);
+  await repository.replacePatches(patchSeed, {
+    source: "seed",
+    quality: "complete",
+    fetchedAt: SEED_UPDATED_AT,
+  });
   await seedCuratedMap(repository);
   for (const player of playerSeeds) await repository.upsertPlayer(player);
   for (let index = 0; index < 105; index += 1) {

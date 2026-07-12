@@ -3,6 +3,7 @@ import type {
   ItemDetail,
   MapVersion,
   MatchDetail,
+  PatchSummary,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
@@ -39,6 +40,7 @@ export class MemoryDodoRepository implements DodoRepository {
   readonly #heroes = new Map<string, HeroDetail>();
   readonly #items = new Map<string, ItemDetail>();
   readonly #maps = new Map<string, MapVersion>();
+  readonly #patches = new Map<string, PatchSummary>();
   readonly #players = new Map<string, PlayerProfile>();
   readonly #matches = new Map<string, StoredMatch>();
   readonly #playerMatchIds = new Map<string, Set<string>>();
@@ -48,6 +50,7 @@ export class MemoryDodoRepository implements DodoRepository {
   readonly #providerHealth = new Map<DataSource, ProviderHealth>();
   #heroSnapshot: StaticDataSnapshot | undefined;
   #itemSnapshot: StaticDataSnapshot | undefined;
+  #patchSnapshot: StaticDataSnapshot | undefined;
   #currentMapId: string | undefined;
 
   async upsertHero(hero: HeroDetail): Promise<void> {
@@ -137,6 +140,12 @@ export class MemoryDodoRepository implements DodoRepository {
     this.#itemSnapshot = clone(snapshot);
   }
 
+  async replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void> {
+    this.#patches.clear();
+    for (const patch of patches) this.#patches.set(patch.id, clone(patch));
+    this.#patchSnapshot = clone(snapshot);
+  }
+
   async upsertProviderHealth(health: ProviderHealth): Promise<void> {
     this.#providerHealth.set(health.source, clone(health));
   }
@@ -169,6 +178,25 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async getItemSnapshot(): Promise<StaticDataSnapshot | undefined> {
     return this.#itemSnapshot ? clone(this.#itemSnapshot) : undefined;
+  }
+
+  async getPatch(id: string): Promise<PatchSummary | undefined> {
+    const patch = this.#patches.get(id);
+    return patch ? clone(patch) : undefined;
+  }
+
+  async listPatches(): Promise<PatchSummary[]> {
+    return [...this.#patches.values()]
+      .sort(
+        (left, right) =>
+          Date.parse(right.releasedAt) - Date.parse(left.releasedAt) ||
+          right.id.localeCompare(left.id),
+      )
+      .map(clone);
+  }
+
+  async getPatchSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#patchSnapshot ? clone(this.#patchSnapshot) : undefined;
   }
 
   async getCurrentMap(): Promise<MapVersion | undefined> {

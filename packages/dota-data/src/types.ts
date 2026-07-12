@@ -129,6 +129,12 @@ export type CanonicalItemConstant = {
   componentNames: string[];
 };
 
+export type CanonicalPatchSummary = {
+  id: string;
+  name: string;
+  releasedAt: string;
+};
+
 export type CanonicalConstantsSnapshot<T> = {
   items: T[];
   source: OpenDotaSourceMetadata;

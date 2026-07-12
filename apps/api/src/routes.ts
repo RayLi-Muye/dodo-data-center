@@ -7,6 +7,7 @@ import {
   itemIdParamsSchema,
   mapFeaturesQuerySchema,
   matchIdParamsSchema,
+  paginationQuerySchema,
   playerHeroesQuerySchema,
   playerMatchesQuerySchema,
   playerWindowQuerySchema,
@@ -299,10 +300,32 @@ const selectPlayerWindow = (
   matches: StoredMatch[],
   batch: PlayerSyncBatch | undefined,
   window: MetricWindow,
+  patch?: string,
 ): StoredMatch[] => {
+  const patchMatches = patch
+    ? matches.filter((match) => match.detail.patch === patch)
+    : matches;
+  if (patch) return selectWindow(patchMatches, window);
   if (!batch) return selectWindow(matches, window);
   const includedMatchIds = new Set(batchWindow(batch, window).includedMatchIds);
   return matches.filter((match) => includedMatchIds.has(match.detail.id));
+};
+
+const selectionQuality = (
+  selectedMatches: StoredMatch[],
+  batch: PlayerSyncBatch | undefined,
+  window: MetricWindow,
+  patch?: string,
+) => {
+  if (!batch || patch) {
+    return {
+      sampleSize: selectedMatches.length,
+      eligibleCount: selectedMatches.length,
+      excludedCount: 0,
+      exclusionReasons: [] as string[],
+    };
+  }
+  return batchWindow(batch, window);
 };
 
 export const registerRoutes = async (
@@ -428,27 +451,38 @@ export const registerRoutes = async (
   });
 
   app.get("/v1/players/:accountId", async (request) => {
-    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    const errorMeta = await defaultErrorMeta();
+    const accountId = parseAccountId(request.params, errorMeta);
+    const query = parse(playerWindowQuerySchema, request.query, errorMeta);
     const profile = await accessiblePlayer(accountId);
     const matches = await repository.listPlayerMatches(accountId);
-    const window = "last_100" as const;
     const batch = await repository.getPlayerSyncBatch(accountId);
-    const selectedMatches = selectPlayerWindow(matches, batch, window);
-    const data = calculateOverview(profile, selectedMatches, await repository.listHeroes(), window);
-    const qualityWindow = batch ? batchWindow(batch, window) : undefined;
+    const selectedMatches = selectPlayerWindow(matches, batch, query.window, query.patch);
+    const data = calculateOverview(
+      profile,
+      selectedMatches,
+      await repository.listHeroes(),
+      query.window,
+    );
+    const qualityWindow = selectionQuality(
+      selectedMatches,
+      batch,
+      query.window,
+      query.patch,
+    );
     const descriptor = batch ? descriptorFromBatch(batch) : await defaultDescriptor();
     return {
       data,
       meta: createMetricMeta({
-        sampleSize: qualityWindow?.sampleSize ?? selectedMatches.length,
-        eligibleCount: qualityWindow?.eligibleCount ?? selectedMatches.length,
+        sampleSize: qualityWindow.sampleSize,
+        eligibleCount: qualityWindow.eligibleCount,
         coverageRate:
-          qualityWindow === undefined || qualityWindow.eligibleCount === 0
+          qualityWindow.eligibleCount === 0
             ? 1
             : qualityWindow.sampleSize / qualityWindow.eligibleCount,
-        excludedCount: qualityWindow?.excludedCount ?? 0,
-        exclusionReasons: qualityWindow?.exclusionReasons ?? [],
-        filtersApplied: { window },
+        excludedCount: qualityWindow.excludedCount,
+        exclusionReasons: qualityWindow.exclusionReasons,
+        filtersApplied: { window: query.window, patch: query.patch ?? null },
         inputWatermark: selectedMatches[0]?.detail.startTime ?? null,
         quality: batch?.quality ?? qualityForProfile(profile),
         updatedAt: descriptor.updatedAt,
@@ -463,7 +497,13 @@ export const registerRoutes = async (
     const accountId = parseAccountId(request.params, errorMeta);
     const profile = await accessiblePlayer(accountId);
     const query = parse(playerMatchesQuerySchema, request.query, errorMeta);
-    const matches = selectWindow(await repository.listPlayerMatches(accountId), "last_100")
+    const batch = await repository.getPlayerSyncBatch(accountId);
+    const matches = selectPlayerWindow(
+      await repository.listPlayerMatches(accountId),
+      batch,
+      query.window,
+      query.patch,
+    )
       .filter(
         (match) =>
           !query.heroId ||
@@ -474,11 +514,17 @@ export const registerRoutes = async (
       .map((match) => toMatchSummary(match.detail, accountId));
     return {
       data: paginate(matches, query.limit, query.cursor, (match) => match.id, errorMeta),
-      meta: createOperationMeta({
-        ...(await playerDescriptor(accountId)),
-        quality:
-          (await repository.getPlayerSyncBatch(accountId))?.quality ?? qualityForProfile(profile),
-      }),
+      meta: {
+        ...createOperationMeta({
+          ...(await playerDescriptor(accountId)),
+          quality: batch?.quality ?? qualityForProfile(profile),
+        }),
+        filtersApplied: {
+          window: query.window,
+          patch: query.patch ?? null,
+          heroId: query.heroId ?? null,
+        },
+      },
     };
   });
 
@@ -489,26 +535,31 @@ export const registerRoutes = async (
     const query = parse(playerHeroesQuerySchema, request.query, errorMeta);
     const matches = await repository.listPlayerMatches(accountId);
     const batch = await repository.getPlayerSyncBatch(accountId);
-    const selectedMatches = selectPlayerWindow(matches, batch, query.window);
+    const selectedMatches = selectPlayerWindow(matches, batch, query.window, query.patch);
     const heroStats = calculateHeroList(
       accountId,
       selectedMatches,
       await repository.listHeroes(),
       query.window,
     );
-    const qualityWindow = batch ? batchWindow(batch, query.window) : undefined;
+    const qualityWindow = selectionQuality(
+      selectedMatches,
+      batch,
+      query.window,
+      query.patch,
+    );
     const descriptor = batch ? descriptorFromBatch(batch) : await defaultDescriptor();
-    const sampleSize = qualityWindow?.sampleSize ?? selectedMatches.length;
-    const eligibleCount = qualityWindow?.eligibleCount ?? selectedMatches.length;
+    const sampleSize = qualityWindow.sampleSize;
+    const eligibleCount = qualityWindow.eligibleCount;
     return {
       data: paginate(heroStats, query.limit, query.cursor, (stats) => stats.hero.id, errorMeta),
       meta: createMetricMeta({
         sampleSize,
         eligibleCount,
         coverageRate: eligibleCount === 0 ? 1 : sampleSize / eligibleCount,
-        excludedCount: qualityWindow?.excludedCount ?? 0,
-        exclusionReasons: qualityWindow?.exclusionReasons ?? [],
-        filtersApplied: { window: query.window },
+        excludedCount: qualityWindow.excludedCount,
+        exclusionReasons: qualityWindow.exclusionReasons,
+        filtersApplied: { window: query.window, patch: query.patch ?? null },
         inputWatermark: selectedMatches[0]?.detail.startTime ?? null,
         quality: batch?.quality ?? qualityForProfile(profile),
         updatedAt: descriptor.updatedAt,
@@ -522,7 +573,7 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const accountId = parseAccountId(request.params, errorMeta);
     const { heroId } = parse(heroIdParamsSchema, request.params, errorMeta);
-    const { window } = parse(playerWindowQuerySchema, request.query, errorMeta);
+    const { window, patch } = parse(playerWindowQuerySchema, request.query, errorMeta);
     const profile = await accessiblePlayer(accountId);
     const hero = await repository.getHero(heroId);
     if (!hero) {
@@ -532,6 +583,7 @@ export const registerRoutes = async (
       await repository.listPlayerMatches(accountId),
       await repository.getPlayerSyncBatch(accountId),
       window,
+      patch,
     );
     const stats = calculateHeroStats(
       accountId,
@@ -560,7 +612,7 @@ export const registerRoutes = async (
               (player) => player.accountId === accountId && player.heroId === heroId,
             ),
           )?.detail.startTime ?? null,
-        filtersApplied: { window, heroId },
+        filtersApplied: { window, patch: patch ?? null, heroId },
         quality:
           (await repository.getPlayerSyncBatch(accountId))?.quality ?? qualityForProfile(profile),
         updatedAt: descriptor.updatedAt,
@@ -578,6 +630,19 @@ export const registerRoutes = async (
       throw new ApiHttpError(404, "NOT_FOUND", "Match was not found.", false, errorMeta);
     }
     return { data: match.detail, meta: createOperationMeta(descriptorFromMatch(match)) };
+  });
+
+  app.get("/v1/patches", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const query = parse(paginationQuerySchema, request.query, errorMeta);
+    const patches = await repository.listPatches();
+    const snapshot = await repository.getPatchSnapshot();
+    return {
+      data: paginate(patches, query.limit, query.cursor, (patch) => patch.id, errorMeta),
+      meta: createOperationMeta(
+        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+      ),
+    };
   });
 
   app.get("/v1/heroes", async (request) => {

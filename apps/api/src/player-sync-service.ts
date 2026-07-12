@@ -260,10 +260,11 @@ export class PlayerSyncService {
     let fetchedProfile: CanonicalPlayerProfile | undefined;
     try {
       fetchedProfile = await this.#provider.getPlayerProfile(job.accountId);
-      const [recent, heroes, items] = await Promise.all([
+      const [recent, heroes, items, patches] = await Promise.all([
         this.#provider.getRecentMatches(job.accountId, 100),
         this.#provider.getHeroConstants(),
         this.#provider.getItemConstants(),
+        this.#provider.getPatchConstants(),
       ]);
       if (recent.accountId !== job.accountId) {
         throw new Error("Player data provider returned matches for a different account");
@@ -314,6 +315,11 @@ export class PlayerSyncService {
         source: "opendota",
         quality: "complete",
         fetchedAt: items.source.fetchedAt,
+      });
+      await this.#repository.replacePatches(patches.items, {
+        source: "opendota",
+        quality: "complete",
+        fetchedAt: patches.source.fetchedAt,
       });
       await this.#repository.replacePlayerMatches(job.accountId, storedMatches);
       const enrichmentCandidates = storedMatches

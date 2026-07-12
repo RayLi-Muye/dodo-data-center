@@ -9,6 +9,7 @@ import {
   mapFeaturesResponseSchema,
   mapVersionResponseSchema,
   matchDetailResponseSchema,
+  patchesResponseSchema,
   playerHeroResponseSchema,
   playerHeroesResponseSchema,
   playerMatchesResponseSchema,
@@ -97,6 +98,7 @@ describe("Dodo API", () => {
     mapFeaturesResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/maps/seed-map/features" })),
     );
+    patchesResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/patches" })));
     dataStatusResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/data-status" })),
     );
@@ -385,6 +387,88 @@ describe("Dodo API", () => {
     for (let excludedIndex = 100; excludedIndex < 105; excludedIndex += 1) {
       expect(ids).not.toContain(String(9_000_000_000 + excludedIndex));
     }
+  });
+
+  it("filters by patch before applying player windows and exposes all imported matches", async () => {
+    const repository = await createSeedRepository();
+    const importedMatches = await repository.listPlayerMatches(SEED_ACCOUNT_ID);
+    for (const [index, match] of importedMatches.entries()) {
+      await repository.upsertMatch({
+        ...match,
+        detail: { ...match.detail, patch: index < 10 ? "new-patch" : "old-patch" },
+      });
+    }
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const overview = playerOverviewResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}?window=last_20&patch=old-patch`,
+        }),
+      ),
+    );
+    expect(overview.data.games).toBe(20);
+    expect(overview.meta.filtersApplied).toEqual({ window: "last_20", patch: "old-patch" });
+
+    const matches = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?window=last_20&patch=old-patch&limit=100`,
+        }),
+      ),
+    );
+    expect(matches.data.items).toHaveLength(20);
+    expect(matches.data.items.map((match) => match.id)).toEqual(
+      importedMatches.slice(10, 30).map((match) => match.detail.id),
+    );
+    expect(matches.meta.filtersApplied).toEqual({
+      window: "last_20",
+      patch: "old-patch",
+      heroId: null,
+    });
+
+    const heroes = playerHeroesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/heroes?window=last_20&patch=old-patch`,
+        }),
+      ),
+    );
+    expect(heroes.data.items.reduce((sum, hero) => sum + hero.games, 0)).toBe(20);
+    expect(heroes.meta.filtersApplied).toEqual({ window: "last_20", patch: "old-patch" });
+
+    const selectedHeroId = matches.data.items[0]!.player.heroId;
+    const hero = playerHeroResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/heroes/${selectedHeroId}?window=last_20&patch=old-patch`,
+        }),
+      ),
+    );
+    expect(hero.data.games).toBe(
+      matches.data.items.filter((match) => match.player.heroId === selectedHeroId).length,
+    );
+    expect(hero.meta.filtersApplied).toEqual({
+      window: "last_20",
+      patch: "old-patch",
+      heroId: selectedHeroId,
+    });
+
+    const allImported = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?window=all_imported&patch=old-patch&limit=100`,
+        }),
+      ),
+    );
+    expect(allImported.data.items).toHaveLength(95);
+    expect(allImported.data.nextCursor).toBeNull();
   });
 
   it("reconciles all-imported and last-100 metrics against match facts", async () => {

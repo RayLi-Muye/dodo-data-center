@@ -143,6 +143,24 @@ DONE
 - 最终装备覆盖198/200；真实购买时间线覆盖110/200，其他记录明确标记 unavailable；出售事件仍不推断。
 - Vercel `017531d` 与 Railway `ff71df82-010a-4002-8567-d6127734bf49` 均成功；浏览器确认真实比赛页包含10行玩家、双方完整阵容、技能加点、物品时间线和69个装备图标。
 
+## Wave 9: Patch filtering foundation
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-009 patch/filter contracts and migration | Root | contracts、docs、Supabase migration | Wave 8 | ACCEPTED |
+| DATA-009 OpenDota patch catalog | Data Source Agent | `packages/dota-data/**` | ROOT-009 | ACCEPTED |
+| API-009 patch persistence and combined filters | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-009, DATA-009 | ACCEPTED |
+| WEB-009 player filters and Update tab | Root | `apps/web/**` | API-009 | ACCEPTED |
+| DEPLOY-009 patch migration and live smoke | Root | Supabase、Railway、Vercel | ROOT-009, API-009, WEB-009 | RUNNING |
+
+## Wave 9 local evidence
+
+- OpenDota `constants/patch` 真实冒烟返回 61 个版本，按发布时间和数值 ID 稳定排序。
+- Overview、比赛、英雄列表与玩家英雄详情统一执行“先 Patch、再 recent N”，并支持 `all_imported`。
+- `GET /v1/patches` 使用游标分页和最新版本优先；玩家 URL 保留 `window` 与 `patch`。
+- “更新”主导航和 Patch 时间线已加入；本波只交付版本目录，改动正文属于下一纵切。
+- 静态数据库35项断言、全仓 typecheck、生产 build 和113项常规测试通过；3项专用 PostgreSQL 测试按设计跳过。
+
 ## Wave 7: Player refresh experience
 
 | Task | Owner | Scope | Depends on | State |

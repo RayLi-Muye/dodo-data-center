@@ -5,6 +5,7 @@ const navigation = [
   { href: "/heroes", label: "英雄" },
   { href: "/items", label: "物品" },
   { href: "/map", label: "地图" },
+  { href: "/patches", label: "更新" },
 ];
 
 export function SiteHeader() {

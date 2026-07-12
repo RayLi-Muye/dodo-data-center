@@ -6,6 +6,7 @@ import {
   PostgresDodoRepository,
   SEED_ACCOUNT_ID,
   SEED_PARTIAL_ACCOUNT_ID,
+  SEED_PATCH,
   SEED_UPDATED_AT,
   type DodoRepository,
 } from "../src/index.js";
@@ -60,6 +61,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
         dodo.static_snapshots,
         dodo.heroes,
         dodo.items,
+        dodo.patches,
         dodo.maps
       cascade
     `;
@@ -74,11 +76,12 @@ describeWithDatabase("PostgresDodoRepository", () => {
     const fixtures = await createSeedRepository();
     const hero = await fixtures.getHero("1");
     const item = await fixtures.getItem("1");
+    const patch = await fixtures.getPatch(SEED_PATCH);
     const map = await fixtures.getCurrentMap();
     const primaryPlayer = await fixtures.getPlayer(SEED_ACCOUNT_ID);
     const sharedPlayer = await fixtures.getPlayer(SEED_PARTIAL_ACCOUNT_ID);
     const matches = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID)).slice(0, 2);
-    if (!hero || !item || !map || !primaryPlayer || !sharedPlayer || matches.length !== 2) {
+    if (!hero || !item || !patch || !map || !primaryPlayer || !sharedPlayer || matches.length !== 2) {
       throw new Error("Seed fixtures are incomplete");
     }
 
@@ -89,6 +92,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     };
     await repository.replaceHeroes([hero], snapshot);
     await repository.replaceItems([item], snapshot);
+    await repository.replacePatches([patch], snapshot);
     await repository.upsertMap(map);
     await repository.upsertPlayer(primaryPlayer);
     await repository.upsertPlayer(sharedPlayer);
@@ -148,6 +152,8 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(await repository.getHeroSnapshot()).toEqual(snapshot);
     expect(await repository.listItems()).toEqual([item]);
     expect(await repository.getItemSnapshot()).toEqual(snapshot);
+    expect(await repository.listPatches()).toEqual([patch]);
+    expect(await repository.getPatchSnapshot()).toEqual(snapshot);
     expect(await repository.getCurrentMap()).toEqual(map);
     expect(await repository.getPlayerSyncBatch(SEED_ACCOUNT_ID)).toMatchObject({ sampleSize: 1 });
     expect(await repository.getPlayerSyncFailure(SEED_ACCOUNT_ID)).toMatchObject({ source: "seed" });
@@ -183,7 +189,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(storedIds).toHaveLength(3);
   });
 
-  it("serializes concurrent hero and item catalog replacement with matching snapshots", async () => {
+  it("serializes concurrent static catalog replacement with matching snapshots", async () => {
     const fixtures = await createSeedRepository();
     const heroes = await fixtures.listHeroes();
     const items = await fixtures.listItems();
@@ -206,6 +212,14 @@ describeWithDatabase("PostgresDodoRepository", () => {
       repository.replaceHeroes([heroes[1]!, heroes[2]!], secondSnapshot),
       repository.replaceItems([items[0]!], firstSnapshot),
       repository.replaceItems([items[1]!, items[2]!], secondSnapshot),
+      repository.replacePatches(
+        [{ id: "59", name: "7.38c", releasedAt: "2026-03-27T00:00:00.000Z" }],
+        firstSnapshot,
+      ),
+      repository.replacePatches(
+        [{ id: "60", name: "7.39", releasedAt: "2026-05-21T00:00:00.000Z" }],
+        secondSnapshot,
+      ),
     ]);
 
     const heroResult = {
@@ -216,6 +230,10 @@ describeWithDatabase("PostgresDodoRepository", () => {
       ids: (await repository.listItems()).map((item) => item.id),
       snapshot: await repository.getItemSnapshot(),
     };
+    const patchResult = {
+      ids: (await repository.listPatches()).map((patch) => patch.id),
+      snapshot: await repository.getPatchSnapshot(),
+    };
     expect([
       { ids: [heroes[0]!.id], snapshot: firstSnapshot },
       { ids: [heroes[1]!.id, heroes[2]!.id], snapshot: secondSnapshot },
@@ -224,5 +242,9 @@ describeWithDatabase("PostgresDodoRepository", () => {
       { ids: [items[0]!.id], snapshot: firstSnapshot },
       { ids: [items[1]!.id, items[2]!.id], snapshot: secondSnapshot },
     ]).toContainEqual(itemResult);
+    expect([
+      { ids: ["59"], snapshot: firstSnapshot },
+      { ids: ["60"], snapshot: secondSnapshot },
+    ]).toContainEqual(patchResult);
   });
 });

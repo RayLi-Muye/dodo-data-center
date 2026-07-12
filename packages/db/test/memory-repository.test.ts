@@ -5,6 +5,8 @@ import {
   createSeedRepository,
   seedRepository,
   SEED_ACCOUNT_ID,
+  SEED_PATCH,
+  SEED_UPDATED_AT,
 } from "../src/index.js";
 
 describe("MemoryDodoRepository", () => {
@@ -42,6 +44,29 @@ describe("MemoryDodoRepository", () => {
     player.personaName = "mutated";
 
     expect((await repository.getPlayer(SEED_ACCOUNT_ID))?.personaName).toBe("Seed Public Player");
+  });
+
+  it("atomically replaces the patch catalog with its snapshot", async () => {
+    const repository = await createSeedRepository();
+    const snapshot = {
+      source: "opendota" as const,
+      quality: "complete" as const,
+      fetchedAt: "2026-07-12T01:00:00.000Z",
+    };
+
+    expect(await repository.getPatch(SEED_PATCH)).toMatchObject({ releasedAt: SEED_UPDATED_AT });
+    await repository.replacePatches(
+      [
+        { id: "59", name: "7.38c", releasedAt: "2026-03-27T00:00:00.000Z" },
+        { id: "60", name: "7.39", releasedAt: "2026-05-21T00:00:00.000Z" },
+      ],
+      snapshot,
+    );
+
+    expect((await repository.listPatches()).map((patch) => patch.id)).toEqual(["60", "59"]);
+    expect(await repository.getPatch("60")).toMatchObject({ name: "7.39" });
+    expect(await repository.getPatch(SEED_PATCH)).toBeUndefined();
+    expect(await repository.getPatchSnapshot()).toEqual(snapshot);
   });
 
   it("replaces one player's recent match window without duplicating stored facts", async () => {

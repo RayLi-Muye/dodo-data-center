@@ -41,6 +41,10 @@ export const operationMetaSchema = z.object({
   quality: dataQualitySchema,
 });
 
+export const filteredOperationMetaSchema = operationMetaSchema.extend({
+  filtersApplied: z.record(z.string(), z.unknown()).default({}),
+});
+
 export const responseMetaSchema = operationMetaSchema.extend({
   sampleSize: z.number().int().nonnegative(),
   eligibleCount: z.number().int().nonnegative(),
@@ -86,14 +90,18 @@ export const paginationQuerySchema = z.object({
 
 export const playerWindowQuerySchema = z.object({
   window: metricWindowSchema.default("last_100"),
+  patch: identifierSchema.optional(),
 });
 
 export const playerMatchesQuerySchema = paginationQuerySchema.extend({
   heroId: identifierSchema.optional(),
+  window: metricWindowSchema.default("last_100"),
+  patch: identifierSchema.optional(),
 });
 
 export const playerHeroesQuerySchema = paginationQuerySchema.extend({
   window: metricWindowSchema.default("last_100"),
+  patch: identifierSchema.optional(),
 });
 
 export const encyclopediaListQuerySchema = paginationQuerySchema.extend({
@@ -112,6 +120,12 @@ export const mapFeatureTypeSchema = z.enum([
   "neutral_camp",
   "landmark",
 ]);
+
+export const patchSummarySchema = z.object({
+  id: identifierSchema,
+  name: z.string().min(1).max(32),
+  releasedAt: timestampSchema,
+});
 
 export const mapFeaturesQuerySchema = paginationQuerySchema.extend({
   type: mapFeatureTypeSchema.optional(),
@@ -341,7 +355,10 @@ export const createPaginatedDataSchema = <T extends z.ZodType>(item: T) =>
 export const accountResolutionResponseSchema = createOperationResponseSchema(accountResolutionSchema);
 export const syncJobResponseSchema = createOperationResponseSchema(syncJobSchema);
 export const playerOverviewResponseSchema = createMetricResponseSchema(playerOverviewSchema);
-export const playerMatchesResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(matchSummarySchema));
+export const playerMatchesResponseSchema = z.object({
+  data: createPaginatedDataSchema(matchSummarySchema),
+  meta: filteredOperationMetaSchema,
+});
 export const playerHeroesResponseSchema = createMetricResponseSchema(createPaginatedDataSchema(playerHeroStatsSchema));
 export const playerHeroResponseSchema = createMetricResponseSchema(playerHeroStatsSchema);
 export const matchDetailResponseSchema = createOperationResponseSchema(matchDetailSchema);
@@ -351,6 +368,9 @@ export const itemsResponseSchema = createOperationResponseSchema(createPaginated
 export const itemDetailResponseSchema = createOperationResponseSchema(itemDetailSchema);
 export const mapVersionResponseSchema = createOperationResponseSchema(mapVersionSchema);
 export const mapFeaturesResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(mapFeatureSchema));
+export const patchesResponseSchema = createOperationResponseSchema(
+  createPaginatedDataSchema(patchSummarySchema),
+);
 
 export const dataStatusSchema = z.object({
   status: z.enum(["ready", "degraded", "unavailable"]),
@@ -383,6 +403,7 @@ export type PlayerHeroStats = z.infer<typeof playerHeroStatsSchema>;
 export type PlayerOverview = z.infer<typeof playerOverviewSchema>;
 export type MapFeature = z.infer<typeof mapFeatureSchema>;
 export type MapVersion = z.infer<typeof mapVersionSchema>;
+export type PatchSummary = z.infer<typeof patchSummarySchema>;
 export type SyncJob = z.infer<typeof syncJobSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type DataStatus = z.infer<typeof dataStatusSchema>;

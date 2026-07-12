@@ -5,6 +5,7 @@ import type {
   CanonicalItemConstant,
   CanonicalMatchDetail,
   CanonicalMatchPlayer,
+  CanonicalPatchSummary,
   CanonicalPlayerMatch,
   CanonicalPlayerProfile,
   CanonicalRecentMatchCandidateEntry,
@@ -142,6 +143,22 @@ function timestampFromSeconds(value: unknown, field: string): string {
   return Number.isNaN(timestamp.getTime())
     ? payloadError(`${field} is outside the supported timestamp range`)
     : timestamp.toISOString();
+}
+
+function timestampFromIsoString(value: unknown, field: string): string {
+  const rawTimestamp = readString(value, field);
+  const match = rawTimestamp.match(
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/,
+  );
+  if (match === null) {
+    return payloadError(`${field} must be an ISO 8601 UTC timestamp`);
+  }
+  const timestamp = new Date(rawTimestamp);
+  const normalizedInput = `${match[1]}.${(match[2] ?? "").padEnd(3, "0")}Z`;
+  if (Number.isNaN(timestamp.getTime()) || timestamp.toISOString() !== normalizedInput) {
+    return payloadError(`${field} must be a valid timestamp`);
+  }
+  return timestamp.toISOString();
 }
 
 function sourceMetadata(fetchedAt: Date): OpenDotaSourceMetadata {
@@ -573,6 +590,31 @@ export class OpenDotaProvider {
       })
       .filter((item): item is CanonicalItemConstant => item !== null)
       .sort((a, b) => Number(a.id) - Number(b.id));
+
+    return { items, source: sourceMetadata(fetchedAt) };
+  }
+
+  async getPatchConstants(): Promise<CanonicalConstantsSnapshot<CanonicalPatchSummary>> {
+    const { payload, fetchedAt } = await this.requestJson("constants/patch");
+    const rawPatches = readArray(payload, "patch constants");
+    if (rawPatches.length === 0) payloadError("patch constants must not be empty");
+
+    const items = rawPatches
+      .map((value, index) => {
+        const patch = readRecord(value, `patch[${index}]`);
+        return {
+          id: readId(patch.id, `patch[${index}].id`),
+          name: readString(patch.name, `patch[${index}].name`),
+          releasedAt: timestampFromIsoString(patch.date, `patch[${index}].date`),
+        } satisfies CanonicalPatchSummary;
+      })
+      .sort((a, b) => {
+        const releasedAtDifference = Date.parse(a.releasedAt) - Date.parse(b.releasedAt);
+        if (releasedAtDifference !== 0) return releasedAtDifference;
+        const aId = BigInt(a.id);
+        const bId = BigInt(b.id);
+        return aId === bId ? 0 : aId < bId ? -1 : 1;
+      });
 
     return { items, source: sourceMetadata(fetchedAt) };
   }

@@ -4,6 +4,7 @@ import {
   heroDetailResponseSchema,
   itemDetailResponseSchema,
   matchDetailResponseSchema,
+  patchesResponseSchema,
   playerHeroesResponseSchema,
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
@@ -15,6 +16,7 @@ import {
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
   type CanonicalMatchDetail,
+  type CanonicalPatchSummary,
   type CanonicalPlayerProfile,
   type CanonicalRecentMatches,
 } from "@dodo/dota-data";
@@ -184,6 +186,22 @@ const items: CanonicalConstantsSnapshot<CanonicalItemConstant> = {
   ],
 };
 
+const patches: CanonicalConstantsSnapshot<CanonicalPatchSummary> = {
+  source: SOURCE,
+  items: [
+    {
+      id: "59",
+      name: "7.38c",
+      releasedAt: "2026-03-27T00:00:00.000Z",
+    },
+    {
+      id: "60",
+      name: "7.39",
+      releasedAt: "2026-05-21T00:00:00.000Z",
+    },
+  ],
+};
+
 const detailFor = (matchId: string): CanonicalMatchDetail => {
   const match = recent.matches.find((candidate) => candidate.id === matchId);
   if (!match) throw new Error(`Missing test match ${matchId}`);
@@ -209,6 +227,7 @@ const createProvider = (): PlayerDataProvider => ({
   getMatchDetail: vi.fn(async (matchId) => detailFor(matchId)),
   getHeroConstants: vi.fn(async () => heroes),
   getItemConstants: vi.fn(async () => items),
+  getPatchConstants: vi.fn(async () => patches),
 });
 
 const json = (response: { body: string }): unknown => JSON.parse(response.body);
@@ -280,6 +299,39 @@ describe("live player synchronization", () => {
     );
     expect(matches.data.items.map((match) => match.id)).toEqual(["8000000002", "8000000001"]);
     expect(matches.meta).not.toHaveProperty("sampleSize");
+    expect(matches.meta.filtersApplied).toEqual({
+      window: "last_100",
+      patch: null,
+      heroId: null,
+    });
+
+    const unknownPatch = playerOverviewResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${ACCOUNT_ID}?window=last_20&patch=unknown`,
+        }),
+      ),
+    );
+    expect(unknownPatch.data.games).toBe(1);
+    expect(unknownPatch.meta.filtersApplied).toEqual({ window: "last_20", patch: "unknown" });
+
+    const unknownMatches = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${ACCOUNT_ID}/matches?window=all_imported&patch=unknown`,
+        }),
+      ),
+    );
+    expect(unknownMatches.data.items.map((match) => match.id)).toEqual(["8000000002"]);
+
+    const patchCatalog = patchesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/patches?limit=1" })),
+    );
+    expect(patchCatalog.data.items).toEqual([patches.items[1]]);
+    expect(patchCatalog.data.nextCursor).not.toBeNull();
+    expect(patchCatalog.meta).toMatchObject({ updatedAt: FETCHED_AT, sources: ["opendota"] });
 
     const detail = matchDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/matches/8000000002" })),
@@ -324,6 +376,7 @@ describe("live player synchronization", () => {
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect(provider.getHeroConstants).toHaveBeenCalledTimes(1);
     expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getPatchConstants).toHaveBeenCalledTimes(1);
   });
 
   it("replaces repeated sync batches idempotently", async () => {

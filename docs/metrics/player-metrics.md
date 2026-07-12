@@ -35,6 +35,8 @@
 - `last_20`, `last_50`, `last_100`：先按 `start_time DESC, match_id DESC` 排序再截取。
 - `all_imported`：只有在 UI 明确标注“全部已导入比赛”时可用。
 - 不足 N 场时使用实际样本，不填充、不外推。
+- `patch` 与窗口组合时，先按 Patch ID 过滤，再应用最近 N 场；不得先截取全局最近 N 场后再过滤。
+- `all_imported + patch` 表示该版本内全部已导入的合格公开比赛。
 
 ## Required metadata
 

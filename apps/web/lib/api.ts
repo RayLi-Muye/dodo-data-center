@@ -9,10 +9,11 @@ import {
   playerHeroesResponseSchema,
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
+  patchesResponseSchema,
   dataStatusResponseSchema,
 } from "@dodo/contracts";
 import type { ApiError } from "@dodo/contracts";
-import type { HeroSummary, ItemSummary, PlayerHeroStats, ResponseMeta } from "@dodo/contracts";
+import type { HeroSummary, ItemSummary, PatchSummary, PlayerHeroStats, ResponseMeta } from "@dodo/contracts";
 import type { z } from "zod";
 
 const FALLBACK_API_BASE_URL = "http://127.0.0.1:3001";
@@ -122,20 +123,26 @@ export const api = {
     fetchApi(matchDetailResponseSchema, `/v1/matches/${encodeURIComponent(matchId)}`, {
       cache: "no-store",
     }),
-  playerHeroes: (accountId: string, window: string, cursor?: string) =>
+  patches: (cursor?: string) =>
+    fetchApi(
+      patchesResponseSchema,
+      `/v1/patches${queryString({ cursor, limit: 100 })}`,
+      { next: { revalidate: 3_600 } },
+    ),
+  playerHeroes: (accountId: string, window: string, patch?: string, cursor?: string) =>
     fetchApi(
       playerHeroesResponseSchema,
-      `/v1/players/${encodeURIComponent(accountId)}/heroes${queryString({ cursor, limit: 100, window })}`,
+      `/v1/players/${encodeURIComponent(accountId)}/heroes${queryString({ cursor, limit: 100, patch, window })}`,
       { cache: "no-store" },
     ),
-  playerMatches: (accountId: string, cursor?: string) =>
+  playerMatches: (accountId: string, window: string, patch?: string, cursor?: string) =>
     fetchApi(
       playerMatchesResponseSchema,
-      `/v1/players/${encodeURIComponent(accountId)}/matches${queryString({ cursor, limit: 100 })}`,
+      `/v1/players/${encodeURIComponent(accountId)}/matches${queryString({ cursor, limit: 100, patch, window })}`,
       { cache: "no-store" },
     ),
-  playerOverview: (accountId: string) =>
-    fetchApi(playerOverviewResponseSchema, `/v1/players/${encodeURIComponent(accountId)}`, {
+  playerOverview: (accountId: string, window: string, patch?: string) =>
+    fetchApi(playerOverviewResponseSchema, `/v1/players/${encodeURIComponent(accountId)}${queryString({ patch, window })}`, {
       cache: "no-store",
     }),
 };
@@ -162,12 +169,23 @@ export async function collectAllItems() {
   return items;
 }
 
-export async function collectAllPlayerHeroes(accountId: string, window: string) {
+export async function collectAllPatches() {
+  const items: PatchSummary[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await api.patches(cursor);
+    items.push(...page.data.items);
+    cursor = page.data.nextCursor ?? undefined;
+  } while (cursor);
+  return items;
+}
+
+export async function collectAllPlayerHeroes(accountId: string, window: string, patch?: string) {
   const items: PlayerHeroStats[] = [];
   let cursor: string | undefined;
   let meta: ResponseMeta | undefined;
   do {
-    const page = await api.playerHeroes(accountId, window, cursor);
+    const page = await api.playerHeroes(accountId, window, patch, cursor);
     items.push(...page.data.items);
     meta ??= page.meta;
     cursor = page.data.nextCursor ?? undefined;

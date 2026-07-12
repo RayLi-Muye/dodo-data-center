@@ -5,6 +5,7 @@ import type {
   MapVersion,
   MatchDetail,
   OperationMeta,
+  PatchSummary,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
@@ -71,6 +72,7 @@ export interface DodoRepository {
   clearPlayerSyncFailure(accountId: string): Promise<void>;
   replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void>;
   replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void>;
+  replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void>;
   upsertProviderHealth(health: ProviderHealth): Promise<void>;
   getHero(id: string): Promise<HeroDetail | undefined>;
   listHeroes(): Promise<HeroDetail[]>;
@@ -78,6 +80,9 @@ export interface DodoRepository {
   getItem(id: string): Promise<ItemDetail | undefined>;
   listItems(): Promise<ItemDetail[]>;
   getItemSnapshot(): Promise<StaticDataSnapshot | undefined>;
+  getPatch(id: string): Promise<PatchSummary | undefined>;
+  listPatches(): Promise<PatchSummary[]>;
+  getPatchSnapshot(): Promise<StaticDataSnapshot | undefined>;
   getCurrentMap(): Promise<MapVersion | undefined>;
   getMap(id: string): Promise<MapVersion | undefined>;
   getPlayer(accountId: string): Promise<PlayerProfile | undefined>;
