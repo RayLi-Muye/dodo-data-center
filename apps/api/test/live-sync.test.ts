@@ -502,6 +502,9 @@ describe("live player synchronization", () => {
     );
     expect(allImported.data.items).toHaveLength(3);
 
+    const importedProfile = await repository.getPlayer(ACCOUNT_ID);
+    expect(importedProfile).toBeDefined();
+    await repository.upsertPlayer({ ...importedProfile!, status: "syncing" });
     const fetched = playerHistorySyncResponseSchema.parse(
       json(
         await app.inject({

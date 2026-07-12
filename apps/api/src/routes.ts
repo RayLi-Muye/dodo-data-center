@@ -382,6 +382,11 @@ export const registerRoutes = async (
       await defaultErrorMeta("not_found"),
       (status, retryAfterSeconds) => playerErrorMeta(accountId, status, retryAfterSeconds),
     );
+  const historyAccessiblePlayer = async (accountId: string): Promise<PlayerProfile> => {
+    const profile = await repository.getPlayer(accountId);
+    if (profile?.status === "syncing" && profile.importedMatchCount > 0) return profile;
+    return accessiblePlayer(accountId);
+  };
 
   app.post("/v1/account-resolutions", async (request) => {
     const errorMeta = await defaultErrorMeta();
@@ -426,7 +431,7 @@ export const registerRoutes = async (
 
   app.get("/v1/players/:accountId/history-sync", async (request) => {
     const accountId = parseAccountId(request.params, await defaultErrorMeta());
-    const profile = await accessiblePlayer(accountId);
+    const profile = await historyAccessiblePlayer(accountId);
     const state = historySyncService
       ? await historySyncService.getState(accountId)
       : ((await repository.getPlayerHistorySync(accountId)) ?? {
@@ -454,7 +459,7 @@ export const registerRoutes = async (
 
   app.post("/v1/players/:accountId/history-sync", async (request, reply) => {
     const accountId = parseAccountId(request.params, await defaultErrorMeta());
-    await accessiblePlayer(accountId);
+    await historyAccessiblePlayer(accountId);
     if (!historySyncService) {
       throw new ApiHttpError(
         503,
