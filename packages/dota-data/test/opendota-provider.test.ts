@@ -106,6 +106,71 @@ describe("OpenDotaProvider", () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("?limit=100");
   });
 
+  it("reads a bounded player match page with an explicit offset", async () => {
+    const pageFixture = publicMatchesFixture.slice(0, 2);
+    const { provider, fetchImpl } = providerFor(pageFixture);
+
+    const result = await provider.getPlayerMatchesPage("123456789", 2, 100);
+
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      "https://opendota.fixture/api/players/123456789/matches?limit=2&offset=100",
+    );
+    expect(result).toMatchObject({
+      accountId: "123456789",
+      requestedLimit: 2,
+      offset: 100,
+      rawCount: 2,
+      reachedEnd: false,
+      eligibleCount: 2,
+      excludedCount: 0,
+    });
+    expect(result.matches).toHaveLength(2);
+  });
+
+  it("returns a natural end marker for an empty deep history page", async () => {
+    const result = await providerFor([]).provider.getPlayerMatchesPage("123456789", 100, 300);
+
+    expect(result).toMatchObject({
+      offset: 300,
+      rawCount: 0,
+      reachedEnd: true,
+      eligibleCount: 0,
+      excludedCount: 0,
+      quality: "complete",
+      matches: [],
+    });
+  });
+
+  it("returns an excluded partial page so a history checkpoint can advance", async () => {
+    const matches: Array<Record<string, unknown>> = structuredClone(publicMatchesFixture);
+    matches.forEach((match) => {
+      match.duration = 0;
+    });
+
+    const result = await providerFor(matches).provider.getPlayerMatchesPage("123456789", 100, 200);
+
+    expect(result).toMatchObject({
+      offset: 200,
+      rawCount: 3,
+      reachedEnd: true,
+      eligibleCount: 3,
+      excludedCount: 3,
+      exclusionReasons: ["candidate_invalid"],
+      quality: "partial",
+      matches: [],
+    });
+    expect(result.candidateLedger).toHaveLength(3);
+  });
+
+  it("validates player match page bounds before requesting OpenDota", async () => {
+    const { provider, fetchImpl } = providerFor(publicMatchesFixture);
+
+    await expect(provider.getPlayerMatchesPage("123456789", 101, 0)).rejects.toThrow(RangeError);
+    await expect(provider.getPlayerMatchesPage("123456789", 100, -1)).rejects.toThrow(RangeError);
+    await expect(provider.getPlayerMatchesPage("123456789", 100, 1.5)).rejects.toThrow(RangeError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("does not classify an empty or private history as public empty data", async () => {
     const { provider } = providerFor(emptyMatchesFixture);
     await expect(provider.getRecentMatches("123456789")).rejects.toMatchObject({

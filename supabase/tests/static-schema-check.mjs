@@ -22,6 +22,7 @@ const requiredTables = [
   "provider_health",
   "static_snapshots",
   "patches",
+  "player_history_sync",
 ];
 
 const requiredColumns = {
@@ -37,6 +38,7 @@ const requiredColumns = {
   provider_health: ["source", "payload", "checked_at", "updated_at"],
   static_snapshots: ["kind", "payload", "updated_at"],
   patches: ["id", "payload", "released_at", "updated_at"],
+  player_history_sync: ["account_id", "payload", "updated_at"],
 };
 
 const checks = [
@@ -80,8 +82,8 @@ for (const [table, columns] of Object.entries(requiredColumns)) {
   }
 }
 
-if (payloadTables.length !== 11) {
-  missing.push(`expected 11 non-null payload tables, found ${payloadTables.length}`);
+if (payloadTables.length !== 12) {
+  missing.push(`expected 12 non-null payload tables, found ${payloadTables.length}`);
 }
 
 if (!/schemas = \["public", "graphql_public"\]/.test(config) || /schemas = \[[^\]]*"dodo"/.test(config)) {

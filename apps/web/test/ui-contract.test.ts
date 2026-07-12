@@ -39,6 +39,20 @@ describe("Web UI copy and touch contract", () => {
     );
   });
 
+  it("keeps history import actionable after loading and visible on the player page", () => {
+    const playerPage = source("../app/players/[accountId]/page.tsx");
+    const historyControl = source("../components/player-history-sync-control.tsx");
+    const historyWorkflow = source("../lib/player-history-sync.ts");
+
+    expect(playerPage).toContain("<PlayerHistorySyncControl");
+    expect(historyControl).toContain("继续导入历史");
+    expect(historyControl).toContain("controllerRef.current === controller");
+    expect(historyControl).toContain("onClick={() => void run()}");
+    expect(historyControl).toContain('history?.status === "complete"');
+    expect(historyWorkflow).toContain('runWithSignals(accountId, "GET"');
+    expect(historyWorkflow).toContain('requestHistorySync(accountId, "POST"');
+  });
+
   it("exposes the shared patch catalog and preserves player patch filters", () => {
     const header = source("../components/site-header.tsx");
     const playerPage = source("../app/players/[accountId]/page.tsx");

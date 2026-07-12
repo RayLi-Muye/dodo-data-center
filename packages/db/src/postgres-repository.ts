@@ -6,6 +6,7 @@ import {
   mapVersionSchema,
   matchDetailSchema,
   patchSummarySchema,
+  playerHistorySyncSchema,
   playerProfileSchema,
   syncJobSchema,
   timestampSchema,
@@ -14,6 +15,7 @@ import {
   type MapVersion,
   type MatchDetail,
   type PatchSummary,
+  type PlayerHistorySync,
   type PlayerProfile,
   type SyncJob,
 } from "@dodo/contracts";
@@ -192,6 +194,9 @@ const parseProviderHealth = (value: unknown): ProviderHealth => {
 };
 
 const mergeMatchPlayers = (existing: MatchDetail | undefined, incoming: MatchDetail): MatchDetail => {
+  if (existing?.detailStatus === "enriched" && incoming.detailStatus === "summary") {
+    return existing;
+  }
   const playersBySlot = new Map(
     existing?.players.map((player) => [player.playerSlot, player]) ?? [],
   );
@@ -295,6 +300,59 @@ export class PostgresDodoRepository implements DodoRepository {
             )
         `;
       }
+    });
+  }
+
+  async upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void> {
+    await this.#sql.begin(async (sql) => {
+      await this.#upsertPlayerMatches(sql, accountId, matches);
+    });
+  }
+
+  async commitPlayerHistoryPage(
+    accountId: string,
+    matches: StoredMatch[],
+    state: PlayerHistorySync,
+  ): Promise<void> {
+    await this.#sql.begin(async (sql) => {
+      await this.#upsertPlayerMatches(sql, accountId, matches);
+      await sql`
+        insert into dodo.player_history_sync (account_id, payload, updated_at)
+        values (${accountId}, ${sql.json(toJson(state))}, now())
+        on conflict (account_id) do update set payload = excluded.payload, updated_at = now()
+      `;
+    });
+  }
+
+  async tryAcquirePlayerHistorySyncLease(
+    state: PlayerHistorySync,
+    leaseExpiresBefore: string,
+  ): Promise<boolean> {
+    return this.#sql.begin(async (sql) => {
+      await sql`
+        select pg_advisory_xact_lock(
+          hashtextextended(${`player-history:${state.accountId}`}, 0)
+        )
+      `;
+      const [row] = await sql<JsonRow[]>`
+        select payload from dodo.player_history_sync
+        where account_id = ${state.accountId}
+        for update
+      `;
+      if (row) {
+        const existing = playerHistorySyncSchema.parse(row.payload);
+        const leaseIsFresh =
+          existing.status === "syncing" &&
+          existing.requestedAt !== null &&
+          Date.parse(existing.requestedAt) > Date.parse(leaseExpiresBefore);
+        if (existing.reachedEnd || leaseIsFresh) return false;
+      }
+      await sql`
+        insert into dodo.player_history_sync (account_id, payload, updated_at)
+        values (${state.accountId}, ${sql.json(toJson(state))}, now())
+        on conflict (account_id) do update set payload = excluded.payload, updated_at = now()
+      `;
+      return true;
     });
   }
 
@@ -477,6 +535,13 @@ export class PostgresDodoRepository implements DodoRepository {
     );
   }
 
+  async getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined> {
+    return this.#getPayload(
+      this.#sql`select payload from dodo.player_history_sync where account_id = ${accountId}`,
+      playerHistorySyncSchema.parse,
+    );
+  }
+
   async getSyncJob(jobId: string): Promise<SyncJob | undefined> {
     return this.#getPayload(
       this.#sql`select payload from dodo.sync_jobs where job_id = ${jobId}`,
@@ -585,6 +650,24 @@ export class PostgresDodoRepository implements DodoRepository {
       values (${kind}, ${sql.json(toJson(snapshot))}, now())
       on conflict (kind) do update set payload = excluded.payload, updated_at = now()
     `;
+  }
+
+  async #upsertPlayerMatches(
+    sql: QuerySql,
+    accountId: string,
+    matches: StoredMatch[],
+  ): Promise<void> {
+    await sql`
+      select pg_advisory_xact_lock(hashtextextended(${`player-matches:${accountId}`}, 0))
+    `;
+    for (const match of matches) {
+      await this.#upsertMatch(sql, match, true);
+      await sql`
+        insert into dodo.player_matches (account_id, match_id, start_time)
+        values (${accountId}, ${match.detail.id}, ${match.detail.startTime})
+        on conflict (account_id, match_id) do update set start_time = excluded.start_time
+      `;
+    }
   }
 
   async #upsertMatch(sql: QuerySql, match: StoredMatch, indexPlayers: boolean): Promise<void> {

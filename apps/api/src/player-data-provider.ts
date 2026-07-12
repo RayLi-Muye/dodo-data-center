@@ -4,6 +4,7 @@ export type PlayerDataProvider = Pick<
   OpenDotaProvider,
   | "getPlayerProfile"
   | "getRecentMatches"
+  | "getPlayerMatchesPage"
   | "getMatchDetail"
   | "getHeroConstants"
   | "getItemConstants"

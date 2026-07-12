@@ -57,6 +57,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
         dodo.sync_jobs,
         dodo.player_sync_batches,
         dodo.player_sync_failures,
+        dodo.player_history_sync,
         dodo.provider_health,
         dodo.static_snapshots,
         dodo.heroes,
@@ -105,6 +106,19 @@ describeWithDatabase("PostgresDodoRepository", () => {
     await repository.replacePlayerMatches(SEED_ACCOUNT_ID, matches);
     expect(await repository.listPlayerMatches(SEED_ACCOUNT_ID)).toHaveLength(2);
     expect((await repository.getPlayer(SEED_ACCOUNT_ID))?.importedMatchCount).toBe(2);
+    await repository.commitPlayerHistoryPage(SEED_ACCOUNT_ID, matches, {
+      accountId: SEED_ACCOUNT_ID,
+      status: "partial",
+      nextOffset: 100,
+      pageSize: 100,
+      pagesImported: 1,
+      matchesImported: 2,
+      oldestImportedAt: matches[1]!.detail.startTime,
+      reachedEnd: false,
+      requestedAt: SEED_UPDATED_AT,
+      updatedAt: SEED_UPDATED_AT,
+      errorCode: null,
+    });
 
     await repository.replacePlayerMatches(SEED_PARTIAL_ACCOUNT_ID, [matches[0]!]);
     await repository.replacePlayerMatches(SEED_ACCOUNT_ID, []);
@@ -157,6 +171,10 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(await repository.getCurrentMap()).toEqual(map);
     expect(await repository.getPlayerSyncBatch(SEED_ACCOUNT_ID)).toMatchObject({ sampleSize: 1 });
     expect(await repository.getPlayerSyncFailure(SEED_ACCOUNT_ID)).toMatchObject({ source: "seed" });
+    expect(await repository.getPlayerHistorySync(SEED_ACCOUNT_ID)).toMatchObject({
+      nextOffset: 100,
+      matchesImported: 2,
+    });
     expect(await repository.getProviderHealth("seed")).toMatchObject({ status: "ready" });
     expect(await repository.getSyncJob(`job-${SEED_ACCOUNT_ID}`)).toMatchObject({
       status: "public_complete",

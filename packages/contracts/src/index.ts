@@ -322,6 +322,28 @@ export const syncJobSchema = z.object({
   errorCode: z.string().nullable().default(null),
 });
 
+export const playerHistorySyncSchema = z.object({
+  accountId: identifierSchema,
+  status: z.enum([
+    "idle",
+    "syncing",
+    "partial",
+    "complete",
+    "source_rate_limited",
+    "source_unavailable",
+    "failed",
+  ]),
+  nextOffset: z.number().int().nonnegative(),
+  pageSize: z.number().int().min(1).max(100),
+  pagesImported: z.number().int().nonnegative(),
+  matchesImported: z.number().int().nonnegative(),
+  oldestImportedAt: timestampSchema.nullable(),
+  reachedEnd: z.boolean(),
+  requestedAt: timestampSchema.nullable(),
+  updatedAt: timestampSchema,
+  errorCode: z.string().nullable(),
+});
+
 export const apiErrorCodeSchema = z.enum([
   "INVALID_ACCOUNT_ID",
   "UNSUPPORTED_ACCOUNT_REFERENCE",
@@ -354,6 +376,7 @@ export const createPaginatedDataSchema = <T extends z.ZodType>(item: T) =>
 
 export const accountResolutionResponseSchema = createOperationResponseSchema(accountResolutionSchema);
 export const syncJobResponseSchema = createOperationResponseSchema(syncJobSchema);
+export const playerHistorySyncResponseSchema = createOperationResponseSchema(playerHistorySyncSchema);
 export const playerOverviewResponseSchema = createMetricResponseSchema(playerOverviewSchema);
 export const playerMatchesResponseSchema = z.object({
   data: createPaginatedDataSchema(matchSummarySchema),
@@ -405,5 +428,6 @@ export type MapFeature = z.infer<typeof mapFeatureSchema>;
 export type MapVersion = z.infer<typeof mapVersionSchema>;
 export type PatchSummary = z.infer<typeof patchSummarySchema>;
 export type SyncJob = z.infer<typeof syncJobSchema>;
+export type PlayerHistorySync = z.infer<typeof playerHistorySyncSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type DataStatus = z.infer<typeof dataStatusSchema>;

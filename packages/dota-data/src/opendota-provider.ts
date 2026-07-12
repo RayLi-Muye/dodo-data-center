@@ -6,6 +6,7 @@ import type {
   CanonicalMatchDetail,
   CanonicalMatchPlayer,
   CanonicalPatchSummary,
+  CanonicalPlayerMatchesPage,
   CanonicalPlayerMatch,
   CanonicalPlayerProfile,
   CanonicalRecentMatchCandidateEntry,
@@ -379,16 +380,46 @@ export class OpenDotaProvider {
     accountId: string,
     limit = DEFAULT_RECENT_MATCH_LIMIT,
   ): Promise<CanonicalRecentMatches> {
+    const page = await this.getPlayerMatchesPage(accountId, limit, 0);
+    if (page.rawCount > 0 && page.matches.length === 0) {
+      const qualityContext: CanonicalRecentMatchQualityContext = {
+        eligibleCount: page.eligibleCount,
+        excludedCount: page.excludedCount,
+        exclusionReasons: page.exclusionReasons,
+        candidateLedger: page.candidateLedger,
+      };
+      throw new OpenDotaProviderError(
+        "PARSE_PENDING",
+        "player_data_unavailable",
+        "OpenDota returned recent matches, but none contain enough data to import",
+        true,
+        null,
+        null,
+        qualityContext,
+      );
+    }
+    const { offset: _offset, rawCount: _rawCount, reachedEnd: _reachedEnd, ...recent } = page;
+    return recent;
+  }
+
+  async getPlayerMatchesPage(
+    accountId: string,
+    limit = DEFAULT_RECENT_MATCH_LIMIT,
+    offset = 0,
+  ): Promise<CanonicalPlayerMatchesPage> {
     const validatedAccountId = this.validateId(accountId);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-      throw new RangeError("Recent match limit must be an integer from 1 to 100");
+      throw new RangeError("Player match page limit must be an integer from 1 to 100");
+    }
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new RangeError("Player match page offset must be a non-negative safe integer");
     }
 
     const { payload, fetchedAt } = await this.requestJson(
-      `players/${validatedAccountId}/matches?limit=${limit}`,
+      `players/${validatedAccountId}/matches?limit=${limit}&offset=${offset}`,
     );
     const rawMatches = readArray(payload, "recent matches");
-    if (rawMatches.length === 0) {
+    if (rawMatches.length === 0 && offset === 0) {
       throw new OpenDotaProviderError(
         "HISTORY_PRIVATE",
         "history_unavailable",
@@ -440,21 +471,12 @@ export class OpenDotaProvider {
       exclusionReasons: [...exclusionReasons].sort(),
       candidateLedger,
     };
-    if (matches.length === 0) {
-      throw new OpenDotaProviderError(
-        "PARSE_PENDING",
-        "player_data_unavailable",
-        "OpenDota returned recent matches, but none contain enough data to import",
-        true,
-        null,
-        null,
-        qualityContext,
-      );
-    }
-
     return {
       accountId: validatedAccountId,
       requestedLimit: limit,
+      offset,
+      rawCount: rawMatches.length,
+      reachedEnd: rawMatches.length < limit,
       ...qualityContext,
       quality: excludedCount === 0 ? "complete" : "partial",
       matches: matches.sort(compareMatchesNewestFirst),

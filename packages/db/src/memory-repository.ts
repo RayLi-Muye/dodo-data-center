@@ -4,6 +4,7 @@ import type {
   MapVersion,
   MatchDetail,
   PatchSummary,
+  PlayerHistorySync,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
@@ -47,6 +48,7 @@ export class MemoryDodoRepository implements DodoRepository {
   readonly #syncJobs = new Map<string, SyncJob>();
   readonly #syncBatches = new Map<string, PlayerSyncBatch>();
   readonly #syncFailures = new Map<string, PlayerSyncFailure>();
+  readonly #historySyncs = new Map<string, PlayerHistorySync>();
   readonly #providerHealth = new Map<DataSource, ProviderHealth>();
   #heroSnapshot: StaticDataSnapshot | undefined;
   #itemSnapshot: StaticDataSnapshot | undefined;
@@ -72,10 +74,14 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     const existing = this.#matches.get(match.detail.id);
+    const incomingDetail =
+      existing?.detail.detailStatus === "enriched" && match.detail.detailStatus === "summary"
+        ? existing.detail
+        : match.detail;
     const playersBySlot = new Map(
       existing?.detail.players.map((player) => [player.playerSlot, player]) ?? [],
     );
-    for (const player of match.detail.players) {
+    for (const player of incomingDetail.players) {
       const previous = playersBySlot.get(player.playerSlot);
       playersBySlot.set(player.playerSlot, {
         ...player,
@@ -84,7 +90,7 @@ export class MemoryDodoRepository implements DodoRepository {
     }
     const stored = clone({
       ...match,
-      detail: { ...match.detail, players: [...playersBySlot.values()] },
+      detail: { ...incomingDetail, players: [...playersBySlot.values()] },
     });
     this.#matches.set(match.detail.id, stored);
     for (const player of stored.detail.players) {
@@ -110,6 +116,41 @@ export class MemoryDodoRepository implements DodoRepository {
       );
       if (!stillReferenced) this.#matches.delete(previousMatchId);
     }
+  }
+
+  async upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void> {
+    const matchIds = this.#playerMatchIds.get(accountId) ?? new Set<string>();
+    for (const match of matches) {
+      await this.upsertMatch(match);
+      matchIds.add(match.detail.id);
+    }
+    this.#playerMatchIds.set(accountId, matchIds);
+  }
+
+  async commitPlayerHistoryPage(
+    accountId: string,
+    matches: StoredMatch[],
+    state: PlayerHistorySync,
+  ): Promise<void> {
+    await this.upsertPlayerMatches(accountId, matches);
+    this.#historySyncs.set(accountId, clone(state));
+  }
+
+  async tryAcquirePlayerHistorySyncLease(
+    state: PlayerHistorySync,
+    leaseExpiresBefore: string,
+  ): Promise<boolean> {
+    const existing = this.#historySyncs.get(state.accountId);
+    if (
+      existing?.reachedEnd ||
+      (existing?.status === "syncing" &&
+        existing.requestedAt !== null &&
+        Date.parse(existing.requestedAt) > Date.parse(leaseExpiresBefore))
+    ) {
+      return false;
+    }
+    this.#historySyncs.set(state.accountId, clone(state));
+    return true;
   }
 
   async upsertSyncJob(job: SyncJob): Promise<void> {
@@ -233,6 +274,11 @@ export class MemoryDodoRepository implements DodoRepository {
   async getPlayerSyncFailure(accountId: string): Promise<PlayerSyncFailure | undefined> {
     const failure = this.#syncFailures.get(accountId);
     return failure ? clone(failure) : undefined;
+  }
+
+  async getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined> {
+    const state = this.#historySyncs.get(accountId);
+    return state ? clone(state) : undefined;
   }
 
   async getSyncJob(jobId: string): Promise<SyncJob | undefined> {

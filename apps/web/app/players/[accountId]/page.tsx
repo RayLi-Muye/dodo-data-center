@@ -6,6 +6,7 @@ import { DataState, EmptyState } from "../../../components/data-state";
 import { HeroDistribution } from "../../../components/hero-distribution";
 import { MatchLedger } from "../../../components/match-ledger";
 import { PageHeading } from "../../../components/page-heading";
+import { PlayerHistorySyncControl } from "../../../components/player-history-sync-control";
 import { PlayerSyncControl } from "../../../components/player-sync-control";
 import { QualityNotice } from "../../../components/quality-notice";
 import { WinRateDonut } from "../../../components/win-rate-donut";
@@ -83,6 +84,7 @@ export default async function PlayerPage({
           <div className="player-page-actions">
             <AccountSearch compact />
             <PlayerSyncControl accountId={accountId} updatedAt={overview.meta.updatedAt} />
+            <PlayerHistorySyncControl accountId={accountId} />
           </div>
         )}
         eyebrow={`PLAYER / ${overview.data.profile.accountId}`}

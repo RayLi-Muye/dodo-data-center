@@ -6,6 +6,7 @@ import {
   matchDetailResponseSchema,
   patchesResponseSchema,
   playerHeroesResponseSchema,
+  playerHistorySyncResponseSchema,
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
   syncJobResponseSchema,
@@ -16,6 +17,7 @@ import {
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
   type CanonicalMatchDetail,
+  type CanonicalPlayerMatchesPage,
   type CanonicalPatchSummary,
   type CanonicalPlayerProfile,
   type CanonicalRecentMatches,
@@ -26,6 +28,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../src/app.js";
 import type { PlayerDataProvider } from "../src/player-data-provider.js";
+import { PlayerHistorySyncService } from "../src/player-history-sync-service.js";
 import { PlayerSyncService } from "../src/player-sync-service.js";
 
 const ACCOUNT_ID = "86745912";
@@ -224,6 +227,15 @@ const detailFor = (matchId: string): CanonicalMatchDetail => {
 const createProvider = (): PlayerDataProvider => ({
   getPlayerProfile: vi.fn(async () => profile),
   getRecentMatches: vi.fn(async () => recent),
+  getPlayerMatchesPage: vi.fn(
+    async (_accountId, limit, offset): Promise<CanonicalPlayerMatchesPage> => ({
+      ...recent,
+      requestedLimit: limit,
+      offset,
+      rawCount: recent.eligibleCount,
+      reachedEnd: true,
+    }),
+  ),
   getMatchDetail: vi.fn(async (matchId) => detailFor(matchId)),
   getHeroConstants: vi.fn(async () => heroes),
   getItemConstants: vi.fn(async () => items),
@@ -407,6 +419,182 @@ describe("live player synchronization", () => {
     expect(provider.getRecentMatches).toHaveBeenCalledTimes(2);
     expect(provider.getMatchDetail).toHaveBeenCalledTimes(2);
     expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
+  });
+
+  it("imports one history page without deleting recent matches or downgrading detail", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    const recentService = new PlayerSyncService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+    const initial = await recentService.requestSync(ACCOUNT_ID);
+    await recentService.waitForJob(initial.jobId);
+    const existingEnriched = await repository.getMatch("8000000002");
+    expect(existingEnriched?.detail.detailStatus).toBe("enriched");
+
+    const historical = {
+      ...recent.matches[0]!,
+      id: "7000000000",
+      startTime: "2026-06-01T00:00:00.000Z",
+      patchId: null,
+    };
+    provider.getPlayerMatchesPage = vi.fn(async (_accountId, limit, offset) => ({
+      accountId: ACCOUNT_ID,
+      requestedLimit: limit,
+      offset,
+      rawCount: 2,
+      reachedEnd: false,
+      eligibleCount: 2,
+      excludedCount: 0,
+      exclusionReasons: [],
+      quality: "complete" as const,
+      source: SOURCE,
+      candidateLedger: [
+        { providerIndex: 0, status: "included" as const, matchId: historical.id },
+        { providerIndex: 1, status: "included" as const, matchId: recent.matches[0]!.id },
+      ],
+      matches: [historical, recent.matches[0]!],
+    }));
+    const historyService = new PlayerHistorySyncService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      syncService: recentService,
+      historySyncService: historyService,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const accepted = playerHistorySyncResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "POST",
+          url: `/v1/players/${ACCOUNT_ID}/history-sync`,
+        }),
+      ),
+    );
+    expect(accepted.data.status).toBe("syncing");
+    const completed = await historyService.waitForAccount(ACCOUNT_ID);
+    expect(completed).toMatchObject({
+      status: "partial",
+      nextOffset: 2,
+      pagesImported: 1,
+      matchesImported: 1,
+      reachedEnd: false,
+    });
+    expect((await repository.getMatch("8000000002"))?.detail.detailStatus).toBe("enriched");
+    expect((await repository.getMatch(historical.id))?.detail.patch).toBe("60");
+    expect(await repository.listPlayerMatches(ACCOUNT_ID)).toHaveLength(3);
+
+    const allImported = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${ACCOUNT_ID}/matches?window=all_imported&limit=100`,
+        }),
+      ),
+    );
+    expect(allImported.data.items).toHaveLength(3);
+
+    const fetched = playerHistorySyncResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${ACCOUNT_ID}/history-sync`,
+        }),
+      ),
+    );
+    expect(fetched.data).toEqual(completed);
+
+    const refreshed = await recentService.requestSync(ACCOUNT_ID);
+    await recentService.waitForJob(refreshed.jobId);
+    expect(await repository.listPlayerMatches(ACCOUNT_ID)).toHaveLength(3);
+  });
+
+  it("does not advance a failed history page and resumes from the same offset", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    provider.getPlayerMatchesPage = vi.fn(async () => {
+      throw new OpenDotaProviderError(
+        "SOURCE_RATE_LIMITED",
+        "rate_limited",
+        "rate limited",
+        true,
+        429,
+        30,
+      );
+    });
+    const historyService = new PlayerHistorySyncService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    await historyService.requestSync(ACCOUNT_ID);
+    expect(await historyService.waitForAccount(ACCOUNT_ID)).toMatchObject({
+      status: "source_rate_limited",
+      nextOffset: 0,
+      pagesImported: 0,
+      errorCode: "SOURCE_RATE_LIMITED",
+    });
+
+    provider.getPlayerMatchesPage = vi.fn(async (_accountId, limit, offset) => ({
+      accountId: ACCOUNT_ID,
+      requestedLimit: limit,
+      offset,
+      rawCount: 0,
+      reachedEnd: true,
+      eligibleCount: 0,
+      excludedCount: 0,
+      exclusionReasons: [],
+      candidateLedger: [],
+      quality: "complete" as const,
+      matches: [],
+      source: SOURCE,
+    }));
+    await historyService.requestSync(ACCOUNT_ID);
+    expect(await historyService.waitForAccount(ACCOUNT_ID)).toMatchObject({
+      status: "complete",
+      nextOffset: 0,
+      pagesImported: 1,
+      reachedEnd: true,
+      errorCode: null,
+    });
+  });
+
+  it("honors a fresh persisted history-sync lease across service instances", async () => {
+    const repository = await createLiveRepository();
+    const provider = createProvider();
+    await repository.commitPlayerHistoryPage(ACCOUNT_ID, [], {
+      accountId: ACCOUNT_ID,
+      status: "syncing",
+      nextOffset: 200,
+      pageSize: 100,
+      pagesImported: 2,
+      matchesImported: 150,
+      oldestImportedAt: FETCHED_AT,
+      reachedEnd: false,
+      requestedAt: CLOCK_AT,
+      updatedAt: CLOCK_AT,
+      errorCode: null,
+    });
+    const historyService = new PlayerHistorySyncService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    expect(await historyService.requestSync(ACCOUNT_ID)).toMatchObject({
+      status: "syncing",
+      nextOffset: 200,
+    });
+    expect(provider.getPlayerMatchesPage).not.toHaveBeenCalled();
   });
 
   it("keeps a failed detail as summary without failing the player sync", async () => {

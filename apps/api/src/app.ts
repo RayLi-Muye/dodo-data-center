@@ -13,6 +13,7 @@ import { parseDataMode, type DataMode } from "./data-mode.js";
 import { ApiHttpError } from "./errors.js";
 import { createErrorMeta } from "./meta.js";
 import type { PlayerDataProvider } from "./player-data-provider.js";
+import { PlayerHistorySyncService } from "./player-history-sync-service.js";
 import { PlayerSyncService } from "./player-sync-service.js";
 import { parseRepositoryMode, type RepositoryMode } from "./repository-mode.js";
 import { registerRoutes } from "./routes.js";
@@ -26,6 +27,7 @@ export type BuildAppOptions = {
   dataMode?: DataMode;
   playerDataProvider?: PlayerDataProvider;
   syncService?: PlayerSyncService;
+  historySyncService?: PlayerHistorySyncService;
   clock?: () => Date;
 };
 
@@ -48,7 +50,8 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
         ? await createLiveRepository()
         : await createSeedRepository());
   let syncService = options.syncService;
-  if (dataMode === "live" && !syncService) {
+  let historySyncService = options.historySyncService;
+  if (dataMode === "live" && (!syncService || !historySyncService)) {
     const provider =
       options.playerDataProvider ??
       new OpenDotaProvider({
@@ -57,7 +60,8 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
           : {}),
         ...(process.env.OPENDOTA_API_KEY ? { apiKey: process.env.OPENDOTA_API_KEY } : {}),
       });
-    syncService = new PlayerSyncService({ repository, provider, clock });
+    syncService ??= new PlayerSyncService({ repository, provider, clock });
+    historySyncService ??= new PlayerHistorySyncService({ repository, provider, clock });
   }
   try {
     if (dataMode === "live" && !(await repository.getProviderHealth("opendota"))) {
@@ -130,10 +134,12 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
   await registerRoutes(app, repository, {
     dataMode,
     ...(syncService ? { syncService } : {}),
+    ...(historySyncService ? { historySyncService } : {}),
   });
   app.addHook("onClose", async () => {
     try {
       await syncService?.close();
+      await historySyncService?.close();
     } finally {
       await repository.close();
     }

@@ -88,6 +88,12 @@ export type CanonicalRecentMatches = CanonicalRecentMatchQualityContext & {
   source: OpenDotaSourceMetadata;
 };
 
+export type CanonicalPlayerMatchesPage = CanonicalRecentMatches & {
+  offset: number;
+  rawCount: number;
+  reachedEnd: boolean;
+};
+
 export type CanonicalMatchDetail = {
   id: string;
   startTime: string;

@@ -81,7 +81,7 @@ const toMatchPlayer = (
   };
 };
 
-const toMatchSummaryDetail = (
+export const toMatchSummaryDetail = (
   match: CanonicalPlayerMatch,
   itemIdByName: ReadonlyMap<string, string>,
 ): MatchDetail => {
@@ -321,7 +321,7 @@ export class PlayerSyncService {
         quality: "complete",
         fetchedAt: patches.source.fetchedAt,
       });
-      await this.#repository.replacePlayerMatches(job.accountId, storedMatches);
+      await this.#repository.upsertPlayerMatches(job.accountId, storedMatches);
       const enrichmentCandidates = storedMatches
         .slice(0, 20)
         .filter((match) => match.detail.detailStatus !== "enriched");

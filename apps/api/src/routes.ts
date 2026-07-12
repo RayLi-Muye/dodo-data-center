@@ -21,6 +21,7 @@ import type {
   MapFeature,
   OperationMeta,
   PlayerHeroStats,
+  PlayerHistorySync,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
@@ -55,6 +56,7 @@ import {
   type MetaDescriptor,
 } from "./meta.js";
 import type { PlayerSyncService } from "./player-sync-service.js";
+import type { PlayerHistorySyncService } from "./player-history-sync-service.js";
 
 const detailQuerySchema = z.object({ patch: z.string().trim().max(32).optional() });
 const mapVersionParamsSchema = z.object({ mapVersionId: identifierSchema });
@@ -250,6 +252,7 @@ const syncErrorCode = (status: PlayerProfile["status"]): string | null => {
 type RegisterRoutesOptions = {
   dataMode: DataMode;
   syncService?: PlayerSyncService;
+  historySyncService?: PlayerHistorySyncService;
 };
 
 const qualityForProviderStatus = (
@@ -305,7 +308,7 @@ const selectPlayerWindow = (
   const patchMatches = patch
     ? matches.filter((match) => match.detail.patch === patch)
     : matches;
-  if (patch) return selectWindow(patchMatches, window);
+  if (patch || window === "all_imported") return selectWindow(patchMatches, window);
   if (!batch) return selectWindow(matches, window);
   const includedMatchIds = new Set(batchWindow(batch, window).includedMatchIds);
   return matches.filter((match) => includedMatchIds.has(match.detail.id));
@@ -317,7 +320,7 @@ const selectionQuality = (
   window: MetricWindow,
   patch?: string,
 ) => {
-  if (!batch || patch) {
+  if (!batch || patch || window === "all_imported") {
     return {
       sampleSize: selectedMatches.length,
       eligibleCount: selectedMatches.length,
@@ -331,7 +334,7 @@ const selectionQuality = (
 export const registerRoutes = async (
   app: FastifyInstance,
   repository: DodoRepository,
-  { dataMode, syncService }: RegisterRoutesOptions,
+  { dataMode, syncService, historySyncService }: RegisterRoutesOptions,
 ): Promise<void> => {
   const defaultDescriptor = async (): Promise<MetaDescriptor> => {
     if (dataMode === "seed") {
@@ -418,6 +421,57 @@ export const registerRoutes = async (
     return reply.code(202).send({
       data: job,
       meta: createOperationMeta(await defaultDescriptor()),
+    });
+  });
+
+  app.get("/v1/players/:accountId/history-sync", async (request) => {
+    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    const profile = await accessiblePlayer(accountId);
+    const state = historySyncService
+      ? await historySyncService.getState(accountId)
+      : ((await repository.getPlayerHistorySync(accountId)) ?? {
+          accountId,
+          status: "idle",
+          nextOffset: 0,
+          pageSize: 100,
+          pagesImported: 0,
+          matchesImported: 0,
+          oldestImportedAt: null,
+          reachedEnd: false,
+          requestedAt: null,
+          updatedAt: profile.latestImportedAt ?? new Date(0).toISOString(),
+          errorCode: null,
+        } satisfies PlayerHistorySync);
+    return {
+      data: state,
+      meta: createOperationMeta({
+        updatedAt: state.updatedAt,
+        sources: ["opendota"],
+        quality: state.status === "complete" ? "complete" : "partial",
+      }),
+    };
+  });
+
+  app.post("/v1/players/:accountId/history-sync", async (request, reply) => {
+    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    await accessiblePlayer(accountId);
+    if (!historySyncService) {
+      throw new ApiHttpError(
+        503,
+        "SOURCE_UNAVAILABLE",
+        "History import is unavailable in this data mode.",
+        true,
+        await defaultErrorMeta("source_unavailable"),
+      );
+    }
+    const state = await historySyncService.requestSync(accountId);
+    return reply.code(202).send({
+      data: state,
+      meta: createOperationMeta({
+        updatedAt: state.updatedAt,
+        sources: ["opendota"],
+        quality: "partial",
+      }),
     });
   });
 

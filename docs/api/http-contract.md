@@ -8,6 +8,8 @@
 POST /v1/account-resolutions
 POST /v1/players/{accountId}/sync
 GET  /v1/sync-jobs/{jobId}
+POST /v1/players/{accountId}/history-sync
+GET  /v1/players/{accountId}/history-sync
 GET  /v1/players/{accountId}
 GET  /v1/players/{accountId}/matches?cursor=&limit=&heroId=
 GET  /v1/players/{accountId}/heroes?window=last_20|last_50|last_100|all_imported
@@ -17,6 +19,8 @@ GET  /v1/patches?cursor=&limit=
 ```
 
 `POST /sync` 返回 `202` 和 `jobId`，不得让 HTTP 请求等待全量同步。
+
+`POST /history-sync` 每次在后台导入一个有界历史批次，使用持久化 `nextOffset` 继续；重复请求不得重复计数。`GET /history-sync` 返回批次数、累计导入数、最早比赛、是否到达上游末端和错误状态。普通最新比赛同步必须追加/更新最近记录，不得删除历史回填得到的旧比赛。
 
 `POST /account-resolutions` 接收判别联合 `{ kind, value }`，其中 `kind` 为 `account_id`、`steam_id64` 或 `steam_profile_url`。成功后返回 canonical `accountId`。首版只支持 `/profiles/<steamid64>` URL；vanity URL 返回 `UNSUPPORTED_ACCOUNT_REFERENCE`，Web 不自行解析。
 

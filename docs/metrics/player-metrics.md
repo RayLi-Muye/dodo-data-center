@@ -38,6 +38,13 @@
 - `patch` 与窗口组合时，先按 Patch ID 过滤，再应用最近 N 场；不得先截取全局最近 N 场后再过滤。
 - `all_imported + patch` 表示该版本内全部已导入的合格公开比赛。
 
+## History coverage
+
+- 全时期只描述“当前数据源允许访问且已导入”的公开历史。
+- `matchesImported` 是历史回填累计接受的记录数；玩家资料中的 `importedMatchCount` 是当前数据库去重后的总比赛数，两者不得混用。
+- `reachedEnd=true` 只表示已到达当前上游结果末端，不证明私密或上游从未记录的比赛不存在。
+- 历史批次必须幂等追加；最新100场刷新不得删除更早已导入比赛。
+
 ## Required metadata
 
 每个统计响应必须包含：

@@ -6,6 +6,7 @@ import type {
   MatchDetail,
   OperationMeta,
   PatchSummary,
+  PlayerHistorySync,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
@@ -66,6 +67,16 @@ export interface DodoRepository {
   upsertPlayer(profile: PlayerProfile): Promise<void>;
   upsertMatch(match: StoredMatch): Promise<void>;
   replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
+  upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
+  commitPlayerHistoryPage(
+    accountId: string,
+    matches: StoredMatch[],
+    state: PlayerHistorySync,
+  ): Promise<void>;
+  tryAcquirePlayerHistorySyncLease(
+    state: PlayerHistorySync,
+    leaseExpiresBefore: string,
+  ): Promise<boolean>;
   upsertSyncJob(job: SyncJob): Promise<void>;
   upsertPlayerSyncBatch(batch: PlayerSyncBatch): Promise<void>;
   upsertPlayerSyncFailure(failure: PlayerSyncFailure): Promise<void>;
@@ -88,6 +99,7 @@ export interface DodoRepository {
   getPlayer(accountId: string): Promise<PlayerProfile | undefined>;
   getPlayerSyncBatch(accountId: string): Promise<PlayerSyncBatch | undefined>;
   getPlayerSyncFailure(accountId: string): Promise<PlayerSyncFailure | undefined>;
+  getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined>;
   getSyncJob(jobId: string): Promise<SyncJob | undefined>;
   getMatch(id: string): Promise<StoredMatch | undefined>;
   listPlayerMatches(accountId: string): Promise<StoredMatch[]>;

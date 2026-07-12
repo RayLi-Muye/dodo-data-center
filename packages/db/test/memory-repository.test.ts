@@ -80,6 +80,51 @@ describe("MemoryDodoRepository", () => {
     expect((await repository.getPlayer(SEED_ACCOUNT_ID))?.importedMatchCount).toBe(2);
   });
 
+  it("appends player matches and persists a history checkpoint without deleting older facts", async () => {
+    const repository = await createSeedRepository();
+    const allMatches = await repository.listPlayerMatches(SEED_ACCOUNT_ID);
+    const existing = allMatches[0]!;
+    await repository.replacePlayerMatches(SEED_ACCOUNT_ID, [existing]);
+    await repository.commitPlayerHistoryPage(SEED_ACCOUNT_ID, [allMatches[1]!], {
+      accountId: SEED_ACCOUNT_ID,
+      status: "partial",
+      nextOffset: 100,
+      pageSize: 100,
+      pagesImported: 1,
+      matchesImported: 1,
+      oldestImportedAt: allMatches[1]!.detail.startTime,
+      reachedEnd: false,
+      requestedAt: SEED_UPDATED_AT,
+      updatedAt: SEED_UPDATED_AT,
+      errorCode: null,
+    });
+    await repository.upsertPlayerMatches(SEED_ACCOUNT_ID, [existing]);
+
+    expect(await repository.listPlayerMatches(SEED_ACCOUNT_ID)).toHaveLength(2);
+    expect(await repository.getPlayerHistorySync(SEED_ACCOUNT_ID)).toMatchObject({
+      nextOffset: 100,
+      matchesImported: 1,
+    });
+  });
+
+  it("does not downgrade an enriched match when a history summary is appended", async () => {
+    const repository = await createSeedRepository();
+    const match = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch({
+      ...match,
+      detail: { ...match.detail, detailStatus: "enriched" },
+    });
+    await repository.upsertPlayerMatches(SEED_ACCOUNT_ID, [
+      { ...match, detail: { ...match.detail, detailStatus: "summary", players: [match.detail.players[0]!] } },
+    ]);
+
+    expect((await repository.getMatch(match.detail.id))?.detail).toMatchObject({
+      detailStatus: "enriched",
+      players: expect.any(Array),
+    });
+    expect((await repository.getMatch(match.detail.id))?.detail.players).toHaveLength(10);
+  });
+
   it("merges enriched players by slot and preserves a known summary account", async () => {
     const repository = await createSeedRepository();
     const stored = await repository.getMatch("9000000000");
