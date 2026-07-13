@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import patchNotes741c from "../fixtures/patchnotes-7.41c.json";
 import patchNotes741d from "../fixtures/patchnotes-7.41d.json";
 import patchNotesList from "../fixtures/patchnotes-list.json";
+import patchNotesListNewerHotfix from "../fixtures/patchnotes-list-newer-hotfix.json";
 import officialHeroData from "../fixtures/official-herodata-1.json";
 import officialHeroList from "../fixtures/official-herolist.json";
 import officialItemData from "../fixtures/official-itemdata-1.json";
@@ -66,6 +67,71 @@ describe("Dota2OfficialProvider", () => {
       entityName: "7.41-hotfix",
       kind: "filtered",
     }));
+  });
+
+  it("reports a newer unsupported raw index version without adding it to public patch items", async () => {
+    const provider = new Dota2OfficialProvider({
+      fetchImpl: vi.fn(async () => response(patchNotesListNewerHotfix)),
+      clock: () => NOW,
+    });
+
+    const result = await provider.getPatchConstants();
+
+    expect(result.officialVersion).toBe("7.41-hotfix");
+    expect(result.items).toEqual([
+      { id: "7.41c", name: "7.41c", releasedAt: "2026-05-06T07:00:00.000Z" },
+      { id: "7.41d", name: "7.41d", releasedAt: "2026-06-04T07:00:00.000Z" },
+    ]);
+    expect(result.quality).toBe("partial");
+    expect(result.exclusions).toContainEqual(expect.objectContaining({
+      entityType: "patch",
+      entityName: "7.41-hotfix",
+      kind: "filtered",
+      reason: "unsupported_version_format",
+    }));
+  });
+
+  it("uses the latest raw official version for hero, ability, and item catalogs", async () => {
+    const oneItemList = {
+      result: {
+        ...officialItemList.result,
+        data: { itemabilities: [officialItemList.result.data.itemabilities[0]!] },
+      },
+    };
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("patchnoteslist")) return response(patchNotesListNewerHotfix);
+      if (path.endsWith("herolist")) return response(officialHeroList);
+      if (path.endsWith("herodata")) return response(officialHeroData);
+      if (path.endsWith("itemlist")) return response(oneItemList);
+      if (path.endsWith("itemdata")) return response(officialItemData);
+      return response({}, 404);
+    });
+    const provider = new Dota2OfficialProvider({ fetchImpl, clock: () => NOW });
+
+    const [heroes, abilities, items] = await Promise.all([
+      provider.getHeroConstants(),
+      provider.getHeroAbilityConstants(),
+      provider.getItemConstants(),
+    ]);
+
+    expect(heroes.officialVersion).toBe("7.41-hotfix");
+    expect(abilities.officialVersion).toBe("7.41-hotfix");
+    expect(items.officialVersion).toBe("7.41-hotfix");
+    expect(heroes.items[0]?.officialVersion).toBe("7.41-hotfix");
+    expect(items.items[0]?.officialVersion).toBe("7.41-hotfix");
+  });
+
+  it("validates timestamps for unsupported raw index versions", async () => {
+    const invalid = structuredClone(patchNotesListNewerHotfix);
+    invalid.patches[1]!.patch_timestamp = 0;
+    const provider = new Dota2OfficialProvider({
+      fetchImpl: vi.fn(async () => response(invalid)),
+    });
+
+    await expect(provider.getPatchConstants()).rejects.toMatchObject({
+      reason: "invalid_response",
+    });
   });
 
   it("normalizes official heroes and abilities once for concurrent catalog consumers", async () => {

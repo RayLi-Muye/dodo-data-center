@@ -83,6 +83,8 @@ GET /v1/maps/{mapVersionId}/features?type=
 GET /v1/data-status
 ```
 
+A successfully observed latest official version that differs from a curated map's verified `patch` clears the current pointer. `GET /v1/maps/current` then returns `503 MAP_UNAVAILABLE` until that version receives a new audited snapshot. This means “re-verification required”; it does not claim that the map changed. Historical map rows and snapshot evidence remain stored.
+
 `GET /v1/heroes/{heroId}` 的 `hype`、`biography`、`complexity` 与 `baseStats` 使用 Dota 2 official current-data。`baseStats` 包括初始生命/魔法、恢复、护甲、魔抗、攻击、三维及成长、移速、攻击距离/间隔、弹道、转身和昼夜视野；历史 payload 缺少这些字段时返回空文本或 `null`，不得从比赛样本反推。`abilities` 使用比赛加点事件同一 numeric ability ID，并以 Dota 2 official current-data 为规则主源。普通技能保持官方编排顺序，天赋随后按等级顺序排列；隐藏技能不得公开。`facetsStatus=active|removed|unavailable` 区分当前启用、当前版本已移除和来源不足；deprecated facet 不得作为当前 facet 展示。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
 
 物品响应使用 `kind=item|recipe|neutral_item|neutral_enhancement` 区分定义类型，并返回 `availabilityStatus=verified_current|unverified`。官方 datafeed 中存在一条定义不能单独证明它当前可在商店购买；未建立独立可用性证据时必须返回 `unverified`，前端不得将其描述为“当前可购买”。

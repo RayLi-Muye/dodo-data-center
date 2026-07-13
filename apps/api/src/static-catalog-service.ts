@@ -87,6 +87,10 @@ export class StaticCatalogService {
       officialVersion = patches.officialVersion;
     }
 
+    if (officialVersion !== null) {
+      await this.#repository.invalidateCurrentMapForOfficialPatch(officialVersion);
+    }
+
     const updateRefresh = snapshotIsFresh(updateSnapshot, checkedAt, UPDATE_TTL_MS)
       ? Promise.resolve()
       : this.#provider.getRecentUpdateReleases(5).then(async (updates) => {

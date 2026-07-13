@@ -293,6 +293,23 @@ export class PostgresDodoRepository implements DodoRepository {
     });
   }
 
+  async invalidateCurrentMapForOfficialPatch(officialVersion: string): Promise<boolean> {
+    return this.#sql.begin(async (sql) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended('catalog:maps', 0))`;
+      const [snapshotRow] = await sql<JsonRow[]>`
+        select payload from dodo.static_snapshots where kind = 'map' for update
+      `;
+      if (!snapshotRow || parseSnapshot(snapshotRow.payload).source !== "curated_map") return false;
+      const [current] = await sql<{ id: string; patch: string | null }[]>`
+        select id, payload ->> 'patch' as patch from dodo.maps where is_current for update
+      `;
+      if (!current) return false;
+      if (current.patch === officialVersion) return false;
+      await sql`update dodo.maps set is_current = false where id = ${current.id}`;
+      return true;
+    });
+  }
+
   async upsertPlayer(profile: PlayerProfile): Promise<void> {
     await this.#sql`
       insert into dodo.players (account_id, payload, updated_at)

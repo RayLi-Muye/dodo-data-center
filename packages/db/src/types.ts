@@ -70,6 +70,7 @@ export interface DodoRepository {
   upsertHero(hero: HeroDetail): Promise<void>;
   upsertItem(item: ItemDetail): Promise<void>;
   replaceMap(map: MapVersion, snapshot: StaticDataSnapshot): Promise<void>;
+  invalidateCurrentMapForOfficialPatch(officialVersion: string): Promise<boolean>;
   upsertPlayer(profile: PlayerProfile): Promise<void>;
   upsertMatch(match: StoredMatch): Promise<void>;
   replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;

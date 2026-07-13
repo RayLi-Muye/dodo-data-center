@@ -458,7 +458,10 @@ const mapRevision = (
   };
 };
 
-const auditedMapFixture = async (quality: "complete" | "partial") => {
+const auditedMapFixture = async (
+  quality: "complete" | "partial",
+  patch?: string,
+) => {
   const fixtures = await createSeedRepository();
   const base = await fixtures.getCurrentMap();
   await fixtures.close();
@@ -484,6 +487,7 @@ const auditedMapFixture = async (quality: "complete" | "partial") => {
   ];
   const map = mapRevision(base, {
     id: quality === "complete" ? "live-map-complete" : "live-map-partial",
+    patch: patch ?? base.patch,
     quality,
     features: quality === "complete" ? completeFeatures : base.features,
     coverage: quality === "complete"
@@ -739,6 +743,92 @@ describe("live player synchronization", () => {
     });
     expect(response.statusCode).toBe(500);
     expect(apiErrorSchema.parse(json(response)).error.code).toBe("INTERNAL_ERROR");
+  });
+
+  it.each([
+    ["7.41b", false],
+    ["7.41a", true],
+  ] as const)(
+    "applies the official patch activation gate to a curated map verified for %s",
+    async (mapPatch, invalidated) => {
+      const repository = await createLiveRepository();
+      const fixture = await auditedMapFixture("complete", mapPatch);
+      await repository.replaceMap(fixture.map, fixture.snapshot);
+      const provider = createProvider();
+      const service = new StaticCatalogService({
+        repository,
+        provider,
+        clock: () => new Date(CLOCK_AT),
+      });
+
+      await service.refresh();
+      expect(await repository.getCurrentMap()).toEqual(invalidated ? undefined : fixture.map);
+      expect(await repository.getMap(fixture.map.id)).toEqual(fixture.map);
+      expect(await repository.getMapSnapshot()).toEqual(fixture.snapshot);
+      await service.refresh();
+      expect(await repository.getCurrentMap()).toEqual(invalidated ? undefined : fixture.map);
+
+      app = await buildApp({
+        environment: "test",
+        dataMode: "live",
+        repository,
+        playerDataProvider: provider,
+        clock: () => new Date(CLOCK_AT),
+      });
+      const response = await app.inject({ method: "GET", url: "/v1/maps/current" });
+      if (invalidated) {
+        expect(response.statusCode).toBe(503);
+        expect(apiErrorSchema.parse(json(response)).error.code).toBe("MAP_UNAVAILABLE");
+      } else {
+        expect(mapVersionResponseSchema.parse(json(response)).data).toEqual(fixture.map);
+      }
+    },
+  );
+
+  it("invalidates from a fresh persisted official patch snapshot without refetching it", async () => {
+    const repository = await createLiveRepository();
+    await repository.replacePatches(patches.items, {
+      source: "dota2_official",
+      quality: "complete",
+      fetchedAt: FETCHED_AT,
+      checkedAt: CLOCK_AT,
+      changedAt: FETCHED_AT,
+      contentHash: "fresh-official-patches",
+      officialVersion: patches.officialVersion,
+    });
+    const fixture = await auditedMapFixture("complete", "7.41a");
+    await repository.replaceMap(fixture.map, fixture.snapshot);
+    const provider = createProvider();
+    const service = new StaticCatalogService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    await service.refresh();
+    expect(provider.getPatchConstants).not.toHaveBeenCalled();
+    expect(await repository.getCurrentMap()).toBeUndefined();
+    expect(await repository.getMap(fixture.map.id)).toEqual(fixture.map);
+    expect(await repository.getMapSnapshot()).toEqual(fixture.snapshot);
+  });
+
+  it("keeps the curated current pointer when the official patch refresh fails", async () => {
+    const repository = await createLiveRepository();
+    const fixture = await auditedMapFixture("complete", "7.41a");
+    await repository.replaceMap(fixture.map, fixture.snapshot);
+    const provider = createProvider();
+    provider.getPatchConstants = vi.fn(async () => {
+      throw new Error("test-only official patch failure");
+    });
+    const service = new StaticCatalogService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    await expect(service.refresh()).rejects.toThrow("test-only official patch failure");
+    expect(await repository.getCurrentMap()).toEqual(fixture.map);
+    expect(await repository.getMapSnapshot()).toEqual(fixture.snapshot);
   });
 
   it("does not report an empty partial update snapshot as an empty result", async () => {

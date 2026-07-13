@@ -97,6 +97,14 @@ export class MemoryDodoRepository implements DodoRepository {
     this.#mapSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
+  async invalidateCurrentMapForOfficialPatch(officialVersion: string): Promise<boolean> {
+    if (!this.#currentMapId || this.#mapSnapshot?.source !== "curated_map") return false;
+    const current = this.#maps.get(this.#currentMapId);
+    if (!current || current.patch === officialVersion) return false;
+    this.#currentMapId = undefined;
+    return true;
+  }
+
   async upsertPlayer(profile: PlayerProfile): Promise<void> {
     this.#players.set(profile.accountId, clone(profile));
   }
