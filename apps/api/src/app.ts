@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import { OpenDotaProvider } from "@dodo/dota-data";
+import { Dota2OfficialProvider, OpenDotaProvider, StratzProvider } from "@dodo/dota-data";
 import {
   createLiveRepository,
   createSeedRepository,
@@ -13,9 +13,12 @@ import { parseDataMode, type DataMode } from "./data-mode.js";
 import { ApiHttpError } from "./errors.js";
 import { createErrorMeta } from "./meta.js";
 import type { PlayerDataProvider } from "./player-data-provider.js";
+import { PlayerHistorySyncService } from "./player-history-sync-service.js";
 import { PlayerSyncService } from "./player-sync-service.js";
 import { parseRepositoryMode, type RepositoryMode } from "./repository-mode.js";
 import { registerRoutes } from "./routes.js";
+import { StaticCatalogService } from "./static-catalog-service.js";
+import { StratzMatchEnrichmentService } from "./stratz-match-enrichment-service.js";
 
 export type BuildAppOptions = {
   environment?: string;
@@ -26,6 +29,10 @@ export type BuildAppOptions = {
   dataMode?: DataMode;
   playerDataProvider?: PlayerDataProvider;
   syncService?: PlayerSyncService;
+  historySyncService?: PlayerHistorySyncService;
+  staticCatalogService?: StaticCatalogService;
+  stratzProvider?: Pick<StratzProvider, "getMatchDetail">;
+  stratzMatchEnrichmentService?: StratzMatchEnrichmentService;
   clock?: () => Date;
 };
 
@@ -48,16 +55,59 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
         ? await createLiveRepository()
         : await createSeedRepository());
   let syncService = options.syncService;
-  if (dataMode === "live" && !syncService) {
-    const provider =
-      options.playerDataProvider ??
-      new OpenDotaProvider({
+  let historySyncService = options.historySyncService;
+  let staticCatalogService = options.staticCatalogService;
+  let stratzMatchEnrichmentService = options.stratzMatchEnrichmentService;
+  if (dataMode === "live" && (!syncService || !historySyncService)) {
+    const provider = options.playerDataProvider ?? (() => {
+      const openDotaProvider = new OpenDotaProvider({
         ...(process.env.OPENDOTA_API_BASE_URL
           ? { baseUrl: process.env.OPENDOTA_API_BASE_URL }
           : {}),
         ...(process.env.OPENDOTA_API_KEY ? { apiKey: process.env.OPENDOTA_API_KEY } : {}),
       });
-    syncService = new PlayerSyncService({ repository, provider, clock });
+      const officialProvider = new Dota2OfficialProvider();
+      return Object.assign(openDotaProvider, {
+        getHeroConstants: () => officialProvider.getHeroConstants(),
+        getHeroAbilityConstants: () => officialProvider.getHeroAbilityConstants(),
+        getItemConstants: () => officialProvider.getItemConstants(),
+        getPatchConstants: () => officialProvider.getPatchConstants(),
+        getRecentUpdateReleases: (limit: number) =>
+          officialProvider.getRecentUpdateReleases(limit),
+      });
+    })();
+    if (!syncService && !stratzMatchEnrichmentService) {
+      const stratzToken = process.env.STRATZ_TOKEN?.trim();
+      const stratzProvider = options.stratzProvider ?? (
+        stratzToken
+          ? new StratzProvider({
+              token: stratzToken,
+              ...(process.env.STRATZ_API_BASE_URL
+                ? { endpoint: process.env.STRATZ_API_BASE_URL }
+                : {}),
+            })
+          : undefined
+      );
+      if (stratzProvider) {
+        stratzMatchEnrichmentService = new StratzMatchEnrichmentService({
+          repository,
+          provider: stratzProvider,
+          clock,
+        });
+      }
+    }
+    syncService ??= new PlayerSyncService({
+      repository,
+      provider,
+      ...(stratzMatchEnrichmentService
+        ? { matchEnrichmentService: stratzMatchEnrichmentService }
+        : {}),
+      clock,
+    });
+    historySyncService ??= new PlayerHistorySyncService({ repository, provider, clock });
+    if (!options.playerDataProvider) {
+      staticCatalogService ??= new StaticCatalogService({ repository, provider, clock });
+    }
   }
   try {
     if (dataMode === "live" && !(await repository.getProviderHealth("opendota"))) {
@@ -130,10 +180,14 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
   await registerRoutes(app, repository, {
     dataMode,
     ...(syncService ? { syncService } : {}),
+    ...(historySyncService ? { historySyncService } : {}),
   });
+  staticCatalogService?.start();
   app.addHook("onClose", async () => {
     try {
+      await staticCatalogService?.close();
       await syncService?.close();
+      await historySyncService?.close();
     } finally {
       await repository.close();
     }

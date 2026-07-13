@@ -1,0 +1,63 @@
+{
+  "result": {
+    "data": {
+      "itemabilities": [
+        {
+          "id": 1,
+          "name": "item_blink",
+          "name_loc": "Blink Dagger",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": true,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 1001,
+          "name": "item_recipe_blink",
+          "name_loc": "",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [{ "items": [2, 3] }],
+          "is_innate": false
+        },
+        {
+          "id": 2,
+          "name": "item_blades_of_attack",
+          "name_loc": "",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 3,
+          "name": "item_broadsword",
+          "name_loc": "",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 182,
+          "name": "item_stout_shield",
+          "name_loc": "Stout Shield",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        }
+      ]
+    }
+  }
+}

@@ -5,8 +5,12 @@ import type {
   MapVersion,
   MatchDetail,
   OperationMeta,
+  PatchSummary,
+  PlayerHistorySync,
   PlayerProfile,
   SyncJob,
+  UpdateReleaseDetail,
+  UpdateReleaseSummary,
 } from "@dodo/contracts";
 
 export type DataSource = OperationMeta["sources"][number];
@@ -47,6 +51,10 @@ export type StaticDataSnapshot = {
   source: DataSource;
   quality: DataQuality;
   fetchedAt: string;
+  checkedAt: string;
+  changedAt: string;
+  contentHash: string | null;
+  officialVersion: string | null;
 };
 
 export type ProviderHealth = DataStatus["providers"][number];
@@ -65,12 +73,32 @@ export interface DodoRepository {
   upsertPlayer(profile: PlayerProfile): Promise<void>;
   upsertMatch(match: StoredMatch): Promise<void>;
   replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
+  upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
+  commitPlayerHistoryPage(
+    accountId: string,
+    matches: StoredMatch[],
+    state: PlayerHistorySync,
+  ): Promise<void>;
+  tryAcquirePlayerHistorySyncLease(
+    state: PlayerHistorySync,
+    leaseExpiresBefore: string,
+  ): Promise<boolean>;
   upsertSyncJob(job: SyncJob): Promise<void>;
   upsertPlayerSyncBatch(batch: PlayerSyncBatch): Promise<void>;
   upsertPlayerSyncFailure(failure: PlayerSyncFailure): Promise<void>;
   clearPlayerSyncFailure(accountId: string): Promise<void>;
   replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void>;
   replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void>;
+  replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void>;
+  replaceUpdateReleases(
+    releases: UpdateReleaseDetail[],
+    snapshot: StaticDataSnapshot,
+  ): Promise<void>;
+  touchStaticSnapshot(
+    kind: "hero" | "item" | "patch" | "update",
+    expectedContentHash: string | null,
+    snapshot: StaticDataSnapshot,
+  ): Promise<boolean>;
   upsertProviderHealth(health: ProviderHealth): Promise<void>;
   getHero(id: string): Promise<HeroDetail | undefined>;
   listHeroes(): Promise<HeroDetail[]>;
@@ -78,13 +106,21 @@ export interface DodoRepository {
   getItem(id: string): Promise<ItemDetail | undefined>;
   listItems(): Promise<ItemDetail[]>;
   getItemSnapshot(): Promise<StaticDataSnapshot | undefined>;
+  getPatch(id: string): Promise<PatchSummary | undefined>;
+  listPatches(): Promise<PatchSummary[]>;
+  getPatchSnapshot(): Promise<StaticDataSnapshot | undefined>;
+  listUpdateReleases(): Promise<UpdateReleaseSummary[]>;
+  getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined>;
+  getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined>;
   getCurrentMap(): Promise<MapVersion | undefined>;
   getMap(id: string): Promise<MapVersion | undefined>;
   getPlayer(accountId: string): Promise<PlayerProfile | undefined>;
   getPlayerSyncBatch(accountId: string): Promise<PlayerSyncBatch | undefined>;
   getPlayerSyncFailure(accountId: string): Promise<PlayerSyncFailure | undefined>;
+  getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined>;
   getSyncJob(jobId: string): Promise<SyncJob | undefined>;
   getMatch(id: string): Promise<StoredMatch | undefined>;
+  listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]>;
   listPlayerMatches(accountId: string): Promise<StoredMatch[]>;
   getProviderHealth(source: DataSource): Promise<ProviderHealth | undefined>;
   getLatestMatchAt(): Promise<string | null>;

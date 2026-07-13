@@ -2,7 +2,14 @@
 
 import { accountResolutionResponseSchema, apiErrorSchema } from "@dodo/contracts";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  PlayerSyncRequestError,
+  playerSyncPresentation,
+  playerSyncProgressMessage,
+  startAndPollPlayerSync,
+} from "../lib/player-sync";
 
 type ReferenceKind = "account_id" | "steam_id64" | "steam_profile_url";
 
@@ -18,18 +25,24 @@ export function AccountSearch({ compact = false }: { compact?: boolean }) {
   const [value, setValue] = useState(compact ? "" : "123456789");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
+  const controllerRef = useRef<AbortController | null>(null);
   const active = options.find((option) => option.kind === kind) ?? options[0]!;
+
+  useEffect(() => () => controllerRef.current?.abort(), []);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setStatus("loading");
-    setMessage("");
+    setMessage("正在定位公开账号…");
     try {
       const response = await fetch("/api/account-resolutions", {
         body: JSON.stringify({ kind, value: value.trim() }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
-        signal: AbortSignal.timeout(8_000),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8_000)]),
       });
       const body: unknown = await response.json();
       if (!response.ok) {
@@ -49,21 +62,28 @@ export function AccountSearch({ compact = false }: { compact?: boolean }) {
         return;
       }
       const accountId = parsed.data.data.accountId;
-      const syncResponse = await fetch(`/api/players/${encodeURIComponent(accountId)}/sync`, {
-        method: "POST",
-        signal: AbortSignal.timeout(8_000),
+      const job = await startAndPollPlayerSync(accountId, {
+        onProgress: (progress) => setMessage(playerSyncProgressMessage(progress)),
+        signal: controller.signal,
       });
-      if (!syncResponse.ok) {
-        const syncBody: unknown = await syncResponse.json();
-        const syncError = apiErrorSchema.safeParse(syncBody);
-        setMessage(syncError.success ? syncError.data.error.message : "账号同步未能启动，请稍后重试。");
+      const presentation = playerSyncPresentation(job.status);
+      if (!presentation.successful) {
+        setMessage(presentation.message);
         setStatus("error");
         return;
       }
+      setMessage("公开比赛同步完成，正在打开玩家页…");
       router.push(`/players/${encodeURIComponent(accountId)}`);
-    } catch {
-      setMessage("无法连接账号服务，请检查网络后重试。");
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setMessage(
+        error instanceof PlayerSyncRequestError
+          ? error.message
+          : "无法连接账号服务，请检查网络后重试。",
+      );
       setStatus("error");
+    } finally {
+      if (controllerRef.current === controller) controllerRef.current = null;
     }
   }
 
@@ -107,8 +127,11 @@ export function AccountSearch({ compact = false }: { compact?: boolean }) {
         </button>
       </div>
       <p className="account-search__hint">仅查询公开比赛历史；不会绕过 Steam 隐私设置。</p>
-      <p aria-live="polite" className="account-search__message">
-        {status === "error" ? message : ""}
+      <p
+        aria-live="polite"
+        className={`account-search__message${status === "error" ? " account-search__message--error" : ""}`}
+      >
+        {status === "loading" || status === "error" ? message : ""}
       </p>
     </form>
   );

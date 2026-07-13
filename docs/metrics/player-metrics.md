@@ -35,6 +35,17 @@
 - `last_20`, `last_50`, `last_100`：先按 `start_time DESC, match_id DESC` 排序再截取。
 - `all_imported`：只有在 UI 明确标注“全部已导入比赛”时可用。
 - 不足 N 场时使用实际样本，不填充、不外推。
+- `patch` 与窗口组合时，先按推定的官方小版本过滤，再应用最近 N 场；不得先截取全局最近 N 场后再过滤。
+- `all_imported + patch` 表示该版本内全部已导入的合格公开比赛。
+- 比赛浏览的 `limit=30` 是展示分页大小，不是统计窗口或导入覆盖上限。
+- 比赛浏览先应用英雄、Patch、胜负、game mode、lobby type 和 UTC 日期筛选，再排序分页；“某英雄最近 30 场”不得从账号全局最近 30 场中二次过滤。
+
+## History coverage
+
+- 全时期只描述“当前数据源允许访问且已导入”的公开历史。
+- `matchesImported` 是历史回填累计接受的记录数；玩家资料中的 `importedMatchCount` 是当前数据库去重后的总比赛数，两者不得混用。
+- `reachedEnd=true` 只表示已到达当前上游结果末端，不证明私密或上游从未记录的比赛不存在。
+- 历史批次必须幂等追加；最新100场刷新不得删除更早已导入比赛。
 
 ## Required metadata
 
@@ -60,3 +71,15 @@ quality
 - 玩家同步的“计划 100 场 vs 实际导入数量”由玩家资料和数据状态单独表达，不复用上述统计覆盖率。
 - GPM/XPM 等可缺失指标必须各自返回 `observedCount` 与字段覆盖率。
 - `inputWatermark` 是本次聚合实际包含的最新比赛时间，使用 UTC ISO-8601；无输入时为 `null`。
+
+## Match detail completeness
+
+- `detailStatus=summary`：只保证目标玩家摘要，不声称包含完整阵容。
+- `detailStatus=enriched`：已请求并通过完整比赛详情质量门禁；玩家数组应包含上游可用的全部参赛者。
+- `abilityBuildStatus=ordered`：只知道升级先后顺序；`heroLevel` 与 `gameTimeSeconds` 可以为空。
+- `abilityBuildStatus=timed`：每条升级事件具有上游提供的真实游戏时间。
+- `itemTimelineStatus=unavailable`：没有可靠交易日志；空数组不表示玩家没有购买物品。
+- `itemTimelineStatus=partial`：只有部分交易类型或时间可用，例如只有购买日志而没有出售日志。
+- `itemTimelineStatus=complete`：数据源明确提供完整购买和出售事件；不得通过最终装备差异推断。
+- `officialVersion`：使用官方版本发布时间与比赛 `start_time` 推定；必须同时返回 `openDotaPatchId` 和 `officialVersionSource`，不得把推定值描述为上游原始字段。
+- `neutralItemId` 与 `neutralItemEnhancementId` 分别保存中立物品本体和强化项；不得丢弃、合并或互相替代。

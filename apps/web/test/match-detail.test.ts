@@ -1,0 +1,111 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  abilityUpgradeContext,
+  itemTimelineNotice,
+  resolveHeroAbility,
+  type AbilitiesByHeroId,
+} from "../lib/match-detail";
+
+const source = (relativePath: string): string =>
+  readFileSync(new URL(relativePath, import.meta.url), "utf8");
+
+describe("match detail presentation", () => {
+  it("never invents hero level or game time for ordered-only ability builds", () => {
+    const event = { abilityId: "axe_berserkers_call", gameTimeSeconds: 125, heroLevel: 3, sequence: 2 };
+
+    expect(abilityUpgradeContext(event, "ordered")).toBe("第 2 次加点");
+    expect(abilityUpgradeContext(event, "timed")).toBe("第 2 次加点 · 英雄等级 3 · 游戏时间 2:05");
+  });
+
+  it("makes unavailable and partial item timelines explicit", () => {
+    expect(itemTimelineNotice("unavailable", 0)).toBe("上游未提供真实物品交易时间线。");
+    expect(itemTimelineNotice("partial", 0)).toContain("没有真实交易事件");
+    expect(itemTimelineNotice("partial", 2)).toContain("只展示上游实际提供的交易事件");
+    expect(itemTimelineNotice("complete", 2)).toBeNull();
+  });
+
+  it("resolves ability IDs only inside the selected player's hero", () => {
+    const abilitiesByHeroId = {
+      axe: [{
+        description: "",
+        id: "shared-id",
+        localizedName: "战斗饥渴",
+        name: "axe_battle_hunger",
+        slot: 1,
+        type: "basic",
+      }],
+      bane: [{
+        description: "",
+        id: "shared-id",
+        localizedName: "虚弱",
+        name: "bane_enfeeble",
+        slot: 0,
+        type: "basic",
+      }],
+    } satisfies AbilitiesByHeroId;
+
+    expect(resolveHeroAbility(abilitiesByHeroId, "axe", "shared-id")?.name).toBe("axe_battle_hunger");
+    expect(resolveHeroAbility(abilitiesByHeroId, "bane", "shared-id")?.name).toBe("bane_enfeeble");
+    expect(resolveHeroAbility(abilitiesByHeroId, "axe", "missing-id")).toBeUndefined();
+    expect(resolveHeroAbility(abilitiesByHeroId, "missing-hero", "shared-id")).toBeUndefined();
+  });
+
+  it("renders all frozen scoreboard fields and gates complete-lineup language", () => {
+    const page = source("../app/matches/[matchId]/page.tsx");
+    const row = source("../components/match-player-row.tsx");
+
+    expect(page).toContain('match.data.detailStatus === "enriched"');
+    expect(page).toContain("radiant.length === 5 && dire.length === 5");
+    expect(page).toContain("完整详情后台补全中");
+    expect(page).toContain("完整阵容已载入");
+    expect(page).toContain("<MatchAnalyzer");
+    expect(page).toContain("matchHeroIds.map");
+    expect(page).toContain("abilitiesByHeroId={abilitiesByHeroId}");
+    for (const field of [
+      "level",
+      "gpm",
+      "xpm",
+      "lastHits",
+      "denies",
+      "heroDamage",
+      "towerDamage",
+      "finalItemIds",
+      "backpackItemIds",
+      "neutralItemId",
+      "neutralItemEnhancementId",
+    ]) {
+      expect(row).toContain(`player.${field}`);
+    }
+  });
+
+  it("moves builds into one keyboard-accessible player analyzer", () => {
+    const analyzer = source("../components/match-analyzer.tsx");
+    const row = source("../components/match-player-row.tsx");
+
+    expect(analyzer).toContain('aria-pressed={selected}');
+    expect(analyzer).toContain('role="tablist"');
+    expect(analyzer).toContain('aria-selected={view === "abilities"}');
+    expect(analyzer).toContain('aria-selected={view === "items"}');
+    expect(analyzer).toContain("abilityUpgradeContext");
+    expect(analyzer).toContain("resolveHeroAbility(abilitiesByHeroId, player.heroId, event.abilityId)");
+    expect(analyzer).toContain("ability?.localizedName");
+    expect(analyzer).toContain("`技能 #${event.abilityId}`");
+    expect(analyzer).toContain('kind="ability"');
+    expect(analyzer).toContain("itemTimelineNotice");
+    expect(analyzer).toContain("player.abilityBuildStatus");
+    expect(analyzer).toContain("player.itemTimelineStatus");
+    expect(analyzer).toContain('event.action === "purchase" ? "+ 购买" : "− 出售"');
+    expect(row).not.toContain("participant-breakdown");
+  });
+
+  it("renders ability icons on hero details without changing the empty state", () => {
+    const heroPage = source("../app/heroes/[heroId]/page.tsx");
+
+    expect(heroPage).toContain('className="ability-list__icon"');
+    expect(heroPage).toContain('kind="ability"');
+    expect(heroPage).toContain("技能资料待补充");
+  });
+});

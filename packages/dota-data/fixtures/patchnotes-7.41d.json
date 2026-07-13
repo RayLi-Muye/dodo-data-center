@@ -1,0 +1,56 @@
+{
+  "patch_number": "7.41d",
+  "patch_name": "7.41d",
+  "patch_timestamp": 1780556400,
+  "general_notes": [
+    {
+      "title": "<b>Mechanics &amp; Systems</b>",
+      "generic": [
+        {
+          "indent_level": 1,
+          "note": "Armor <strong>changed</strong><br>and tuned &amp; tested",
+          "info": "<i>Official detail</i>"
+        },
+        { "indent_level": 1, "note": "<br>" }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "ability_id": 104,
+      "ability_notes": [{ "indent_level": 1, "note": "Recipe cost decreased" }]
+    }
+  ],
+  "neutral_items": [
+    {
+      "ability_id": -1,
+      "is_general_note": true,
+      "title": "Artifacts"
+    }
+  ],
+  "heroes": [
+    {
+      "hero_id": 107,
+      "name": "npc_dota_hero_earth_spirit",
+      "localized_name": "Earth Spirit",
+      "hero_notes": [{ "indent_level": 1, "note": "Base strength increased" }],
+      "talent_notes": [{ "indent_level": 1, "note": "Level 10 talent improved" }],
+      "abilities": [
+        {
+          "ability_id": 5608,
+          "title": "Boulder Smash",
+          "ability_notes": [{ "indent_level": 2, "note": "Damage increased" }]
+        }
+      ]
+    }
+  ],
+  "neutral_creeps": [
+    {
+      "neutral_creep_id": 12,
+      "name": "npc_dota_neutral_kobold",
+      "localized_name": "Kobold",
+      "neutral_creep_notes": [{ "indent_level": 1, "note": "Bounty increased" }]
+    }
+  ],
+  "success": true
+}

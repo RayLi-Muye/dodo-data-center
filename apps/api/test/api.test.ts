@@ -9,17 +9,21 @@ import {
   mapFeaturesResponseSchema,
   mapVersionResponseSchema,
   matchDetailResponseSchema,
+  patchesResponseSchema,
   playerHeroResponseSchema,
   playerHeroesResponseSchema,
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
   syncJobResponseSchema,
+  updateDetailResponseSchema,
+  updatesResponseSchema,
 } from "@dodo/contracts";
 import {
   createSeedRepository,
   SEED_ACCOUNT_ID,
   SEED_HISTORY_PRIVATE_ACCOUNT_ID,
   SEED_PARTIAL_ACCOUNT_ID,
+  SEED_UPDATED_AT,
 } from "@dodo/db";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -97,9 +101,33 @@ describe("Dodo API", () => {
     mapFeaturesResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/maps/seed-map/features" })),
     );
+    patchesResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/patches" })));
+    updatesResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/updates" })));
+    updateDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates/7.41" })),
+    );
     dataStatusResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/data-status" })),
     );
+  });
+
+  it("lists official update summaries without groups and serves detail by version", async () => {
+    const list = updatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates?limit=1" })),
+    );
+    expect(list.data.items).toHaveLength(1);
+    expect(list.data.items[0]).toMatchObject({ version: "7.41", changeGroupCount: 1 });
+    expect(list.data.items[0]).not.toHaveProperty("groups");
+
+    const detail = updateDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/updates/7.41" })),
+    );
+    expect(detail.data.groups).toHaveLength(1);
+    expect(detail.data.groups[0]?.notes[0]?.text).toBe("Deterministic test-only update note.");
+
+    const missing = await app.inject({ method: "GET", url: "/v1/updates/does-not-exist" });
+    expect(missing.statusCode).toBe(404);
+    expect(apiErrorSchema.parse(json(missing)).error.code).toBe("NOT_FOUND");
   });
 
   it("resolves account ID, Steam ID64, and supported profile URLs", async () => {
@@ -356,12 +384,14 @@ describe("Dodo API", () => {
     expect(apiErrorSchema.parse(json(badCursor)).error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("never paginates beyond the frozen last-100 match window", async () => {
+  it("never paginates beyond an explicitly selected last-100 match window", async () => {
     const ids: string[] = [];
     let cursor: string | null = null;
 
     do {
-      const query = cursor ? `?limit=37&cursor=${encodeURIComponent(cursor)}` : "?limit=37";
+      const query = cursor
+        ? `?window=last_100&limit=37&cursor=${encodeURIComponent(cursor)}`
+        : "?window=last_100&limit=37";
       const response = playerMatchesResponseSchema.parse(
         json(
           await app.inject({
@@ -385,6 +415,297 @@ describe("Dodo API", () => {
     for (let excludedIndex = 100; excludedIndex < 105; excludedIndex += 1) {
       expect(ids).not.toContain(String(9_000_000_000 + excludedIndex));
     }
+  });
+
+  it("filters by patch before applying player windows and exposes all imported matches", async () => {
+    const repository = await createSeedRepository();
+    const importedMatches = await repository.listPlayerMatches(SEED_ACCOUNT_ID);
+    for (const [index, match] of importedMatches.entries()) {
+      await repository.upsertMatch({
+        ...match,
+        detail: {
+          ...match.detail,
+          officialVersion: index < 10 ? "new-patch" : "old-patch",
+          officialVersionSource: "start_time_inferred",
+        },
+      });
+    }
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const overview = playerOverviewResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}?window=last_20&patch=old-patch`,
+        }),
+      ),
+    );
+    expect(overview.data.games).toBe(20);
+    expect(overview.meta.filtersApplied).toEqual({ window: "last_20", patch: "old-patch" });
+
+    const matches = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?window=last_20&patch=old-patch&limit=100`,
+        }),
+      ),
+    );
+    expect(matches.data.items).toHaveLength(20);
+    expect(matches.data.items.map((match) => match.id)).toEqual(
+      importedMatches.slice(10, 30).map((match) => match.detail.id),
+    );
+    expect(matches.meta.filtersApplied).toEqual({
+      window: "last_20",
+      patch: "old-patch",
+      heroId: null,
+      outcome: null,
+      gameMode: null,
+      lobbyType: null,
+      dateFrom: null,
+      dateTo: null,
+    });
+
+    const heroes = playerHeroesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/heroes?window=last_20&patch=old-patch`,
+        }),
+      ),
+    );
+    expect(heroes.data.items.reduce((sum, hero) => sum + hero.games, 0)).toBe(20);
+    expect(heroes.meta.filtersApplied).toEqual({ window: "last_20", patch: "old-patch" });
+
+    const selectedHeroId = matches.data.items[0]!.player.heroId;
+    const hero = playerHeroResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/heroes/${selectedHeroId}?window=last_20&patch=old-patch`,
+        }),
+      ),
+    );
+    expect(hero.data.games).toBe(
+      matches.data.items.filter((match) => match.player.heroId === selectedHeroId).length,
+    );
+    expect(hero.meta.filtersApplied).toEqual({
+      window: "last_20",
+      patch: "old-patch",
+      heroId: selectedHeroId,
+    });
+
+    const allImported = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?window=all_imported&patch=old-patch&limit=100`,
+        }),
+      ),
+    );
+    expect(allImported.data.items).toHaveLength(95);
+    expect(allImported.data.nextCursor).toBeNull();
+  });
+
+  it("infers an official version when reading a legacy major-patch match", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        officialVersion: null,
+        openDotaPatchId: "60",
+        officialVersionSource: "unavailable",
+      },
+    });
+    await repository.replacePatches(
+      [{ id: "7.41d", name: "7.41d", releasedAt: "2024-12-01T00:00:00.000Z" }],
+      {
+        source: "dota2_official",
+        quality: "complete",
+        fetchedAt: SEED_UPDATED_AT,
+        checkedAt: SEED_UPDATED_AT,
+        changedAt: SEED_UPDATED_AT,
+        contentHash: "official-patches",
+        officialVersion: "7.41d",
+      },
+    );
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const response = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: `/v1/matches/${stored.detail.id}` })),
+    );
+    expect(response.data).toMatchObject({
+      officialVersion: "7.41d",
+      openDotaPatchId: "60",
+      officialVersionSource: "start_time_inferred",
+    });
+  });
+
+  it("attributes persisted STRATZ enrichment in match response metadata", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch({
+      ...stored,
+      detail: {
+        ...stored.detail,
+        enrichmentSources: ["stratz"],
+      },
+    });
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const response = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: `/v1/matches/${stored.detail.id}` })),
+    );
+    expect(response.data.enrichmentSources).toEqual(["stratz"]);
+    expect(response.meta.sources).toEqual(["seed", "stratz"]);
+  });
+
+  it("defaults match browsing to 30 all-imported results", async () => {
+    const response = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches`,
+        }),
+      ),
+    );
+
+    expect(response.data.items).toHaveLength(30);
+    expect(response.data.nextCursor).not.toBeNull();
+    expect(response.meta.filtersApplied).toEqual({
+      window: "all_imported",
+      patch: null,
+      heroId: null,
+      outcome: null,
+      gameMode: null,
+      lobbyType: null,
+      dateFrom: null,
+      dateTo: null,
+    });
+  });
+
+  it("applies combined match filters before the window and keeps them across pages", async () => {
+    const repository = await createSeedRepository();
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+    const query = [
+      "heroId=1",
+      "patch=seed-patch",
+      "outcome=win",
+      "gameMode=seed-ranked-all-pick",
+      "lobbyType=seed-lobby",
+      "dateFrom=2024-12-29",
+      "dateTo=2025-01-01",
+      "window=last_20",
+      "limit=3",
+    ].join("&");
+
+    const first = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?${query}`,
+        }),
+      ),
+    );
+    expect(first.data.items).toHaveLength(3);
+    expect(first.data.items.every((match) => match.player.heroId === "1")).toBe(true);
+    expect(first.data.items.every((match) => match.player.isWin)).toBe(true);
+    expect(first.data.items.every((match) => match.officialVersion === "seed-patch")).toBe(true);
+    expect(first.data.items.every((match) => match.gameMode === "seed-ranked-all-pick")).toBe(
+      true,
+    );
+    expect(first.data.items.every((match) => match.lobbyType === "seed-lobby")).toBe(true);
+    expect(first.meta.filtersApplied).toEqual({
+      window: "last_20",
+      patch: "seed-patch",
+      heroId: "1",
+      outcome: "win",
+      gameMode: "seed-ranked-all-pick",
+      lobbyType: "seed-lobby",
+      dateFrom: "2024-12-29",
+      dateTo: "2025-01-01",
+    });
+
+    const second = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?${query}&cursor=${encodeURIComponent(first.data.nextCursor!)}`,
+        }),
+      ),
+    );
+    expect(second.data.items).toHaveLength(3);
+    expect(second.data.items.every((match) => match.player.heroId === "1")).toBe(true);
+    expect(new Set([...first.data.items, ...second.data.items].map((match) => match.id)).size).toBe(
+      6,
+    );
+  });
+
+  it("selects a hero's recent window after filtering by that hero", async () => {
+    const response = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?heroId=1&window=last_20&limit=30`,
+        }),
+      ),
+    );
+
+    expect(response.data.items).toHaveLength(20);
+    expect(response.data.nextCursor).toBeNull();
+    expect(response.data.items.every((match) => match.player.heroId === "1")).toBe(true);
+  });
+
+  it("includes both UTC date endpoints and rejects impossible calendar dates", async () => {
+    const repository = await createSeedRepository();
+    const matches = await repository.listPlayerMatches(SEED_ACCOUNT_ID);
+    await repository.upsertMatch({
+      ...matches[0]!,
+      detail: { ...matches[0]!.detail, startTime: "2025-01-01T00:00:00.000Z" },
+    });
+    await repository.upsertMatch({
+      ...matches[1]!,
+      detail: { ...matches[1]!.detail, startTime: "2025-01-01T23:59:59.999Z" },
+    });
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const bounded = playerMatchesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/players/${SEED_ACCOUNT_ID}/matches?dateFrom=2025-01-01&dateTo=2025-01-01&limit=100`,
+        }),
+      ),
+    );
+    expect(bounded.data.items.map((match) => match.id)).toContain(matches[0]!.detail.id);
+    expect(bounded.data.items.map((match) => match.id)).toContain(matches[1]!.detail.id);
+    expect(
+      bounded.data.items.find((match) => match.id === matches[0]!.detail.id)?.startTime,
+    ).toBe("2025-01-01T00:00:00.000Z");
+    expect(
+      bounded.data.items.find((match) => match.id === matches[1]!.detail.id)?.startTime,
+    ).toBe("2025-01-01T23:59:59.999Z");
+
+    const impossible = await app.inject({
+      method: "GET",
+      url: `/v1/players/${SEED_ACCOUNT_ID}/matches?dateFrom=2025-02-30`,
+    });
+    expect(impossible.statusCode).toBe(400);
+    expect(apiErrorSchema.parse(json(impossible)).error.code).toBe("VALIDATION_ERROR");
+
+    const reversed = await app.inject({
+      method: "GET",
+      url: `/v1/players/${SEED_ACCOUNT_ID}/matches?dateFrom=2025-02-01&dateTo=2025-01-31`,
+    });
+    expect(reversed.statusCode).toBe(400);
+    expect(apiErrorSchema.parse(json(reversed)).error.code).toBe("VALIDATION_ERROR");
   });
 
   it("reconciles all-imported and last-100 metrics against match facts", async () => {

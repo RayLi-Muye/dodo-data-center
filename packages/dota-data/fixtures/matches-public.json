@@ -35,6 +35,7 @@
     "radiant_win": false,
     "duration": 2000,
     "game_mode": 22,
+    "lobby_type": 7,
     "hero_id": 3,
     "start_time": 1700000100,
     "kills": 3,

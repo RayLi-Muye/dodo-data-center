@@ -19,7 +19,11 @@ export function AssetImage({
 }) {
   const [failed, setFailed] = useState(false);
   const src = dotaAssetUrl(name, kind);
-  const dimensions = kind === "hero" ? { height: 144, width: 256 } : { height: 64, width: 96 };
+  const dimensions = kind === "hero"
+    ? { height: 144, width: 256 }
+    : kind === "item"
+      ? { height: 64, width: 96 }
+      : { height: 128, width: 128 };
 
   if (!src || failed) {
     return (

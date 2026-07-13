@@ -9,10 +9,13 @@ import {
   playerHeroesResponseSchema,
   playerMatchesResponseSchema,
   playerOverviewResponseSchema,
+  patchesResponseSchema,
   dataStatusResponseSchema,
+  updateDetailResponseSchema,
+  updatesResponseSchema,
 } from "@dodo/contracts";
 import type { ApiError } from "@dodo/contracts";
-import type { HeroSummary, ItemSummary, PlayerHeroStats, ResponseMeta } from "@dodo/contracts";
+import type { HeroSummary, ItemSummary, OperationMeta, PatchSummary, PlayerHeroStats, ResponseMeta, UpdateReleaseSummary } from "@dodo/contracts";
 import type { z } from "zod";
 
 const FALLBACK_API_BASE_URL = "http://127.0.0.1:3001";
@@ -99,7 +102,7 @@ export const api = {
   dataStatus: () => fetchApi(dataStatusResponseSchema, "/v1/data-status", { cache: "no-store" }),
   hero: (heroId: string) =>
     fetchApi(heroDetailResponseSchema, `/v1/heroes/${encodeURIComponent(heroId)}`, {
-      next: { revalidate: 3_600 },
+      cache: "no-store",
     }),
   heroes: (options: { cursor?: string | undefined; limit?: number; q?: string | undefined } = {}) =>
     fetchApi(
@@ -117,25 +120,68 @@ export const api = {
       `/v1/items${queryString({ cursor: options.cursor, limit: options.limit ?? 100, q: options.q })}`,
       { next: { revalidate: 3_600 } },
     ),
-  map: () => fetchApi(mapVersionResponseSchema, "/v1/maps/current", { next: { revalidate: 3_600 } }),
+  map: () => fetchApi(mapVersionResponseSchema, "/v1/maps/current", { cache: "no-store" }),
   match: (matchId: string) =>
     fetchApi(matchDetailResponseSchema, `/v1/matches/${encodeURIComponent(matchId)}`, {
       cache: "no-store",
     }),
-  playerHeroes: (accountId: string, window: string, cursor?: string) =>
+  patches: (cursor?: string) =>
+    fetchApi(
+      patchesResponseSchema,
+      `/v1/patches${queryString({ cursor, limit: 100 })}`,
+      { cache: "no-store" },
+    ),
+  update: (version: string) =>
+    fetchApi(
+      updateDetailResponseSchema,
+      `/v1/updates/${encodeURIComponent(version)}`,
+      { cache: "no-store" },
+    ),
+  updates: (cursor?: string) =>
+    fetchApi(
+      updatesResponseSchema,
+      `/v1/updates${queryString({ cursor, limit: 100 })}`,
+      { cache: "no-store" },
+    ),
+  playerHeroes: (accountId: string, window: string, patch?: string, cursor?: string) =>
     fetchApi(
       playerHeroesResponseSchema,
-      `/v1/players/${encodeURIComponent(accountId)}/heroes${queryString({ cursor, limit: 100, window })}`,
+      `/v1/players/${encodeURIComponent(accountId)}/heroes${queryString({ cursor, limit: 100, patch, window })}`,
       { cache: "no-store" },
     ),
-  playerMatches: (accountId: string, cursor?: string) =>
+  playerMatches: (
+    accountId: string,
+    options: {
+      cursor?: string | undefined;
+      dateFrom?: string | undefined;
+      dateTo?: string | undefined;
+      gameMode?: string | undefined;
+      heroId?: string | undefined;
+      limit?: number;
+      lobbyType?: string | undefined;
+      outcome?: "win" | "loss" | undefined;
+      patch?: string | undefined;
+      window?: string | undefined;
+    } = {},
+  ) =>
     fetchApi(
       playerMatchesResponseSchema,
-      `/v1/players/${encodeURIComponent(accountId)}/matches${queryString({ cursor, limit: 100 })}`,
+      `/v1/players/${encodeURIComponent(accountId)}/matches${queryString({
+        cursor: options.cursor,
+        dateFrom: options.dateFrom,
+        dateTo: options.dateTo,
+        gameMode: options.gameMode,
+        heroId: options.heroId,
+        limit: options.limit ?? 30,
+        lobbyType: options.lobbyType,
+        outcome: options.outcome,
+        patch: options.patch,
+        window: options.window ?? "all_imported",
+      })}`,
       { cache: "no-store" },
     ),
-  playerOverview: (accountId: string) =>
-    fetchApi(playerOverviewResponseSchema, `/v1/players/${encodeURIComponent(accountId)}`, {
+  playerOverview: (accountId: string, window: string, patch?: string) =>
+    fetchApi(playerOverviewResponseSchema, `/v1/players/${encodeURIComponent(accountId)}${queryString({ patch, window })}`, {
       cache: "no-store",
     }),
 };
@@ -162,12 +208,48 @@ export async function collectAllItems() {
   return items;
 }
 
-export async function collectAllPlayerHeroes(accountId: string, window: string) {
+export async function collectAllPatches() {
+  return (await collectAllPatchesWithMeta()).items;
+}
+
+export async function collectAllPatchesWithMeta() {
+  const items: PatchSummary[] = [];
+  let cursor: string | undefined;
+  let meta: OperationMeta | undefined;
+  do {
+    const page = await api.patches(cursor);
+    items.push(...page.data.items);
+    meta ??= page.meta;
+    cursor = page.data.nextCursor ?? undefined;
+  } while (cursor);
+  if (!meta) throw new Error("Patch catalog did not return operation metadata.");
+  return { items, meta };
+}
+
+export async function collectAllUpdates() {
+  return (await collectAllUpdatesWithMeta()).items;
+}
+
+export async function collectAllUpdatesWithMeta() {
+  const items: UpdateReleaseSummary[] = [];
+  let cursor: string | undefined;
+  let meta: OperationMeta | undefined;
+  do {
+    const page = await api.updates(cursor);
+    items.push(...page.data.items);
+    meta ??= page.meta;
+    cursor = page.data.nextCursor ?? undefined;
+  } while (cursor);
+  if (!meta) throw new Error("Update catalog did not return operation metadata.");
+  return { items, meta };
+}
+
+export async function collectAllPlayerHeroes(accountId: string, window: string, patch?: string) {
   const items: PlayerHeroStats[] = [];
   let cursor: string | undefined;
   let meta: ResponseMeta | undefined;
   do {
-    const page = await api.playerHeroes(accountId, window, cursor);
+    const page = await api.playerHeroes(accountId, window, patch, cursor);
     items.push(...page.data.items);
     meta ??= page.meta;
     cursor = page.data.nextCursor ?? undefined;

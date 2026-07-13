@@ -7,8 +7,10 @@ import {
   itemIdParamsSchema,
   mapFeaturesQuerySchema,
   matchIdParamsSchema,
+  paginationQuerySchema,
   playerHeroesQuerySchema,
   playerMatchesQuerySchema,
+  playerSyncRequestSchema,
   playerWindowQuerySchema,
   syncJobParamsSchema,
 } from "@dodo/contracts";
@@ -20,6 +22,7 @@ import type {
   MapFeature,
   OperationMeta,
   PlayerHeroStats,
+  PlayerHistorySync,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
@@ -54,9 +57,11 @@ import {
   type MetaDescriptor,
 } from "./meta.js";
 import type { PlayerSyncService } from "./player-sync-service.js";
+import type { PlayerHistorySyncService } from "./player-history-sync-service.js";
 
 const detailQuerySchema = z.object({ patch: z.string().trim().max(32).optional() });
 const mapVersionParamsSchema = z.object({ mapVersionId: identifierSchema });
+const updateVersionParamsSchema = z.object({ version: identifierSchema });
 
 const parse = <T extends z.ZodType>(
   schema: T,
@@ -94,9 +99,6 @@ const canonicalizeSyncJobId = (jobId: string, errorMeta: ErrorMeta): string => {
   const match = /^job-(\d+)$/.exec(jobId);
   return match?.[1] ? `job-${canonicalizeAccountId(match[1], errorMeta)}` : jobId;
 };
-
-const qualityForProfile = (profile: PlayerProfile): "complete" | "partial" =>
-  profile.status === "public_complete" ? "complete" : "partial";
 
 const profileStatusError = async (
   profile: PlayerProfile,
@@ -221,13 +223,71 @@ const paginate = <T>(
   return { items: pageItems, nextCursor };
 };
 
+const utcDateBoundary = (
+  date: string,
+  endOfDay: boolean,
+  errorMeta: ErrorMeta,
+): number => {
+  const timestamp = Date.parse(`${date}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) {
+    throw new ApiHttpError(
+      400,
+      "VALIDATION_ERROR",
+      "Date filters must be valid UTC calendar dates.",
+      false,
+      errorMeta,
+    );
+  }
+  return timestamp;
+};
+
+const targetMatchPlayer = (match: StoredMatch, accountId: string) => {
+  const player = match.detail.players.find((candidate) => candidate.accountId === accountId);
+  if (!player) throw new Error(`Repository invariant failed for match ${match.detail.id}`);
+  return player;
+};
+
+const filterPlayerMatches = (
+  matches: StoredMatch[],
+  accountId: string,
+  query: z.output<typeof playerMatchesQuerySchema>,
+  errorMeta: ErrorMeta,
+): StoredMatch[] => {
+  const dateFrom = query.dateFrom
+    ? utcDateBoundary(query.dateFrom, false, errorMeta)
+    : undefined;
+  const dateTo = query.dateTo ? utcDateBoundary(query.dateTo, true, errorMeta) : undefined;
+
+  return matches
+    .filter((match) => {
+      const player = targetMatchPlayer(match, accountId);
+      const startedAt = Date.parse(match.detail.startTime);
+      return (
+        (!query.heroId || player.heroId === query.heroId) &&
+        (!query.patch || match.detail.officialVersion === query.patch) &&
+        (!query.outcome || (query.outcome === "win" ? player.isWin : !player.isWin)) &&
+        (!query.gameMode || match.detail.gameMode === query.gameMode) &&
+        (!query.lobbyType || match.detail.lobbyType === query.lobbyType) &&
+        (dateFrom === undefined || startedAt >= dateFrom) &&
+        (dateTo === undefined || startedAt <= dateTo)
+      );
+    })
+    .sort(
+      (left, right) =>
+        Date.parse(right.detail.startTime) - Date.parse(left.detail.startTime) ||
+        right.detail.id.localeCompare(left.detail.id),
+    );
+};
+
 const toItemSummary = (item: ItemDetail): ItemSummary => ({
   id: item.id,
   name: item.name,
   localizedName: item.localizedName,
   cost: item.cost,
   category: item.category,
-  patch: item.patch,
+  kind: item.kind,
+  availabilityStatus: item.availabilityStatus,
+  officialVersion: item.officialVersion,
 });
 
 const itemNameOrder = <T extends { localizedName: string; id: string }>(left: T, right: T) =>
@@ -249,6 +309,7 @@ const syncErrorCode = (status: PlayerProfile["status"]): string | null => {
 type RegisterRoutesOptions = {
   dataMode: DataMode;
   syncService?: PlayerSyncService;
+  historySyncService?: PlayerHistorySyncService;
 };
 
 const qualityForProviderStatus = (
@@ -263,16 +324,52 @@ const descriptorFromBatch = (batch: PlayerSyncBatch): MetaDescriptor => ({
 });
 
 const descriptorFromSnapshot = (snapshot: StaticDataSnapshot): MetaDescriptor => ({
-  updatedAt: snapshot.fetchedAt,
+  updatedAt: snapshot.checkedAt,
   sources: [snapshot.source],
   quality: snapshot.quality,
 });
 
 const descriptorFromMatch = (match: StoredMatch): MetaDescriptor => ({
   updatedAt: match.importedAt,
-  sources: [match.source],
+  sources: [...new Set([match.source, ...match.detail.enrichmentSources])],
   quality: match.quality,
 });
+
+const descriptorWithMatchSources = (
+  descriptor: MetaDescriptor,
+  matches: StoredMatch[],
+): MetaDescriptor => ({
+  ...descriptor,
+  updatedAt: matches.reduce(
+    (latest, match) => match.importedAt > latest ? match.importedAt : latest,
+    descriptor.updatedAt,
+  ),
+  sources: [
+    ...new Set([
+      ...descriptor.sources,
+      ...matches.flatMap((match) => match.detail.enrichmentSources),
+    ]),
+  ],
+});
+
+const inferStoredMatchVersion = (
+  match: StoredMatch,
+  releases: Array<{ version: string; releasedAt: string }>,
+): StoredMatch => {
+  if (match.detail.officialVersion !== null) return match;
+  const release = releases.find(
+    (candidate) => Date.parse(candidate.releasedAt) <= Date.parse(match.detail.startTime),
+  );
+  if (!release) return match;
+  return {
+    ...match,
+    detail: {
+      ...match.detail,
+      officialVersion: release.version,
+      officialVersionSource: "start_time_inferred",
+    },
+  };
+};
 
 type MetricWindow = PlayerHeroStats["window"];
 
@@ -299,17 +396,50 @@ const selectPlayerWindow = (
   matches: StoredMatch[],
   batch: PlayerSyncBatch | undefined,
   window: MetricWindow,
+  patch?: string,
 ): StoredMatch[] => {
+  const patchMatches = patch
+    ? matches.filter((match) => match.detail.officialVersion === patch)
+    : matches;
+  if (patch || window === "all_imported") return selectWindow(patchMatches, window);
   if (!batch) return selectWindow(matches, window);
   const includedMatchIds = new Set(batchWindow(batch, window).includedMatchIds);
   return matches.filter((match) => includedMatchIds.has(match.detail.id));
 };
 
+const selectionQuality = (
+  selectedMatches: StoredMatch[],
+  batch: PlayerSyncBatch | undefined,
+  window: MetricWindow,
+  patch?: string,
+) => {
+  if (!batch || patch || window === "all_imported") {
+    return {
+      sampleSize: selectedMatches.length,
+      eligibleCount: selectedMatches.length,
+      excludedCount: 0,
+      exclusionReasons: [] as string[],
+    };
+  }
+  return batchWindow(batch, window);
+};
+
 export const registerRoutes = async (
   app: FastifyInstance,
   repository: DodoRepository,
-  { dataMode, syncService }: RegisterRoutesOptions,
+  { dataMode, syncService, historySyncService }: RegisterRoutesOptions,
 ): Promise<void> => {
+  const listVersionedMatches = async (accountId: string): Promise<StoredMatch[]> => {
+    const [matches, patches] = await Promise.all([
+      repository.listPlayerMatches(accountId),
+      repository.listPatches(),
+    ]);
+    const releases = patches.map((patch) => ({
+      version: patch.name,
+      releasedAt: patch.releasedAt,
+    }));
+    return matches.map((match) => inferStoredMatchVersion(match, releases));
+  };
   const defaultDescriptor = async (): Promise<MetaDescriptor> => {
     if (dataMode === "seed") {
       return { updatedAt: SEED_UPDATED_AT, sources: ["seed"], quality: "complete" };
@@ -327,9 +457,55 @@ export const registerRoutes = async (
     status?: PlayerProfile["status"],
     retryAfterSeconds: number | null = null,
   ) => createErrorMeta(status, retryAfterSeconds, await defaultDescriptor());
+  const staticUnavailableError = (resource: string, snapshot?: StaticDataSnapshot) =>
+    new ApiHttpError(
+      503,
+      "SOURCE_UNAVAILABLE",
+      snapshot
+        ? `${resource} catalog snapshot is partial and cannot confirm absence.`
+        : `${resource} catalog has not completed an official snapshot yet.`,
+      true,
+      createErrorMeta(
+        "source_unavailable",
+        null,
+        snapshot
+          ? descriptorFromSnapshot(snapshot)
+          : {
+              updatedAt: new Date(0).toISOString(),
+              sources: ["dota2_official"],
+              quality: "partial",
+            },
+      ),
+    );
   const playerDescriptor = async (accountId: string): Promise<MetaDescriptor> => {
-    const batch = await repository.getPlayerSyncBatch(accountId);
-    return batch ? descriptorFromBatch(batch) : defaultDescriptor();
+    const [batch, failure, job, profile] = await Promise.all([
+      repository.getPlayerSyncBatch(accountId),
+      repository.getPlayerSyncFailure(accountId),
+      repository.getSyncJob(`job-${accountId}`),
+      repository.getPlayer(accountId),
+    ]);
+    if (!batch) {
+      const descriptor = await defaultDescriptor();
+      return profile?.status === "public_partial"
+        ? { ...descriptor, quality: "partial" }
+        : descriptor;
+    }
+    const failedAfterBatch =
+      failure !== undefined &&
+      Date.parse(failure.checkedAt) >= Date.parse(batch.fetchedAt) &&
+      job !== undefined &&
+      job.status !== "syncing" &&
+      job.status !== "public_complete" &&
+      job.status !== "public_partial";
+    if (!failedAfterBatch) return descriptorFromBatch(batch);
+    return {
+      updatedAt: failure.checkedAt,
+      sources: [failure.source],
+      quality:
+        job.status === "source_unavailable" || job.status === "failed"
+          ? "stale"
+          : "partial",
+    };
   };
   const playerErrorMeta = async (
     accountId: string,
@@ -356,6 +532,11 @@ export const registerRoutes = async (
       await defaultErrorMeta("not_found"),
       (status, retryAfterSeconds) => playerErrorMeta(accountId, status, retryAfterSeconds),
     );
+  const historyAccessiblePlayer = async (accountId: string): Promise<PlayerProfile> => {
+    const profile = await repository.getPlayer(accountId);
+    if (profile?.status === "syncing" && profile.importedMatchCount > 0) return profile;
+    return accessiblePlayer(accountId);
+  };
 
   app.post("/v1/account-resolutions", async (request) => {
     const errorMeta = await defaultErrorMeta();
@@ -367,10 +548,14 @@ export const registerRoutes = async (
   });
 
   app.post("/v1/players/:accountId/sync", async (request, reply) => {
-    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    const errorMeta = await defaultErrorMeta();
+    const accountId = parseAccountId(request.params, errorMeta);
+    const { trigger } = parse(playerSyncRequestSchema, request.body, errorMeta);
     if (dataMode === "live") {
       if (!syncService) throw new Error("Live data mode requires a player sync service");
-      const job = await syncService.requestSync(accountId);
+      const job = await syncService.requestSync(accountId, {
+        force: trigger === "manual",
+      });
       return reply.code(202).send({
         data: job,
         meta: createOperationMeta({
@@ -395,6 +580,57 @@ export const registerRoutes = async (
     return reply.code(202).send({
       data: job,
       meta: createOperationMeta(await defaultDescriptor()),
+    });
+  });
+
+  app.get("/v1/players/:accountId/history-sync", async (request) => {
+    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    const profile = await historyAccessiblePlayer(accountId);
+    const state = historySyncService
+      ? await historySyncService.getState(accountId)
+      : ((await repository.getPlayerHistorySync(accountId)) ?? {
+          accountId,
+          status: "idle",
+          nextOffset: 0,
+          pageSize: 100,
+          pagesImported: 0,
+          matchesImported: 0,
+          oldestImportedAt: null,
+          reachedEnd: false,
+          requestedAt: null,
+          updatedAt: profile.latestImportedAt ?? new Date(0).toISOString(),
+          errorCode: null,
+        } satisfies PlayerHistorySync);
+    return {
+      data: state,
+      meta: createOperationMeta({
+        updatedAt: state.updatedAt,
+        sources: ["opendota"],
+        quality: state.status === "complete" ? "complete" : "partial",
+      }),
+    };
+  });
+
+  app.post("/v1/players/:accountId/history-sync", async (request, reply) => {
+    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    await historyAccessiblePlayer(accountId);
+    if (!historySyncService) {
+      throw new ApiHttpError(
+        503,
+        "SOURCE_UNAVAILABLE",
+        "History import is unavailable in this data mode.",
+        true,
+        await defaultErrorMeta("source_unavailable"),
+      );
+    }
+    const state = await historySyncService.requestSync(accountId);
+    return reply.code(202).send({
+      data: state,
+      meta: createOperationMeta({
+        updatedAt: state.updatedAt,
+        sources: ["opendota"],
+        quality: "partial",
+      }),
     });
   });
 
@@ -428,29 +664,43 @@ export const registerRoutes = async (
   });
 
   app.get("/v1/players/:accountId", async (request) => {
-    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    const errorMeta = await defaultErrorMeta();
+    const accountId = parseAccountId(request.params, errorMeta);
+    const query = parse(playerWindowQuerySchema, request.query, errorMeta);
     const profile = await accessiblePlayer(accountId);
-    const matches = await repository.listPlayerMatches(accountId);
-    const window = "last_100" as const;
+    const matches = await listVersionedMatches(accountId);
     const batch = await repository.getPlayerSyncBatch(accountId);
-    const selectedMatches = selectPlayerWindow(matches, batch, window);
-    const data = calculateOverview(profile, selectedMatches, await repository.listHeroes(), window);
-    const qualityWindow = batch ? batchWindow(batch, window) : undefined;
-    const descriptor = batch ? descriptorFromBatch(batch) : await defaultDescriptor();
+    const selectedMatches = selectPlayerWindow(matches, batch, query.window, query.patch);
+    const data = calculateOverview(
+      profile,
+      selectedMatches,
+      await repository.listHeroes(),
+      query.window,
+    );
+    const qualityWindow = selectionQuality(
+      selectedMatches,
+      batch,
+      query.window,
+      query.patch,
+    );
+    const descriptor = descriptorWithMatchSources(
+      await playerDescriptor(accountId),
+      selectedMatches,
+    );
     return {
       data,
       meta: createMetricMeta({
-        sampleSize: qualityWindow?.sampleSize ?? selectedMatches.length,
-        eligibleCount: qualityWindow?.eligibleCount ?? selectedMatches.length,
+        sampleSize: qualityWindow.sampleSize,
+        eligibleCount: qualityWindow.eligibleCount,
         coverageRate:
-          qualityWindow === undefined || qualityWindow.eligibleCount === 0
+          qualityWindow.eligibleCount === 0
             ? 1
             : qualityWindow.sampleSize / qualityWindow.eligibleCount,
-        excludedCount: qualityWindow?.excludedCount ?? 0,
-        exclusionReasons: qualityWindow?.exclusionReasons ?? [],
-        filtersApplied: { window },
+        excludedCount: qualityWindow.excludedCount,
+        exclusionReasons: qualityWindow.exclusionReasons,
+        filtersApplied: { window: query.window, patch: query.patch ?? null },
         inputWatermark: selectedMatches[0]?.detail.startTime ?? null,
-        quality: batch?.quality ?? qualityForProfile(profile),
+        quality: descriptor.quality,
         updatedAt: descriptor.updatedAt,
         sources: descriptor.sources,
         metricVersion: dataMode === "live" ? "player-v1" : "seed-v1",
@@ -461,56 +711,89 @@ export const registerRoutes = async (
   app.get("/v1/players/:accountId/matches", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const accountId = parseAccountId(request.params, errorMeta);
-    const profile = await accessiblePlayer(accountId);
+    await accessiblePlayer(accountId);
     const query = parse(playerMatchesQuerySchema, request.query, errorMeta);
-    const matches = selectWindow(await repository.listPlayerMatches(accountId), "last_100")
-      .filter(
-        (match) =>
-          !query.heroId ||
-          match.detail.players.some(
-            (player) => player.accountId === accountId && player.heroId === query.heroId,
-          ),
-      )
-      .map((match) => toMatchSummary(match.detail, accountId));
+    const batch = await repository.getPlayerSyncBatch(accountId);
+    const selectedMatches = selectWindow(
+      filterPlayerMatches(
+        await listVersionedMatches(accountId),
+        accountId,
+        query,
+        errorMeta,
+      ),
+      query.window,
+    );
+    const page = paginate(
+      selectedMatches,
+      query.limit,
+      query.cursor,
+      (match) => match.detail.id,
+      errorMeta,
+    );
+    const descriptor = descriptorWithMatchSources(
+      await playerDescriptor(accountId),
+      page.items,
+    );
     return {
-      data: paginate(matches, query.limit, query.cursor, (match) => match.id, errorMeta),
-      meta: createOperationMeta({
-        ...(await playerDescriptor(accountId)),
-        quality:
-          (await repository.getPlayerSyncBatch(accountId))?.quality ?? qualityForProfile(profile),
-      }),
+      data: {
+        items: page.items.map((match) => toMatchSummary(match.detail, accountId)),
+        nextCursor: page.nextCursor,
+      },
+      meta: {
+        ...createOperationMeta({
+          ...descriptor,
+        }),
+        filtersApplied: {
+          window: query.window,
+          patch: query.patch ?? null,
+          heroId: query.heroId ?? null,
+          outcome: query.outcome ?? null,
+          gameMode: query.gameMode ?? null,
+          lobbyType: query.lobbyType ?? null,
+          dateFrom: query.dateFrom ?? null,
+          dateTo: query.dateTo ?? null,
+        },
+      },
     };
   });
 
   app.get("/v1/players/:accountId/heroes", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const accountId = parseAccountId(request.params, errorMeta);
-    const profile = await accessiblePlayer(accountId);
+    await accessiblePlayer(accountId);
     const query = parse(playerHeroesQuerySchema, request.query, errorMeta);
-    const matches = await repository.listPlayerMatches(accountId);
+    const matches = await listVersionedMatches(accountId);
     const batch = await repository.getPlayerSyncBatch(accountId);
-    const selectedMatches = selectPlayerWindow(matches, batch, query.window);
+    const selectedMatches = selectPlayerWindow(matches, batch, query.window, query.patch);
     const heroStats = calculateHeroList(
       accountId,
       selectedMatches,
       await repository.listHeroes(),
       query.window,
     );
-    const qualityWindow = batch ? batchWindow(batch, query.window) : undefined;
-    const descriptor = batch ? descriptorFromBatch(batch) : await defaultDescriptor();
-    const sampleSize = qualityWindow?.sampleSize ?? selectedMatches.length;
-    const eligibleCount = qualityWindow?.eligibleCount ?? selectedMatches.length;
+    const qualityWindow = selectionQuality(
+      selectedMatches,
+      batch,
+      query.window,
+      query.patch,
+    );
+    const descriptor = descriptorWithMatchSources(
+      await playerDescriptor(accountId),
+      selectedMatches,
+    );
+    const sampleSize = qualityWindow.sampleSize;
+    const eligibleCount = qualityWindow.eligibleCount;
     return {
       data: paginate(heroStats, query.limit, query.cursor, (stats) => stats.hero.id, errorMeta),
       meta: createMetricMeta({
         sampleSize,
         eligibleCount,
         coverageRate: eligibleCount === 0 ? 1 : sampleSize / eligibleCount,
-        excludedCount: qualityWindow?.excludedCount ?? 0,
-        exclusionReasons: qualityWindow?.exclusionReasons ?? [],
-        filtersApplied: { window: query.window },
+        excludedCount: qualityWindow.excludedCount,
+        exclusionReasons: qualityWindow.exclusionReasons,
+        filtersApplied: { window: query.window, patch: query.patch ?? null },
         inputWatermark: selectedMatches[0]?.detail.startTime ?? null,
-        quality: batch?.quality ?? qualityForProfile(profile),
+        quality: descriptor.quality,
         updatedAt: descriptor.updatedAt,
         sources: descriptor.sources,
         metricVersion: dataMode === "live" ? "player-hero-v1" : "seed-v1",
@@ -522,16 +805,17 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const accountId = parseAccountId(request.params, errorMeta);
     const { heroId } = parse(heroIdParamsSchema, request.params, errorMeta);
-    const { window } = parse(playerWindowQuerySchema, request.query, errorMeta);
-    const profile = await accessiblePlayer(accountId);
+    const { window, patch } = parse(playerWindowQuerySchema, request.query, errorMeta);
+    await accessiblePlayer(accountId);
     const hero = await repository.getHero(heroId);
     if (!hero) {
       throw new ApiHttpError(404, "NOT_FOUND", "Hero was not found.", false, errorMeta);
     }
     const selectedMatches = selectPlayerWindow(
-      await repository.listPlayerMatches(accountId),
+      await listVersionedMatches(accountId),
       await repository.getPlayerSyncBatch(accountId),
       window,
+      patch,
     );
     const stats = calculateHeroStats(
       accountId,
@@ -549,7 +833,10 @@ export const registerRoutes = async (
         errorMeta,
       );
     }
-    const descriptor = await playerDescriptor(accountId);
+    const descriptor = descriptorWithMatchSources(
+      await playerDescriptor(accountId),
+      selectedMatches,
+    );
     return {
       data: stats,
       meta: createMetricMeta({
@@ -560,9 +847,8 @@ export const registerRoutes = async (
               (player) => player.accountId === accountId && player.heroId === heroId,
             ),
           )?.detail.startTime ?? null,
-        filtersApplied: { window, heroId },
-        quality:
-          (await repository.getPlayerSyncBatch(accountId))?.quality ?? qualityForProfile(profile),
+        filtersApplied: { window, patch: patch ?? null, heroId },
+        quality: descriptor.quality,
         updatedAt: descriptor.updatedAt,
         sources: descriptor.sources,
         metricVersion: dataMode === "live" ? "player-hero-v1" : "seed-v1",
@@ -573,32 +859,98 @@ export const registerRoutes = async (
   app.get("/v1/matches/:matchId", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const { matchId } = parse(matchIdParamsSchema, request.params, errorMeta);
-    const match = await repository.getMatch(matchId);
+    const storedMatch = await repository.getMatch(matchId);
+    const patches = storedMatch ? await repository.listPatches() : [];
+    const match = storedMatch
+      ? inferStoredMatchVersion(
+          storedMatch,
+          patches.map((patch) => ({ version: patch.name, releasedAt: patch.releasedAt })),
+        )
+      : undefined;
     if (!match) {
       throw new ApiHttpError(404, "NOT_FOUND", "Match was not found.", false, errorMeta);
     }
     return { data: match.detail, meta: createOperationMeta(descriptorFromMatch(match)) };
   });
 
+  app.get("/v1/patches", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const query = parse(paginationQuerySchema, request.query, errorMeta);
+    const patches = await repository.listPatches();
+    const snapshot = await repository.getPatchSnapshot();
+    if (!snapshot) throw staticUnavailableError("Patch");
+    return {
+      data: paginate(patches, query.limit, query.cursor, (patch) => patch.id, errorMeta),
+      meta: createOperationMeta(
+        descriptorFromSnapshot(snapshot),
+      ),
+    };
+  });
+
+  app.get("/v1/updates", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const query = parse(paginationQuerySchema, request.query, errorMeta);
+    const [releases, snapshot] = await Promise.all([
+      repository.listUpdateReleases(),
+      repository.getUpdateSnapshot(),
+    ]);
+    if (!snapshot || (snapshot.quality === "partial" && releases.length === 0)) {
+      throw staticUnavailableError("Update", snapshot);
+    }
+    return {
+      data: paginate(
+        releases,
+        query.limit,
+        query.cursor,
+        (release) => release.version,
+        errorMeta,
+      ),
+      meta: createOperationMeta(descriptorFromSnapshot(snapshot)),
+    };
+  });
+
+  app.get("/v1/updates/:version", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const { version } = parse(updateVersionParamsSchema, request.params, errorMeta);
+    const [release, snapshot] = await Promise.all([
+      repository.getUpdateRelease(version),
+      repository.getUpdateSnapshot(),
+    ]);
+    if (!snapshot) throw staticUnavailableError("Update");
+    const descriptor = descriptorFromSnapshot(snapshot);
+    if (!release) {
+      if (snapshot.quality === "partial") throw staticUnavailableError("Update", snapshot);
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Official update release was not found.",
+        false,
+        createErrorMeta("not_found", null, descriptor),
+      );
+    }
+    return { data: release, meta: createOperationMeta(descriptor) };
+  });
+
   app.get("/v1/heroes", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
     const search = query.q?.toLocaleLowerCase();
+    const snapshot = await repository.getHeroSnapshot();
+    if (!snapshot) throw staticUnavailableError("Hero");
     const heroes = (await repository.listHeroes())
       .filter(
         (hero) =>
-          (!query.patch || hero.patch === query.patch) &&
+          (!query.patch || hero.officialVersion === query.patch) &&
           (!search ||
             hero.name.toLocaleLowerCase().includes(search) ||
             hero.localizedName.toLocaleLowerCase().includes(search)),
       )
       .map(toHeroSummary)
       .sort(itemNameOrder);
-    const snapshot = await repository.getHeroSnapshot();
     return {
       data: paginate(heroes, query.limit, query.cursor, (hero) => hero.id, errorMeta),
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -607,15 +959,25 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const { heroId } = parse(heroIdParamsSchema, request.params, errorMeta);
     const { patch } = parse(detailQuerySchema, request.query, errorMeta);
-    const hero = await repository.getHero(heroId);
-    if (!hero || (patch && hero.patch !== patch)) {
-      throw new ApiHttpError(404, "NOT_FOUND", "Hero was not found.", false, errorMeta);
+    const [hero, snapshot] = await Promise.all([
+      repository.getHero(heroId),
+      repository.getHeroSnapshot(),
+    ]);
+    if (!snapshot) throw staticUnavailableError("Hero");
+    if (!hero || (patch && hero.officialVersion !== patch)) {
+      if (snapshot.quality === "partial") throw staticUnavailableError("Hero", snapshot);
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Hero was not found.",
+        false,
+        createErrorMeta("not_found", null, descriptorFromSnapshot(snapshot)),
+      );
     }
-    const snapshot = await repository.getHeroSnapshot();
     return {
       data: hero,
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -624,21 +986,22 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
     const search = query.q?.toLocaleLowerCase();
+    const snapshot = await repository.getItemSnapshot();
+    if (!snapshot) throw staticUnavailableError("Item");
     const items = (await repository.listItems())
       .filter(
         (item) =>
-          (!query.patch || item.patch === query.patch) &&
+          (!query.patch || item.officialVersion === query.patch) &&
           (!search ||
             item.name.toLocaleLowerCase().includes(search) ||
             item.localizedName.toLocaleLowerCase().includes(search)),
       )
       .map(toItemSummary)
       .sort(itemNameOrder);
-    const snapshot = await repository.getItemSnapshot();
     return {
       data: paginate(items, query.limit, query.cursor, (item) => item.id, errorMeta),
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -647,15 +1010,25 @@ export const registerRoutes = async (
     const errorMeta = await defaultErrorMeta();
     const { itemId } = parse(itemIdParamsSchema, request.params, errorMeta);
     const { patch } = parse(detailQuerySchema, request.query, errorMeta);
-    const item = await repository.getItem(itemId);
-    if (!item || (patch && item.patch !== patch)) {
-      throw new ApiHttpError(404, "NOT_FOUND", "Item was not found.", false, errorMeta);
+    const [item, snapshot] = await Promise.all([
+      repository.getItem(itemId),
+      repository.getItemSnapshot(),
+    ]);
+    if (!snapshot) throw staticUnavailableError("Item");
+    if (!item || (patch && item.officialVersion !== patch)) {
+      if (snapshot.quality === "partial") throw staticUnavailableError("Item", snapshot);
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Item was not found.",
+        false,
+        createErrorMeta("not_found", null, descriptorFromSnapshot(snapshot)),
+      );
     }
-    const snapshot = await repository.getItemSnapshot();
     return {
       data: item,
       meta: createOperationMeta(
-        snapshot ? descriptorFromSnapshot(snapshot) : await defaultDescriptor(),
+        descriptorFromSnapshot(snapshot),
       ),
     };
   });
@@ -664,11 +1037,15 @@ export const registerRoutes = async (
     const map = await repository.getCurrentMap();
     if (!map) {
       throw new ApiHttpError(
-        404,
-        "NOT_FOUND",
-        "Current map was not found.",
-        false,
-        await defaultErrorMeta(),
+        503,
+        "MAP_UNAVAILABLE",
+        "No verified current map is available.",
+        true,
+        createErrorMeta("source_unavailable", null, {
+          updatedAt: new Date(0).toISOString(),
+          sources: ["curated_map"],
+          quality: "partial",
+        }),
       );
     }
     return {
@@ -709,16 +1086,35 @@ export const registerRoutes = async (
     if (dataMode === "live") {
       const health = await repository.getProviderHealth("opendota");
       if (!health) throw new Error("Live provider health was not initialized");
+      const officialHealth =
+        (await repository.getProviderHealth("dota2_official")) ??
+        {
+          source: "dota2_official" as const,
+          status: "unavailable" as const,
+          checkedAt: new Date(0).toISOString(),
+          message: "The first official catalog check has not completed yet.",
+        };
+      const stratzHealth = await repository.getProviderHealth("stratz");
+      const coreProviders = [health, officialHealth];
+      const providers = [...coreProviders, ...(stratzHealth ? [stratzHealth] : [])];
+      const status = coreProviders.some((provider) => provider.status === "unavailable")
+        ? "unavailable"
+        : providers.some((provider) => provider.status !== "ready")
+          ? "degraded"
+          : "ready";
+      const latestHealth = providers.reduce((latest, provider) =>
+        provider.checkedAt > latest.checkedAt ? provider : latest,
+      );
       return {
         data: {
-          status: health.status,
+          status,
           latestMatchAt: await repository.getLatestMatchAt(),
-          providers: [health],
+          providers,
         },
         meta: createOperationMeta({
-          updatedAt: health.checkedAt,
-          sources: [health.source],
-          quality: qualityForProviderStatus(health.status),
+          updatedAt: latestHealth.checkedAt,
+          sources: providers.map((provider) => provider.source),
+          quality: qualityForProviderStatus(status),
         }),
       };
     }

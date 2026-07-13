@@ -6,9 +6,13 @@ import type {
   SyncJob,
 } from "@dodo/contracts";
 import {
+  Dota2OfficialProviderError,
   OpenDotaProviderError,
+  type CanonicalHeroAbilitySet,
   type CanonicalHeroConstant,
   type CanonicalItemConstant,
+  type CanonicalMatchDetail,
+  type CanonicalMatchPlayer,
   type CanonicalPlayerMatch,
   type CanonicalPlayerProfile,
 } from "@dodo/dota-data";
@@ -17,30 +21,99 @@ import type {
   DodoRepository,
   PlayerSyncBatch,
   ProviderHealth,
+  StaticDataSnapshot,
   StoredMatch,
 } from "@dodo/db";
+import { createHash } from "node:crypto";
 
 import type { PlayerDataProvider } from "./player-data-provider.js";
+import type { StratzMatchEnrichmentService } from "./stratz-match-enrichment-service.js";
 
-const UNKNOWN_PATCH = "unknown";
+export const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+export const UPDATE_TTL_MS = 2 * 60 * 60 * 1_000;
+export const PLAYER_SYNC_TTL_MS = 30 * 60 * 1_000;
+
+const stableValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, stableValue(child)]),
+    );
+  }
+  return value;
+};
+
+export const contentHash = (value: unknown): string =>
+  createHash("sha256").update(JSON.stringify(stableValue(value))).digest("hex");
+
+const inferOfficialVersion = (
+  startTime: string,
+  releases: Array<{ version: string; releasedAt: string }>,
+): string | null =>
+  releases.find((release) => Date.parse(release.releasedAt) <= Date.parse(startTime))?.version ??
+  null;
+
+export const snapshotIsFresh = (
+  snapshot: StaticDataSnapshot | undefined,
+  now: string,
+  ttlMs: number,
+): boolean =>
+  snapshot !== undefined &&
+  Date.parse(now) - Date.parse(snapshot.checkedAt) >= 0 &&
+  Date.parse(now) - Date.parse(snapshot.checkedAt) < ttlMs;
+
+export const nextSnapshot = (
+  previous: StaticDataSnapshot | undefined,
+  source: StaticDataSnapshot["source"],
+  quality: DataQuality,
+  fetchedAt: string,
+  hash: string,
+  checkedAt: string,
+  officialVersion: string | null,
+): StaticDataSnapshot => ({
+  source,
+  quality,
+  fetchedAt,
+  checkedAt,
+  changedAt: previous?.contentHash === hash ? previous.changedAt : checkedAt,
+  contentHash: hash,
+  officialVersion,
+});
 
 type PlayerSyncServiceOptions = {
   repository: DodoRepository;
   provider: PlayerDataProvider;
+  matchEnrichmentService?: StratzMatchEnrichmentService;
   clock?: () => Date;
 };
 
-const toHeroDetail = (hero: CanonicalHeroConstant, fetchedAt: string): HeroDetail => ({
+type PlayerSyncRequestOptions = {
+  force?: boolean;
+};
+
+export const toHeroDetail = (
+  hero: CanonicalHeroConstant,
+  abilitySet: CanonicalHeroAbilitySet | undefined,
+  heroFetchedAt: string,
+  abilityFetchedAt: string,
+  officialVersion: string | null,
+): HeroDetail => ({
   ...hero,
-  patch: UNKNOWN_PATCH,
-  facets: [],
-  abilities: [],
-  sourceSnapshot: `opendota://constants/heroes@${fetchedAt}`,
+  officialVersion,
+  facetsStatus: abilitySet?.facetsStatus ?? "unavailable",
+  facets: abilitySet?.facets ?? [],
+  abilities: abilitySet?.abilities ?? [],
+  sourceSnapshot:
+    `dota2-official://datafeed/herolist+herodata@${heroFetchedAt};` +
+    `dota2-official://datafeed/herodata/abilities@${abilityFetchedAt}`,
 });
 
-const toItemDetails = (
+export const toItemDetails = (
   items: CanonicalItemConstant[],
   fetchedAt: string,
+  officialVersion: string | null,
 ): ItemDetail[] => {
   const idByName = new Map(items.map((item) => [item.name, item.id]));
   return items.map((item) => ({
@@ -49,32 +122,93 @@ const toItemDetails = (
     localizedName: item.localizedName,
     cost: item.cost ?? 0,
     category: item.category ?? "unknown",
-    patch: UNKNOWN_PATCH,
+    kind: item.kind,
+    availabilityStatus: item.availabilityStatus,
+    officialVersion,
     description: item.description,
     attributes: item.attributes,
     components: item.componentNames.flatMap((name) => {
       const id = idByName.get(name);
       return id === undefined ? [] : [id];
     }),
-    sourceSnapshot: `opendota://constants/items@${fetchedAt}`,
+    sourceSnapshot: `dota2-official://datafeed/itemlist+itemdata@${fetchedAt}`,
   }));
 };
 
-const toMatchDetail = (match: CanonicalPlayerMatch): MatchDetail => {
-  const { eligibleForPersonalAggregation: _eligible, ...player } = match.player;
+const toMatchPlayer = (
+  player: CanonicalMatchPlayer,
+  itemIdByName: ReadonlyMap<string, string>,
+): MatchDetail["players"][number] => {
+  const { eligibleForPersonalAggregation: _eligible, itemTimeline, ...rest } = player;
+  const knownTransactions = itemTimeline.flatMap((transaction) => {
+    const itemId = itemIdByName.get(transaction.itemKey);
+    return itemId === undefined ? [] : [{ ...transaction, itemId }];
+  });
+  return {
+    ...rest,
+    neutralItemEnhancementId: neutralItemEnhancementIdFor(player),
+    itemTimeline: knownTransactions.map(({ itemKey: _itemKey, ...transaction }) => transaction),
+    itemTimelineStatus:
+      knownTransactions.length === itemTimeline.length
+        ? player.itemTimelineStatus
+        : "partial",
+  };
+};
+
+const neutralItemEnhancementIdFor = (player: CanonicalMatchPlayer): string | null =>
+  (player as CanonicalMatchPlayer & { neutralItemEnhancementId?: string | null })
+    .neutralItemEnhancementId ?? null;
+
+export const toMatchSummaryDetail = (
+  match: CanonicalPlayerMatch,
+  itemIdByName: ReadonlyMap<string, string>,
+  officialVersion: string | null = null,
+): MatchDetail => {
   return {
     id: match.id,
     startTime: match.startTime,
     durationSeconds: match.durationSeconds,
-    patch: match.patchId ?? UNKNOWN_PATCH,
+    officialVersion,
+    openDotaPatchId: match.patchId,
+    officialVersionSource: officialVersion ? "start_time_inferred" : "unavailable",
     gameMode: match.gameMode,
+    lobbyType:
+      (match as CanonicalPlayerMatch & { lobbyType?: string | null }).lobbyType ?? null,
     region: match.region,
     radiantWin: match.radiantWin,
-    // The MVP deliberately stores the target player's recent-match row without an N+1 detail fetch.
-    players: [player],
+    players: [toMatchPlayer(match.player, itemIdByName)],
+    detailStatus: "summary",
+    enrichmentSources: [],
     parseStatus: "unparsed",
+    cluster: null,
+    radiantScore: null,
+    direScore: null,
   };
 };
+
+const toEnrichedMatchDetail = (
+  match: CanonicalMatchDetail,
+  itemIdByName: ReadonlyMap<string, string>,
+  officialVersion: string | null,
+): MatchDetail => ({
+  id: match.id,
+  startTime: match.startTime,
+  durationSeconds: match.durationSeconds,
+  officialVersion,
+  openDotaPatchId: match.patchId,
+  officialVersionSource: officialVersion ? "start_time_inferred" : "unavailable",
+  gameMode: match.gameMode,
+  region: match.region,
+  radiantWin: match.radiantWin,
+  players: match.players.map((player) => toMatchPlayer(player, itemIdByName)),
+  detailStatus: "enriched",
+  enrichmentSources: [],
+  parseStatus: match.parseStatus,
+  lobbyType: match.lobbyType,
+  cluster: match.cluster,
+  radiantScore: match.radiantScore,
+  direScore: match.direScore,
+});
 
 const statusForProviderError = (
   error: OpenDotaProviderError,
@@ -150,29 +284,59 @@ const asPlayerProfile = (
   };
 };
 
+const hasReadableImportedProfile = (
+  profile: PlayerProfile | undefined,
+): profile is PlayerProfile =>
+  profile !== undefined &&
+  profile.importedMatchCount > 0 &&
+  (profile.status === "public_complete" || profile.status === "public_partial");
+
 export class PlayerSyncService {
   readonly #repository: DodoRepository;
   readonly #provider: PlayerDataProvider;
+  readonly #matchEnrichmentService: StratzMatchEnrichmentService | undefined;
   readonly #clock: () => Date;
   readonly #inFlight = new Map<string, Promise<void>>();
-  readonly #requests = new Map<string, Promise<SyncJob>>();
+  readonly #requests = new Map<
+    string,
+    { force: boolean; promise: Promise<SyncJob> }
+  >();
 
-  constructor({ repository, provider, clock = () => new Date() }: PlayerSyncServiceOptions) {
+  constructor({
+    repository,
+    provider,
+    matchEnrichmentService,
+    clock = () => new Date(),
+  }: PlayerSyncServiceOptions) {
     this.#repository = repository;
     this.#provider = provider;
+    this.#matchEnrichmentService = matchEnrichmentService;
     this.#clock = clock;
   }
 
-  requestSync(accountId: string): Promise<SyncJob> {
+  requestSync(
+    accountId: string,
+    { force = true }: PlayerSyncRequestOptions = {},
+  ): Promise<SyncJob> {
     const jobId = `job-${accountId}`;
     const existingRequest = this.#requests.get(jobId);
-    if (existingRequest) return existingRequest;
-    const request = this.#requestSync(accountId).finally(() => this.#requests.delete(jobId));
-    this.#requests.set(jobId, request);
+    if (existingRequest && (!force || existingRequest.force)) {
+      return existingRequest.promise;
+    }
+    const request = (existingRequest?.promise ?? Promise.resolve(undefined))
+      .then((existingJob) =>
+        existingJob?.status === "syncing"
+          ? existingJob
+          : this.#requestSync(accountId, force),
+      )
+      .finally(() => {
+        if (this.#requests.get(jobId)?.promise === request) this.#requests.delete(jobId);
+      });
+    this.#requests.set(jobId, { force, promise: request });
     return request;
   }
 
-  async #requestSync(accountId: string): Promise<SyncJob> {
+  async #requestSync(accountId: string, force: boolean): Promise<SyncJob> {
     const jobId = `job-${accountId}`;
     if (this.#inFlight.has(jobId)) {
       const existing = await this.#repository.getSyncJob(jobId);
@@ -181,7 +345,35 @@ export class PlayerSyncService {
     }
 
     const requestedAt = this.#clock().toISOString();
-    const previousProfile = await this.#repository.getPlayer(accountId);
+    const [previousProfile, previousBatch, previousJob] = await Promise.all([
+      this.#repository.getPlayer(accountId),
+      force ? Promise.resolve(undefined) : this.#repository.getPlayerSyncBatch(accountId),
+      force ? Promise.resolve(undefined) : this.#repository.getSyncJob(jobId),
+    ]);
+    const hasFreshReadableData =
+      !force &&
+      previousProfile !== undefined &&
+      (previousProfile.status === "public_complete" ||
+        previousProfile.status === "public_partial") &&
+      previousBatch !== undefined &&
+      Date.parse(requestedAt) - Date.parse(previousBatch.fetchedAt) >= 0 &&
+      Date.parse(requestedAt) - Date.parse(previousBatch.fetchedAt) < PLAYER_SYNC_TTL_MS;
+    if (hasFreshReadableData) {
+      if (
+        previousJob?.status === "public_complete" ||
+        previousJob?.status === "public_partial"
+      ) {
+        return previousJob;
+      }
+      return {
+        jobId,
+        accountId,
+        status: previousProfile.status,
+        requestedAt: previousBatch.fetchedAt,
+        completedAt: previousBatch.fetchedAt,
+        errorCode: null,
+      };
+    }
     const job: SyncJob = {
       jobId,
       accountId,
@@ -191,7 +383,9 @@ export class PlayerSyncService {
       errorCode: null,
     };
     await this.#repository.upsertSyncJob(job);
-    await this.#repository.upsertPlayer(asPlayerProfile(accountId, "syncing", previousProfile));
+    if (!hasReadableImportedProfile(previousProfile)) {
+      await this.#repository.upsertPlayer(asPlayerProfile(accountId, "syncing", previousProfile));
+    }
 
     const execution = Promise.resolve()
       .then(() => this.#execute(job, previousProfile))
@@ -206,18 +400,23 @@ export class PlayerSyncService {
   }
 
   async close(): Promise<void> {
-    await Promise.all([...this.#requests.values(), ...this.#inFlight.values()]);
+    await Promise.all([...this.#requests.values()].map(({ promise }) => promise));
+    await Promise.all(this.#inFlight.values());
   }
 
   async #execute(job: SyncJob, previousProfile: PlayerProfile | undefined): Promise<void> {
     let fetchedProfile: CanonicalPlayerProfile | undefined;
     try {
       fetchedProfile = await this.#provider.getPlayerProfile(job.accountId);
-      const [recent, heroes, items] = await Promise.all([
+      const [recent, itemDetails, patches] = await Promise.all([
         this.#provider.getRecentMatches(job.accountId, 100),
-        this.#provider.getHeroConstants(),
-        this.#provider.getItemConstants(),
+        this.#repository.listItems(),
+        this.#repository.listPatches(),
       ]);
+      const effectiveVersionReleases = patches.map((patch) => ({
+        version: patch.name,
+        releasedAt: patch.releasedAt,
+      }));
       if (recent.accountId !== job.accountId) {
         throw new Error("Player data provider returned matches for a different account");
       }
@@ -226,12 +425,27 @@ export class PlayerSyncService {
         fetchedProfile.status === "public_partial" || recent.quality === "partial"
           ? "partial"
           : "complete";
-      const storedMatches: StoredMatch[] = recent.matches.map((match) => ({
-        detail: toMatchDetail(match),
-        importedAt: recent.source.fetchedAt,
-        source: "opendota",
-        quality,
-      }));
+      const itemIdByName = new Map(itemDetails.map((item) => [item.name, item.id]));
+      const previousMatches = new Map(
+        (await this.#repository.listPlayerMatches(job.accountId)).map((match) => [
+          match.detail.id,
+          match,
+        ]),
+      );
+      const storedMatches: StoredMatch[] = recent.matches.map((match) => {
+        const previous = previousMatches.get(match.id);
+        if (previous?.detail.detailStatus === "enriched") return previous;
+        return {
+          detail: toMatchSummaryDetail(
+            match,
+            itemIdByName,
+            inferOfficialVersion(match.startTime, effectiveVersionReleases),
+          ),
+          importedAt: recent.source.fetchedAt,
+          source: "opendota",
+          quality,
+        };
+      });
       const batch: PlayerSyncBatch = {
         accountId: job.accountId,
         eligibleCount: recent.eligibleCount,
@@ -244,20 +458,120 @@ export class PlayerSyncService {
         candidateLedger: recent.candidateLedger,
       };
 
-      await this.#repository.replaceHeroes(
-        heroes.items.map((hero) => toHeroDetail(hero, heroes.source.fetchedAt)),
-        {
-          source: "opendota",
-          quality: "complete",
-          fetchedAt: heroes.source.fetchedAt,
-        },
-      );
-      await this.#repository.replaceItems(toItemDetails(items.items, items.source.fetchedAt), {
-        source: "opendota",
-        quality: "complete",
-        fetchedAt: items.source.fetchedAt,
+      const changedMatches = storedMatches.filter((match) => {
+        const previous = previousMatches.get(match.detail.id);
+        return (
+          !previous ||
+          contentHash({ detail: previous.detail, source: previous.source, quality: previous.quality }) !==
+            contentHash({ detail: match.detail, source: match.source, quality: match.quality })
+        );
       });
-      await this.#repository.replacePlayerMatches(job.accountId, storedMatches);
+      await this.#repository.upsertPlayerMatches(job.accountId, changedMatches);
+      const latestMatches = storedMatches.slice(0, 20);
+      const legacyEnrichedIds = new Set(
+        await this.#repository.listMatchIdsMissingNeutralItemEnhancement(
+          latestMatches.map((match) => match.detail.id),
+        ),
+      );
+      const enrichmentCandidates = latestMatches.filter(
+        (match) =>
+          match.detail.detailStatus !== "enriched" || legacyEnrichedIds.has(match.detail.id),
+      );
+      let nextCandidateIndex = 0;
+      const enrichNext = async (): Promise<void> => {
+        while (nextCandidateIndex < enrichmentCandidates.length) {
+          const candidate = enrichmentCandidates[nextCandidateIndex++];
+          if (!candidate) return;
+          let enrichedMatch: StoredMatch;
+          try {
+            const canonical = await this.#provider.getMatchDetail(candidate.detail.id);
+            if (canonical.id !== candidate.detail.id) {
+              throw new Error("Match detail provider returned a different match");
+            }
+            const isLegacyEnriched =
+              candidate.detail.detailStatus === "enriched" &&
+              legacyEnrichedIds.has(candidate.detail.id);
+            if (isLegacyEnriched) {
+              const refreshedPlayers = new Map(
+                canonical.players.map((player) => [player.playerSlot, player]),
+              );
+              if (
+                candidate.detail.players.some(
+                  (player) => !refreshedPlayers.has(player.playerSlot),
+                )
+              ) {
+                continue;
+              }
+              enrichedMatch = {
+                ...candidate,
+                detail: {
+                  ...candidate.detail,
+                  players: candidate.detail.players.map((player) => ({
+                    ...player,
+                    neutralItemEnhancementId:
+                      player.neutralItemEnhancementId ??
+                      neutralItemEnhancementIdFor(refreshedPlayers.get(player.playerSlot)!),
+                  })),
+                },
+              };
+            } else {
+              enrichedMatch = {
+                detail: toEnrichedMatchDetail(
+                  canonical,
+                  itemIdByName,
+                  inferOfficialVersion(canonical.startTime, effectiveVersionReleases),
+                ),
+                importedAt: canonical.source.fetchedAt,
+                source: "opendota",
+                quality: canonical.quality,
+              };
+            }
+          } catch {
+            continue;
+          }
+          await this.#repository.upsertMatch(enrichedMatch);
+        }
+      };
+      await Promise.all(
+        Array.from(
+          { length: Math.min(2, enrichmentCandidates.length) },
+          async () => enrichNext(),
+        ),
+      );
+      if (this.#matchEnrichmentService) {
+        const refreshedLatest = await Promise.all(
+          latestMatches.map((match) => this.#repository.getMatch(match.detail.id)),
+        );
+        const stratzCandidates = refreshedLatest.flatMap((match) =>
+          match?.detail.detailStatus === "enriched" &&
+            !match.detail.enrichmentSources.includes("stratz") &&
+            match.detail.players.some(
+              (player) =>
+                player.abilityBuildStatus === "unavailable" ||
+                player.itemTimelineStatus !== "complete",
+            )
+            ? [match]
+            : [],
+        );
+        let nextStratzIndex = 0;
+        const enrichWithStratz = async (): Promise<void> => {
+          while (nextStratzIndex < stratzCandidates.length) {
+            const match = stratzCandidates[nextStratzIndex++];
+            if (!match) return;
+            try {
+              await this.#matchEnrichmentService!.enrichMatch(match.detail.id);
+            } catch {
+              // STRATZ is optional enrichment; OpenDota data remains the readable fallback.
+            }
+          }
+        };
+        await Promise.all(
+          Array.from(
+            { length: Math.min(2, stratzCandidates.length) },
+            async () => enrichWithStratz(),
+          ),
+        );
+      }
       await this.#repository.upsertPlayerSyncBatch(batch);
       await this.#repository.clearPlayerSyncFailure(job.accountId);
       await this.#repository.upsertPlayer(
@@ -281,9 +595,36 @@ export class PlayerSyncService {
       });
     } catch (error) {
       const completedAt = this.#clock().toISOString();
+      if (error instanceof Dota2OfficialProviderError) {
+        const status =
+          error.code === "DOTA2_OFFICIAL_RATE_LIMITED"
+            ? "source_rate_limited"
+            : "source_unavailable";
+        if (!hasReadableImportedProfile(previousProfile)) {
+          await this.#repository.upsertPlayer(
+            asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
+          );
+        }
+        await this.#repository.upsertPlayerSyncFailure({
+          accountId: job.accountId,
+          source: "dota2_official",
+          checkedAt: completedAt,
+          retryAfterSeconds: null,
+        });
+        await this.#repository.upsertSyncJob({
+          ...job,
+          status,
+          completedAt,
+          errorCode:
+            status === "source_rate_limited"
+              ? "SOURCE_RATE_LIMITED"
+              : "SOURCE_UNAVAILABLE",
+        });
+        return;
+      }
       if (error instanceof OpenDotaProviderError) {
         const status = statusForProviderError(error);
-        if (error.qualityContext) {
+        if (error.qualityContext && !hasReadableImportedProfile(previousProfile)) {
           await this.#repository.upsertPlayerSyncBatch({
             accountId: job.accountId,
             eligibleCount: error.qualityContext.eligibleCount,
@@ -297,9 +638,15 @@ export class PlayerSyncService {
             candidateLedger: error.qualityContext.candidateLedger,
           });
         }
-        await this.#repository.upsertPlayer(
-          asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
-        );
+        const transientFailure =
+          status === "source_rate_limited" ||
+          status === "source_unavailable" ||
+          status === "parse_pending";
+        if (!hasReadableImportedProfile(previousProfile) || !transientFailure) {
+          await this.#repository.upsertPlayer(
+            asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
+          );
+        }
         await this.#repository.upsertPlayerSyncFailure({
           accountId: job.accountId,
           source: "opendota",
@@ -316,9 +663,11 @@ export class PlayerSyncService {
         return;
       }
 
-      await this.#repository.upsertPlayer(
-        asPlayerProfile(job.accountId, "failed", fetchedProfile ?? previousProfile),
-      );
+      if (!hasReadableImportedProfile(previousProfile)) {
+        await this.#repository.upsertPlayer(
+          asPlayerProfile(job.accountId, "failed", fetchedProfile ?? previousProfile),
+        );
+      }
       await this.#repository.upsertPlayerSyncFailure({
         accountId: job.accountId,
         source: "opendota",

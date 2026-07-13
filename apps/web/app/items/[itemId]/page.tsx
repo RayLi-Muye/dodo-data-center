@@ -4,7 +4,16 @@ import Link from "next/link";
 import { AssetImage } from "../../../components/asset-image";
 import { DataState } from "../../../components/data-state";
 import { PageHeading } from "../../../components/page-heading";
+import { QualityNotice } from "../../../components/quality-notice";
 import { api, settle } from "../../../lib/api";
+import { encyclopediaVersionLabel } from "../../../lib/format";
+
+const itemKindLabel = {
+  item: "普通物品定义",
+  neutral_enhancement: "中立附魔定义",
+  neutral_item: "中立物品定义",
+  recipe: "配方定义",
+} as const;
 
 export default async function ItemDetailPage({ params }: { params: Promise<{ itemId: string }> }) {
   const { itemId } = await params;
@@ -12,12 +21,13 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
   if (!result.ok) {
     return (
       <div className="page-shell">
-        <PageHeading eyebrow={`ITEM / ${itemId}`} lead="当前版本物品价格、属性、效果与合成组件。" title="物品详情" />
+        <PageHeading eyebrow={`ITEM / ${itemId}`} lead="官方物品定义中的价格、属性、效果与合成组件。" title="物品详情" />
         <DataState error={result.error} retryHref={`/items/${encodeURIComponent(itemId)}`} />
       </div>
     );
   }
   const item = result.value;
+  const versionLabel = encyclopediaVersionLabel(item.data.officialVersion);
   const componentResults = await Promise.all(item.data.components.map((id) => settle(api.item(id))));
   const components = componentResults.flatMap((component) => component.ok ? [component.value.data] : []);
 
@@ -30,10 +40,15 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
           <p className="page-heading__eyebrow">ITEM / {item.data.id} / {item.data.category}</p>
           <h1>{item.data.localizedName}</h1>
           <p>{item.data.description || "当前快照没有物品说明。"}</p>
-          <div className="tag-row"><span>{item.data.category}</span><span>{item.data.patch}</span></div>
+          <div className="tag-row"><span>{item.data.category}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span></div>
         </div>
         <div className="item-profile__cost"><span>COST</span><strong>{item.data.cost.toLocaleString("zh-CN")}</strong><small>金币</small></div>
       </section>
+
+      <QualityNotice label="物品详情" quality={item.meta.quality} showComplete />
+      {item.data.availabilityStatus === "unverified" ? (
+        <p className="data-disclaimer">官方定义存在不等于当前商店可购买；该物品的当前可购买性尚未核验。</p>
+      ) : null}
 
       <div className="detail-grid">
         <DataSection className="detail-grid__main" eyebrow="ATTRIBUTES" title="属性与效果">

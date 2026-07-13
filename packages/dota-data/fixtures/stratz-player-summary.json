@@ -1,0 +1,16 @@
+{
+  "data": {
+    "player": {
+      "steamAccountId": 224328273,
+      "matchCount": 1250,
+      "winCount": 660,
+      "lastMatchDate": 1783800000,
+      "steamAccount": {
+        "id": 224328273,
+        "name": "Synthetic STRATZ Player",
+        "avatar": "https://fixtures.invalid/stratz-avatar.png",
+        "isAnonymous": false
+      }
+    }
+  }
+}

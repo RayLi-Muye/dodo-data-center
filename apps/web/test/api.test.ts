@@ -62,4 +62,122 @@ describe("server API client", () => {
       expect.objectContaining({ next: { revalidate: 3_600 } }),
     );
   });
+
+  it("does not cache hero details across live catalog refreshes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        id: "107",
+        name: "earth_spirit",
+        localizedName: "Earth Spirit",
+        primaryAttribute: "strength",
+        attackType: "melee",
+        roles: [],
+        officialVersion: "7.41d",
+        facetsStatus: "removed",
+        facets: [],
+        abilities: [],
+        sourceSnapshot: "opendota://constants/heroes@test",
+      },
+      meta: {
+        quality: "complete",
+        sources: ["opendota"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.hero("107");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v1\/heroes\/107$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("does not cache the current map availability response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        id: "map-7.41d",
+        patch: "7.41d",
+        coordinateSystem: "source2-world",
+        bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        features: [],
+        sourceSnapshot: "curated-map@test",
+        verifiedAt: "2026-07-12T00:00:00.000Z",
+      },
+      meta: {
+        quality: "complete",
+        sources: ["curated_map"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.map();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v1\/maps\/current$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("validates official update lists and details without caching them", async () => {
+    const meta = {
+      quality: "complete",
+      sources: ["dota2_official"],
+      updatedAt: "2026-07-12T00:00:00.000Z",
+    };
+    const summary = {
+      changeGroupCount: 2,
+      contentStatus: "complete",
+      excludedNoteCount: 0,
+      releasedAt: "2026-07-11T00:00:00.000Z",
+      sourceUrl: "https://www.dota2.com/patches/7.41d",
+      version: "7.41d",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { items: [summary], nextCursor: null },
+        meta,
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { ...summary, groups: [] },
+        meta,
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.updates();
+    await api.update("7.41d");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/\/v1\/updates\?limit=100$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/\/v1\/updates\/7\.41d$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("forwards lobby and game-mode filters independently for player matches", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: { items: [], nextCursor: null },
+      meta: {
+        filtersApplied: { gameMode: "23", lobbyType: "7" },
+        quality: "complete",
+        sources: ["opendota"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.playerMatches("224328273", { gameMode: "23", lobbyType: "7", limit: 30 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v1\/players\/224328273\/matches\?.*gameMode=23.*limit=30.*lobbyType=7/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
 });

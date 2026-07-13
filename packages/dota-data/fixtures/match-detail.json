@@ -4,6 +4,10 @@
   "duration": 2000,
   "game_mode": 22,
   "region": 3,
+  "lobby_type": 7,
+  "cluster": 156,
+  "radiant_score": 31,
+  "dire_score": 42,
   "patch": 58,
   "start_time": 1700000100,
   "version": 21,
@@ -18,9 +22,23 @@
       "gold_per_min": 420,
       "xp_per_min": 510,
       "last_hits": 160,
+      "denies": 12,
       "hero_damage": 18000,
+      "hero_healing": 250,
+      "tower_damage": 3100,
+      "level": 24,
+      "net_worth": 21450,
       "item_0": 1,
-      "item_1": 2
+      "item_1": 2,
+      "backpack_0": 3,
+      "backpack_1": 0,
+      "item_neutral": 4,
+      "item_neutral2": 1592,
+      "ability_upgrades_arr": [5010, 5011, 5010],
+      "purchase_log": [
+        { "time": -85, "key": "tango" },
+        { "time": 412, "key": "blink" }
+      ]
     },
     {
       "account_id": null,

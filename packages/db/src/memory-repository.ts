@@ -3,8 +3,12 @@ import type {
   ItemDetail,
   MapVersion,
   MatchDetail,
+  PatchSummary,
+  PlayerHistorySync,
   PlayerProfile,
   SyncJob,
+  UpdateReleaseDetail,
+  UpdateReleaseSummary,
 } from "@dodo/contracts";
 
 import type { DodoRepository, StoredMatch } from "./types.js";
@@ -15,8 +19,16 @@ import type {
   ProviderHealth,
   StaticDataSnapshot,
 } from "./types.js";
+import { mergeMatchDetails } from "./match-merge.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
+const normalizeSnapshot = (snapshot: StaticDataSnapshot): StaticDataSnapshot => ({
+  ...snapshot,
+  checkedAt: snapshot.checkedAt ?? snapshot.fetchedAt,
+  changedAt: snapshot.changedAt ?? snapshot.fetchedAt,
+  contentHash: snapshot.contentHash ?? null,
+  officialVersion: snapshot.officialVersion ?? null,
+});
 
 const compareDecimalIdDescending = (left: string, right: string): number => {
   if (/^\d+$/.test(left) && /^\d+$/.test(right)) {
@@ -39,15 +51,20 @@ export class MemoryDodoRepository implements DodoRepository {
   readonly #heroes = new Map<string, HeroDetail>();
   readonly #items = new Map<string, ItemDetail>();
   readonly #maps = new Map<string, MapVersion>();
+  readonly #patches = new Map<string, PatchSummary>();
+  #updateReleases = new Map<string, UpdateReleaseDetail>();
   readonly #players = new Map<string, PlayerProfile>();
   readonly #matches = new Map<string, StoredMatch>();
   readonly #playerMatchIds = new Map<string, Set<string>>();
   readonly #syncJobs = new Map<string, SyncJob>();
   readonly #syncBatches = new Map<string, PlayerSyncBatch>();
   readonly #syncFailures = new Map<string, PlayerSyncFailure>();
+  readonly #historySyncs = new Map<string, PlayerHistorySync>();
   readonly #providerHealth = new Map<DataSource, ProviderHealth>();
   #heroSnapshot: StaticDataSnapshot | undefined;
   #itemSnapshot: StaticDataSnapshot | undefined;
+  #patchSnapshot: StaticDataSnapshot | undefined;
+  #updateSnapshot: StaticDataSnapshot | undefined;
   #currentMapId: string | undefined;
 
   async upsertHero(hero: HeroDetail): Promise<void> {
@@ -69,22 +86,16 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     const existing = this.#matches.get(match.detail.id);
-    const playersByIdentity = new Map(
-      existing?.detail.players.map((player) => [
-        player.accountId === null ? `slot:${player.playerSlot}` : `account:${player.accountId}`,
-        player,
-      ]) ?? [],
-    );
-    for (const player of match.detail.players) {
-      const identity =
-        player.accountId === null ? `slot:${player.playerSlot}` : `account:${player.accountId}`;
-      playersByIdentity.set(identity, player);
-    }
     const stored = clone({
       ...match,
-      detail: { ...match.detail, players: [...playersByIdentity.values()] },
+      detail: mergeMatchDetails(existing?.detail, match.detail),
     });
-    this.#matches.set(match.detail.id, stored);
+    const contentChanged =
+      !existing ||
+      existing.source !== stored.source ||
+      existing.quality !== stored.quality ||
+      JSON.stringify(existing.detail) !== JSON.stringify(stored.detail);
+    if (contentChanged) this.#matches.set(match.detail.id, stored);
     for (const player of stored.detail.players) {
       if (player.accountId === null) continue;
       const matchIds = this.#playerMatchIds.get(player.accountId) ?? new Set<string>();
@@ -110,6 +121,41 @@ export class MemoryDodoRepository implements DodoRepository {
     }
   }
 
+  async upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void> {
+    const matchIds = this.#playerMatchIds.get(accountId) ?? new Set<string>();
+    for (const match of matches) {
+      await this.upsertMatch(match);
+      matchIds.add(match.detail.id);
+    }
+    this.#playerMatchIds.set(accountId, matchIds);
+  }
+
+  async commitPlayerHistoryPage(
+    accountId: string,
+    matches: StoredMatch[],
+    state: PlayerHistorySync,
+  ): Promise<void> {
+    await this.upsertPlayerMatches(accountId, matches);
+    this.#historySyncs.set(accountId, clone(state));
+  }
+
+  async tryAcquirePlayerHistorySyncLease(
+    state: PlayerHistorySync,
+    leaseExpiresBefore: string,
+  ): Promise<boolean> {
+    const existing = this.#historySyncs.get(state.accountId);
+    if (
+      existing?.reachedEnd ||
+      (existing?.status === "syncing" &&
+        existing.requestedAt !== null &&
+        Date.parse(existing.requestedAt) > Date.parse(leaseExpiresBefore))
+    ) {
+      return false;
+    }
+    this.#historySyncs.set(state.accountId, clone(state));
+    return true;
+  }
+
   async upsertSyncJob(job: SyncJob): Promise<void> {
     this.#syncJobs.set(job.jobId, clone(job));
   }
@@ -127,15 +173,56 @@ export class MemoryDodoRepository implements DodoRepository {
   }
 
   async replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void> {
-    this.#heroes.clear();
+    if (snapshot.quality === "complete") this.#heroes.clear();
     for (const hero of heroes) await this.upsertHero(hero);
-    this.#heroSnapshot = clone(snapshot);
+    this.#heroSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
   async replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void> {
-    this.#items.clear();
+    if (snapshot.quality === "complete") this.#items.clear();
     for (const item of items) await this.upsertItem(item);
-    this.#itemSnapshot = clone(snapshot);
+    this.#itemSnapshot = clone(normalizeSnapshot(snapshot));
+  }
+
+  async replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void> {
+    this.#patches.clear();
+    for (const patch of patches) this.#patches.set(patch.id, clone(patch));
+    this.#patchSnapshot = clone(normalizeSnapshot(snapshot));
+  }
+
+  async replaceUpdateReleases(
+    releases: UpdateReleaseDetail[],
+    snapshot: StaticDataSnapshot,
+  ): Promise<void> {
+    const next =
+      snapshot.quality === "partial"
+        ? new Map([...this.#updateReleases].map(([version, release]) => [version, clone(release)]))
+        : new Map<string, UpdateReleaseDetail>();
+    for (const release of releases) next.set(release.version, clone(release));
+    this.#updateReleases = next;
+    this.#updateSnapshot = clone(normalizeSnapshot(snapshot));
+  }
+
+  async touchStaticSnapshot(
+    kind: "hero" | "item" | "patch" | "update",
+    expectedContentHash: string | null,
+    snapshot: StaticDataSnapshot,
+  ): Promise<boolean> {
+    const current =
+      kind === "hero"
+        ? this.#heroSnapshot
+        : kind === "item"
+          ? this.#itemSnapshot
+          : kind === "patch"
+            ? this.#patchSnapshot
+            : this.#updateSnapshot;
+    if (!current || current.contentHash !== expectedContentHash) return false;
+    const normalized = clone(normalizeSnapshot(snapshot));
+    if (kind === "hero") this.#heroSnapshot = normalized;
+    else if (kind === "item") this.#itemSnapshot = normalized;
+    else if (kind === "patch") this.#patchSnapshot = normalized;
+    else this.#updateSnapshot = normalized;
+    return true;
   }
 
   async upsertProviderHealth(health: ProviderHealth): Promise<void> {
@@ -170,6 +257,44 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async getItemSnapshot(): Promise<StaticDataSnapshot | undefined> {
     return this.#itemSnapshot ? clone(this.#itemSnapshot) : undefined;
+  }
+
+  async getPatch(id: string): Promise<PatchSummary | undefined> {
+    const patch = this.#patches.get(id);
+    return patch ? clone(patch) : undefined;
+  }
+
+  async listPatches(): Promise<PatchSummary[]> {
+    return [...this.#patches.values()]
+      .sort(
+        (left, right) =>
+          Date.parse(right.releasedAt) - Date.parse(left.releasedAt) ||
+          right.id.localeCompare(left.id),
+      )
+      .map(clone);
+  }
+
+  async getPatchSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#patchSnapshot ? clone(this.#patchSnapshot) : undefined;
+  }
+
+  async listUpdateReleases(): Promise<UpdateReleaseSummary[]> {
+    return [...this.#updateReleases.values()]
+      .sort(
+        (left, right) =>
+          Date.parse(right.releasedAt) - Date.parse(left.releasedAt) ||
+          right.version.localeCompare(left.version),
+      )
+      .map(({ groups: _groups, ...summary }) => clone(summary));
+  }
+
+  async getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined> {
+    const release = this.#updateReleases.get(version);
+    return release ? clone(release) : undefined;
+  }
+
+  async getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#updateSnapshot ? clone(this.#updateSnapshot) : undefined;
   }
 
   async getCurrentMap(): Promise<MapVersion | undefined> {
@@ -208,6 +333,11 @@ export class MemoryDodoRepository implements DodoRepository {
     return failure ? clone(failure) : undefined;
   }
 
+  async getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined> {
+    const state = this.#historySyncs.get(accountId);
+    return state ? clone(state) : undefined;
+  }
+
   async getSyncJob(jobId: string): Promise<SyncJob | undefined> {
     const job = this.#syncJobs.get(jobId);
     return job ? clone(job) : undefined;
@@ -216,6 +346,15 @@ export class MemoryDodoRepository implements DodoRepository {
   async getMatch(id: string): Promise<StoredMatch | undefined> {
     const match = this.#matches.get(id);
     return match ? clone(match) : undefined;
+  }
+
+  async listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]> {
+    return [...new Set(matchIds)].slice(0, 20).filter((matchId) =>
+      this.#matches.get(matchId)?.detail.players.some(
+        (player) =>
+          !Object.prototype.hasOwnProperty.call(player, "neutralItemEnhancementId"),
+      ),
+    );
   }
 
   async listPlayerMatches(accountId: string): Promise<StoredMatch[]> {

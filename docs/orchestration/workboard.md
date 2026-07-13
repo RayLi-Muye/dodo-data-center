@@ -8,6 +8,29 @@
 
 ## Active wave
 
+### Wave 12: Five-stage MVP hardening
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| DATA-012 OpenDota bounded retry | Data Source Agent | `packages/dota-data/**` | Wave 11 | ACCEPTED |
+| API-012 sync coalescing and idempotency audit | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-012 | ACCEPTED |
+| QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | ACCEPTED |
+| ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
+| DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | READY |
+| DATA-014 encyclopedia correctness | Data Source Agent | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | READY |
+| API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
+| MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
+
+### Wave 12 phase 1 evidence
+
+- OpenDota network、timeout、429 与 5xx 只执行一次有界重试；404、隐私与无效 payload 不重试，`Retry-After` 等待最多 10 秒。
+- automatic/manual 请求语义从 Web、BFF 到 API 全链路传递；30 分钟内 automatic 返回既有终态，manual 仍启动强制刷新。
+- 已有成功快照后的瞬时失败继续返回旧 overview/matches，并以 partial/stale、job、failure 与 provider health 表达；Private、History Private 与 Not Found 立即阻断旧数据。
+- 同账号单进程请求合并；相同比赛内容不推进 `dodo.matches.imported_at/updated_at`。多实例 lease 留待扩容前实现，当前生产继续固定单实例。
+- 全仓 typecheck、248 项常规测试、生产 build、41 项 schema 检查和专用 PostgreSQL 27/27 通过；QA P0/P1 为 0。
+- GitHub Actions `verify` 与 Vercel Preview 首次真实运行成功；Railway deployment `5c44d337-d1e9-4b8a-a58f-2eb60b56eb75` ready。
+- 真实账号 `224328273` 验证：瞬时失败后旧 20 场仍返回 200/stale；随后 manual 恢复 `public_complete`；fresh automatic 不调用上游并返回既有完成时间，manual 再次强制同步成功。
+
 | Task | Owner | Paths | Depends on | State |
 |---|---|---|---|---|
 | ROOT-001 contracts and docs | Root | Root-only paths | none | ACCEPTED |
@@ -107,4 +130,129 @@ DONE
 
 | Task | Owner | Scope | Depends on | State |
 |---|---|---|---|---|
-| DEPLOY-006 API and Web preview | Root | cloud login、secrets、deploy、smoke、rollback record | Wave 5 | RUNNING |
+| DEPLOY-006 API and Web preview | Root | cloud login、secrets、deploy、smoke、rollback record | Wave 5 | ACCEPTED |
+
+## Wave 6 evidence
+
+- Railway Singapore 单实例 API 部署成功，`/health/live` 与 `/health/ready` 均返回 200。
+- Railway API 使用 Supabase Tokyo session pooler，数据库凭据只存在于服务端变量中。
+- 公开账号 `86745912` 完成端到端同步，任务状态为 `public_complete`；玩家接口返回 200、100 场合格样本和 35 个英雄统计。
+- Vercel `codex/deploy-preview` 分支预览构建状态为 `READY`，分支级 `API_BASE_URL` 指向 Railway API；SSO 预览保护已关闭。
+- 浏览器从公开 Vercel 页面通过 BFF 读取该账号、英雄分布和比赛明细；Railway API 重部署后玩家数据仍可查询。
+- Fly Tokyo 在当前网络下 TLS 握手超时，因此作为可迁移备选保留；MVP 预览采用 Railway Singapore。
+- 当前为海外预览，不含自定义域名、大陆部署、ICP备案或多 API 副本。
+
+## Wave 8: Enriched match details
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-008 match detail contracts and metric semantics | Root | contracts、PRD、API、metrics | Wave 7 | ACCEPTED |
+| DATA-008 OpenDota detail normalization | Data Source Agent | `packages/dota-data/**` | ROOT-008 | ACCEPTED |
+| API-008 recent-20 enrichment and persistence | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-008, DATA-008 | ACCEPTED |
+| WEB-008 ten-player scoreboard and timelines | Web Agent | `apps/web/**` | ROOT-008 | ACCEPTED |
+| QA-008 live enriched-match acceptance | Root / QA Agent | read-only | DATA-008, API-008, WEB-008 | ACCEPTED |
+| DEPLOY-008 Railway and Vercel preview | Root | commit、deploy、smoke | QA-008 | ACCEPTED |
+
+## Wave 8 local evidence
+
+- 最近 20 场仅补齐尚未 enriched 的比赛，详情请求并发上限为 2；单场失败保留 summary。
+- 完整详情包含上游可用的十人阵容、等级、GPM/XPM、补反、伤害、最终/背包/中立装备和比分。
+- `ability_upgrades_arr` 只生成有证据的加点顺序；缺少真实等级或时间时保持为空。
+- 物品时间线只使用真实 `purchase_log`；未知物品事件降级为 partial，出售事件不推断。
+- Memory/PostgreSQL 按 player slot 合并，并在上游匿名详情中保留摘要已知 account ID，避免重复成 11 人。
+- 全仓 typecheck、生产 build 和 104 项常规测试通过；3 项专用 PostgreSQL 测试按设计跳过。
+- 旧 Supabase JSONB 通过读取时默认值兼容新契约；部署探针确认玩家接口由 500 恢复为 200，旧100场数据保留。
+- 账号 `224328273` 最近20场全部达到 enriched、完整十人、已知 Patch/Region；200名参赛者的 GPM/XPM/补刀/伤害/加点覆盖率均为100%。
+- 最终装备覆盖198/200；真实购买时间线覆盖110/200，其他记录明确标记 unavailable；出售事件仍不推断。
+- Vercel `017531d` 与 Railway `ff71df82-010a-4002-8567-d6127734bf49` 均成功；浏览器确认真实比赛页包含10行玩家、双方完整阵容、技能加点、物品时间线和69个装备图标。
+
+## Wave 9: Patch filtering foundation
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-009 patch/filter contracts and migration | Root | contracts、docs、Supabase migration | Wave 8 | ACCEPTED |
+| DATA-009 OpenDota patch catalog | Data Source Agent | `packages/dota-data/**` | ROOT-009 | ACCEPTED |
+| API-009 patch persistence and combined filters | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-009, DATA-009 | ACCEPTED |
+| WEB-009 player filters and Update tab | Root | `apps/web/**` | API-009 | ACCEPTED |
+| DEPLOY-009 patch migration and live smoke | Root | Supabase、Railway、Vercel | ROOT-009, API-009, WEB-009 | ACCEPTED |
+
+## Wave 9 local evidence
+
+- OpenDota `constants/patch` 真实冒烟返回 61 个版本，按发布时间和数值 ID 稳定排序。
+- Overview、比赛、英雄列表与玩家英雄详情统一执行“先 Patch、再 recent N”，并支持 `all_imported`。
+- `GET /v1/patches` 使用游标分页和最新版本优先；玩家 URL 保留 `window` 与 `patch`。
+- “更新”主导航和 Patch 时间线已加入；本波只交付版本目录，改动正文属于下一纵切。
+- 静态数据库35项断言、全仓 typecheck、生产 build 和113项常规测试通过；3项专用 PostgreSQL 测试按设计跳过。
+- Supabase migration `20260712000100_patch_catalog` 已应用；Railway `7a8e11cf-4db8-4c43-926d-ccc387de1c2f` 与 Vercel `c5daf87` 均成功。
+- 线上 Patch 目录返回61项，最新为 `7.41 / id 60`；账号 `224328273` 的 `last_20 + patch=60` 返回20场且版本集合仅为60。
+- 浏览器确认“更新”导航、61行 Patch 时间线、7.41选中状态、20场样本和版本筛选URL持久化均正常。
+- Patch 页面改为动态读取，避免构建时空目录缓存一小时。
+
+## Wave 7: Player refresh experience
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| WEB-006 manual and automatic player refresh | Web Agent | `apps/web/**` | Wave 6 | ACCEPTED |
+| QA-006 sync workflow audit | QA Agent | read-only | WEB-006 | ACCEPTED |
+| DEPLOY-007 refreshed Web preview | Root | commit、preview deploy、live smoke | WEB-006, QA-006 | ACCEPTED |
+
+## Wave 7 evidence
+
+- 玩家页提供手动刷新；数据超过 15 分钟时进入页面会自动后台同步，新鲜数据不重复请求。
+- 首次账号查询等待同步任务到达终态后才导航，消除 202 后提前显示“记录不存在”的竞态。
+- 同步轮询具有 8 秒单请求超时、180 秒总预算、75 次轮询上限和卸载取消机制。
+- 隐私、限流、上游不可用、解析等待与失败均显示独立状态，不会退化为空数据或错误导航。
+- 全仓 typecheck、生产 build 和 95 项常规测试通过；3 项专用测试数据库集成测试按设计跳过。
+- QA-006 无 P0/P1/P2，未发现客户端凭据或自动更新循环。
+- Vercel commit `b7adbb8` 预览为 `READY`；公开账号 `224328273` 进入页面后自动触发刷新，旧数据在同步期间保持可见。
+- 首次自动刷新正确呈现 `source_unavailable` 且未清空旧数据；随后手动刷新恢复为 `public_complete`，验证了强制重试和轮询终态。
+
+## Wave 10: Incremental synchronization and snapshot cache
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-010 cache semantics and ADR | Root | PostgreSQL 快照 TTL、内容哈希、增量写入语义 | Wave 9 | ACCEPTED |
+| API-010 incremental player sync | Backend/API Agent | `apps/api/**`, `packages/db/**` | ROOT-010 | ACCEPTED |
+| QA-010 concurrency and live performance audit | Root / QA Agent | read-only | API-010 | ACCEPTED |
+| DEPLOY-010 Railway API rollout | Root | commit、deploy、真实账号连续同步 | QA-010 | ACCEPTED |
+
+## Wave 10 evidence
+
+- PostgreSQL 继续作为事实来源；本波不引入 Redis。英雄、物品和 Patch 快照 TTL 为 6 小时，官方更新 TTL 为 30 分钟。
+- 快照使用稳定 SHA-256 内容哈希区分“已检查但未变化”和“内容已变化”；CAS touch 与目录替换共用 advisory lock，避免旧检查覆盖新快照。
+- 最近比赛只写入新增或内容发生变化的记录；空差异不启动比赛写事务，目录和比赛批量写入改为 set-based SQL。
+- 多账号共享比赛按全局排序获取 advisory lock；重复 match ID 在写入前合并，enriched 详情不会被 summary 降级，所有已知账号关联均保留。
+- 全仓 typecheck、Web 生产 build、164 项常规测试与 17 项真实 PostgreSQL 测试通过，共 170 项不重复测试。
+- Railway 部署 `cf06f58d-09d9-4929-8f6f-4ffc40fababc` 成功，健康检查为 ready。
+- 公开账号 `224328273` 连续两次同步均为 `public_complete`：第一轮 7.268 秒，第二轮 5.617 秒；此前重复同步基线约 113.55 秒。
+- 同步后 100 场统计 `coverageRate=1`；英雄、物品、更新与最新比赛接口均为 200，最新比赛详情保留 10 名玩家。
+
+## Wave 11: Dota domain review
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-011 Dota domain and source audit | Root | 版本、英雄、物品、比赛、地图、数据可得性与 TTL 语义 | Wave 10 | ACCEPTED |
+| DOMAIN-011 product semantics confirmation | Root / Product owner | 模式默认值、小版本归属、历史百科和地图范围 | ROOT-011 | ACCEPTED |
+| DATA-011 official current-data provider | Data Source Agent | `packages/dota-data/**` | DOMAIN-011 | ACCEPTED |
+| API-011 static catalog ownership and version semantics | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-011 | ACCEPTED |
+| WEB-011 data-quality and game-population UI | Web Agent | `apps/web/**`, `packages/ui/**` | API-011 | ACCEPTED |
+| QA-011 Dota correctness gate | QA Agent | read-only | API-011, WEB-011 | ACCEPTED |
+
+## Wave 11 evidence
+
+- 官方 patch list、hero/item/ability datafeed、Steam match fields、OpenDota current constants 与真实比赛响应已完成交叉审计。
+- 2024 年以来官方列表有 27 个版本记录，全部版本中位间隔约 29 天；不带字母的编号版本中位间隔约 99 天。
+- OpenDota `patch=60` 只能表达 7.41 大版本族；具体 7.41a–d 需要用官方发布时间与比赛开始时间推导并标记来源。
+- 7.41 已移除 facets，但生产英雄页仍展示 deprecated facets；当前英雄/物品版本为 unknown。
+- 真实比赛存在 `item_neutral` 与 `item_neutral2`，当前 canonical 模型只保留前者。
+- 生产地图仍为无真实地点的 seed map，却标记 complete；新功能开发暂停，等待领域口径确认与正确性修复。
+- 产品已确认所有已导入公开模式作为个人历史默认范围，并提供独立的 Ranked/Normal lobby 与 Turbo game-mode 筛选。
+- 静态规则数据迁移到 Dota 2 official current-data；玩家同步与静态目录刷新解耦，官方 Patch 哨兵 2 小时检查、完整目录按版本事件或 7 天哈希复核。
+- 地图 seed 已从 seed 与迁移中移除；在交付可审计 geometry 前接口必须返回 `MAP_UNAVAILABLE`。
+- Live 官方验证为 7.41d、127 个英雄和 501 个成功解析的物品定义；英雄与物品快照按未安全解析的模板/条目诚实标记 partial，物品可购买性统一为 unverified。
+- 公开账号 `224328273` 的 100 场导入、7.41d 时间推定、Ranked lobby 筛选、十人详情和第二中立强化字段均完成 API 与浏览器对账。
+- 全仓 typecheck、生产 build、190 项常规测试、24 项真实 PostgreSQL 测试和 41 项 schema 检查通过；QA-011 无 P0/P1。
+- 390×844 竖屏验证无横向溢出；质量提示、Ranked/Normal/Turbo 选择、官方物品可用性声明与中立附魔均在真实页面可见。
+- Supabase migrations 004/005 已应用：移除精确匹配的 seed map，并允许 `dota2_official` provider health；本地与远端 migration history 一致。
+- 已知 P2：partial 目录 merge 仍可能保留 legacy row，列表级来源不能逐行表达；Patch 发布时间边界尚未细分低置信度窗口。
+- 已导入的 legacy enriched 比赛若缺少第二中立强化字段，会在下一次玩家同步时只回填最新 20 场中的缺字段比赛；字段键落库后后续同步继续复用 enriched 详情，不恢复重复全量请求。

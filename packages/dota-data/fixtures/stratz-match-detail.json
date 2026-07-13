@@ -1,0 +1,68 @@
+{
+  "data": {
+    "match": {
+      "id": 9003000001,
+      "didRadiantWin": true,
+      "durationSeconds": 2400,
+      "startDateTime": 1783800000,
+      "clusterId": 156,
+      "lobbyType": "RANKED",
+      "gameMode": "ALL_PICK",
+      "gameVersionId": 60,
+      "regionId": 3,
+      "players": [
+        {
+          "playerSlot": 0,
+          "steamAccountId": 224328273,
+          "isRadiant": true,
+          "isVictory": true,
+          "heroId": 1,
+          "kills": 8,
+          "deaths": 2,
+          "assists": 13,
+          "numLastHits": 211,
+          "numDenies": 12,
+          "goldPerMinute": 610,
+          "experiencePerMinute": 680,
+          "level": 25,
+          "networth": 23000,
+          "heroDamage": 31000,
+          "towerDamage": 4100,
+          "heroHealing": 0,
+          "item0Id": 1,
+          "item1Id": 2,
+          "item2Id": 0,
+          "item3Id": null,
+          "item4Id": null,
+          "item5Id": null,
+          "backpack0Id": 3,
+          "backpack1Id": null,
+          "backpack2Id": null,
+          "neutral0Id": 4,
+          "playbackData": {
+            "abilityLearnEvents": [
+              { "time": 120, "abilityId": 5011, "levelObtained": 3, "level": 1 },
+              { "time": 0, "abilityId": 5010, "levelObtained": 1, "level": 0 },
+              { "time": 0, "abilityId": 5010, "levelObtained": 1, "level": 0 },
+              { "time": 600, "abilityId": 6001, "levelObtained": 10, "level": 0 }
+            ],
+            "purchaseEvents": [
+              { "time": 420, "itemId": 1 },
+              { "time": 100, "itemId": 1 },
+              { "time": 100, "itemId": 1 }
+            ]
+          }
+        },
+        { "playerSlot": 1, "steamAccountId": 101, "isRadiant": true, "isVictory": true, "heroId": 2, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 2, "steamAccountId": 102, "isRadiant": true, "isVictory": true, "heroId": 3, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 3, "steamAccountId": 103, "isRadiant": true, "isVictory": true, "heroId": 4, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 4, "steamAccountId": 104, "isRadiant": true, "isVictory": true, "heroId": 5, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 128, "steamAccountId": 201, "isRadiant": false, "isVictory": false, "heroId": 6, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 129, "steamAccountId": 202, "isRadiant": false, "isVictory": false, "heroId": 7, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 130, "steamAccountId": 203, "isRadiant": false, "isVictory": false, "heroId": 8, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 131, "steamAccountId": 204, "isRadiant": false, "isVictory": false, "heroId": 9, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null },
+        { "playerSlot": 132, "steamAccountId": 205, "isRadiant": false, "isVictory": false, "heroId": 10, "kills": 1, "deaths": 2, "assists": 3, "playbackData": null }
+      ]
+    }
+  }
+}

@@ -4,7 +4,9 @@ import Link from "next/link";
 import { AssetImage } from "../../components/asset-image";
 import { DataState, EmptyState } from "../../components/data-state";
 import { PageHeading } from "../../components/page-heading";
+import { QualityNotice } from "../../components/quality-notice";
 import { api, settle } from "../../lib/api";
+import { encyclopediaVersionLabel } from "../../lib/format";
 
 const attributeLabel = {
   agility: "敏捷",
@@ -23,7 +25,7 @@ export default async function HeroesPage({ searchParams }: { searchParams: Promi
   const currentHref = currentQuery ? `/heroes?${currentQuery}` : "/heroes";
   return (
     <div className="page-shell encyclopedia-page">
-      <PageHeading eyebrow="ENCYCLOPEDIA / HEROES" lead="按当前数据快照查询英雄属性、定位、命石与技能。" title="英雄百科" />
+      <PageHeading eyebrow="ENCYCLOPEDIA / HEROES" lead="按当前数据快照查询英雄属性、定位与技能。" title="英雄百科" />
       <form className="catalog-search" method="get" role="search">
         <label htmlFor="hero-search">搜索英雄</label>
         <div>
@@ -39,6 +41,7 @@ export default async function HeroesPage({ searchParams }: { searchParams: Promi
           title={query.q ? `“${query.q}” 的英雄结果` : "全部英雄"}
           trailing={<span className="module-note">本页 {result.value.data.items.length} 个</span>}
         >
+          <QualityNotice label="英雄百科" quality={result.value.meta.quality} showComplete />
           {result.value.data.items.length === 0 ? (
             <EmptyState detail="尝试缩短关键词，或清空搜索查看当前快照中的全部英雄。" title="没有匹配英雄" />
           ) : (
@@ -51,7 +54,7 @@ export default async function HeroesPage({ searchParams }: { searchParams: Promi
                     <h2>{hero.localizedName}</h2>
                     <p>{hero.roles.join(" / ") || "定位未标注"}</p>
                   </div>
-                  <small>{hero.patch}</small>
+                  <small>{encyclopediaVersionLabel(hero.officialVersion)}</small>
                 </Link>
               ))}
             </div>

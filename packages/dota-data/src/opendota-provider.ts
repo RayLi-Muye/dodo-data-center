@@ -1,10 +1,14 @@
 import { OpenDotaProviderError } from "./errors.js";
 import type {
   CanonicalConstantsSnapshot,
+  CanonicalHeroAbilityConstant,
+  CanonicalHeroAbilityConstants,
   CanonicalHeroConstant,
   CanonicalItemConstant,
   CanonicalMatchDetail,
   CanonicalMatchPlayer,
+  CanonicalPatchSummary,
+  CanonicalPlayerMatchesPage,
   CanonicalPlayerMatch,
   CanonicalPlayerProfile,
   CanonicalRecentMatchCandidateEntry,
@@ -15,6 +19,9 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.opendota.com/api/";
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_ATTEMPTS = 2;
+const DEFAULT_RETRY_DELAY_MS = 250;
+const MAX_RETRY_DELAY_MS = 10_000;
 const DEFAULT_RECENT_MATCH_LIMIT = 100;
 const REQUIRED_RECENT_MATCH_FIELDS = [
   "match_id",
@@ -45,6 +52,7 @@ const REQUIRED_MATCH_PLAYER_FIELDS = [
 ] as const;
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Sleep = (delayMs: number) => Promise<void>;
 type JsonRecord = Record<string, unknown>;
 
 export type OpenDotaProviderConfig = {
@@ -53,6 +61,7 @@ export type OpenDotaProviderConfig = {
   timeoutMs?: number;
   fetchImpl?: FetchLike;
   clock?: () => Date;
+  sleep?: Sleep;
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -64,12 +73,17 @@ function payloadError(message: string): never {
     "SOURCE_UNAVAILABLE",
     "invalid_response",
     message,
-    true,
+    false,
   );
 }
 
 function readRecord(value: unknown, field: string): JsonRecord {
   return isRecord(value) ? value : payloadError(`${field} must be an object`);
+}
+
+function readNonEmptyRecord(value: unknown, field: string): JsonRecord {
+  const record = readRecord(value, field);
+  return Object.keys(record).length > 0 ? record : payloadError(`${field} must not be empty`);
 }
 
 function readArray(value: unknown, field: string): unknown[] {
@@ -90,6 +104,12 @@ function readInteger(value: unknown, field: string, minimum = 0): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum
     ? value
     : payloadError(`${field} must be an integer >= ${minimum}`);
+}
+
+function readSignedInteger(value: unknown, field: string): number {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : payloadError(`${field} must be an integer`);
 }
 
 function readOptionalInteger(value: unknown): number | null {
@@ -136,6 +156,22 @@ function timestampFromSeconds(value: unknown, field: string): string {
   return Number.isNaN(timestamp.getTime())
     ? payloadError(`${field} is outside the supported timestamp range`)
     : timestamp.toISOString();
+}
+
+function timestampFromIsoString(value: unknown, field: string): string {
+  const rawTimestamp = readString(value, field);
+  const match = rawTimestamp.match(
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/,
+  );
+  if (match === null) {
+    return payloadError(`${field} must be an ISO 8601 UTC timestamp`);
+  }
+  const timestamp = new Date(rawTimestamp);
+  const normalizedInput = `${match[1]}.${(match[2] ?? "").padEnd(3, "0")}Z`;
+  if (Number.isNaN(timestamp.getTime()) || timestamp.toISOString() !== normalizedInput) {
+    return payloadError(`${field} must be a valid timestamp`);
+  }
+  return timestamp.toISOString();
 }
 
 function sourceMetadata(fetchedAt: Date): OpenDotaSourceMetadata {
@@ -187,6 +223,39 @@ function normalizePlayer(
   const finalItemIds = [raw.item_0, raw.item_1, raw.item_2, raw.item_3, raw.item_4, raw.item_5]
     .map(readOptionalId)
     .filter((itemId): itemId is string => itemId !== null && itemId !== "0");
+  const backpackItemIds = [raw.backpack_0, raw.backpack_1, raw.backpack_2]
+    .map(readOptionalId)
+    .filter((itemId): itemId is string => itemId !== null && itemId !== "0");
+  const neutralItemId = readOptionalId(raw.item_neutral);
+  const neutralItemEnhancementId = readOptionalId(raw.item_neutral2);
+
+  const abilityBuild = Array.isArray(raw.ability_upgrades_arr)
+    ? raw.ability_upgrades_arr.map((abilityId, index) => ({
+        abilityId: readId(abilityId, `player.ability_upgrades_arr[${index}]`),
+        sequence: index + 1,
+        heroLevel: null,
+        gameTimeSeconds: null,
+      }))
+    : [];
+  const abilityBuildStatus = Array.isArray(raw.ability_upgrades_arr)
+    ? "ordered"
+    : "unavailable";
+
+  const itemTimeline = Array.isArray(raw.purchase_log)
+    ? raw.purchase_log.map((purchaseValue, index) => {
+        const purchase = readRecord(purchaseValue, `player.purchase_log[${index}]`);
+        return {
+          itemKey: readString(purchase.key, `player.purchase_log[${index}].key`),
+          action: "purchase" as const,
+          gameTimeSeconds: readSignedInteger(
+            purchase.time,
+            `player.purchase_log[${index}].time`,
+          ),
+          charges: null,
+        };
+      })
+    : [];
+  const itemTimelineStatus = Array.isArray(raw.purchase_log) ? "partial" : "unavailable";
 
   return {
     accountId,
@@ -201,8 +270,21 @@ function normalizePlayer(
     gpm: readOptionalInteger(raw.gold_per_min),
     xpm: readOptionalInteger(raw.xp_per_min),
     lastHits: readOptionalInteger(raw.last_hits),
+    denies: readOptionalInteger(raw.denies),
     heroDamage: readOptionalInteger(raw.hero_damage),
+    heroHealing: readOptionalInteger(raw.hero_healing),
+    towerDamage: readOptionalInteger(raw.tower_damage),
+    level: readOptionalInteger(raw.level),
+    netWorth: readOptionalInteger(raw.net_worth),
     finalItemIds,
+    backpackItemIds,
+    neutralItemId: neutralItemId === "0" ? null : neutralItemId,
+    neutralItemEnhancementId:
+      neutralItemEnhancementId === "0" ? null : neutralItemEnhancementId,
+    abilityBuild,
+    abilityBuildStatus,
+    itemTimeline,
+    itemTimelineStatus,
   };
 }
 
@@ -216,6 +298,7 @@ function normalizePlayerMatch(rawValue: unknown, accountId: string): CanonicalPl
     patchId: readOptionalId(raw.patch),
     gameMode: readId(raw.game_mode, "match.game_mode"),
     region: readOptionalId(raw.region),
+    lobbyType: readOptionalId(raw.lobby_type),
     radiantWin,
     player: normalizePlayer(raw, radiantWin, accountId),
   };
@@ -238,6 +321,30 @@ function parseRetryAfter(value: string | null, now: Date): number | null {
   return Math.max(1, Math.ceil((retryAt - now.getTime()) / 1_000));
 }
 
+function isRetryableRequestError(error: OpenDotaProviderError): boolean {
+  return (
+    error.reason === "network" ||
+    error.reason === "timeout" ||
+    error.reason === "rate_limited" ||
+    error.reason === "upstream_5xx"
+  );
+}
+
+function retryDelayMs(error: OpenDotaProviderError, failedAttempt: number): number {
+  const backoffMs = Math.min(
+    DEFAULT_RETRY_DELAY_MS * 2 ** failedAttempt,
+    MAX_RETRY_DELAY_MS,
+  );
+  const requestedDelayMs = error.retryAfterSeconds === null
+    ? backoffMs
+    : error.retryAfterSeconds * 1_000;
+  return Math.min(requestedDelayMs, MAX_RETRY_DELAY_MS);
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 function formatAttributeValue(value: unknown): string {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -252,6 +359,7 @@ export class OpenDotaProvider {
   private readonly timeoutMs: number;
   private readonly fetchImpl: FetchLike;
   private readonly clock: () => Date;
+  private readonly sleep: Sleep;
 
   constructor(config: OpenDotaProviderConfig = {}) {
     const baseUrl = new URL(config.baseUrl ?? DEFAULT_BASE_URL);
@@ -264,6 +372,7 @@ export class OpenDotaProvider {
     }
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.clock = config.clock ?? (() => new Date());
+    this.sleep = config.sleep ?? defaultSleep;
   }
 
   async getPlayerProfile(accountId: string): Promise<CanonicalPlayerProfile> {
@@ -287,7 +396,7 @@ export class OpenDotaProvider {
         "SOURCE_UNAVAILABLE",
         "invalid_response",
         "OpenDota returned a profile for a different account",
-        true,
+        false,
       );
     }
 
@@ -313,16 +422,46 @@ export class OpenDotaProvider {
     accountId: string,
     limit = DEFAULT_RECENT_MATCH_LIMIT,
   ): Promise<CanonicalRecentMatches> {
+    const page = await this.getPlayerMatchesPage(accountId, limit, 0);
+    if (page.rawCount > 0 && page.matches.length === 0) {
+      const qualityContext: CanonicalRecentMatchQualityContext = {
+        eligibleCount: page.eligibleCount,
+        excludedCount: page.excludedCount,
+        exclusionReasons: page.exclusionReasons,
+        candidateLedger: page.candidateLedger,
+      };
+      throw new OpenDotaProviderError(
+        "PARSE_PENDING",
+        "player_data_unavailable",
+        "OpenDota returned recent matches, but none contain enough data to import",
+        true,
+        null,
+        null,
+        qualityContext,
+      );
+    }
+    const { offset: _offset, rawCount: _rawCount, reachedEnd: _reachedEnd, ...recent } = page;
+    return recent;
+  }
+
+  async getPlayerMatchesPage(
+    accountId: string,
+    limit = DEFAULT_RECENT_MATCH_LIMIT,
+    offset = 0,
+  ): Promise<CanonicalPlayerMatchesPage> {
     const validatedAccountId = this.validateId(accountId);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-      throw new RangeError("Recent match limit must be an integer from 1 to 100");
+      throw new RangeError("Player match page limit must be an integer from 1 to 100");
+    }
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new RangeError("Player match page offset must be a non-negative safe integer");
     }
 
     const { payload, fetchedAt } = await this.requestJson(
-      `players/${validatedAccountId}/matches?limit=${limit}`,
+      `players/${validatedAccountId}/matches?limit=${limit}&offset=${offset}`,
     );
     const rawMatches = readArray(payload, "recent matches");
-    if (rawMatches.length === 0) {
+    if (rawMatches.length === 0 && offset === 0) {
       throw new OpenDotaProviderError(
         "HISTORY_PRIVATE",
         "history_unavailable",
@@ -374,21 +513,12 @@ export class OpenDotaProvider {
       exclusionReasons: [...exclusionReasons].sort(),
       candidateLedger,
     };
-    if (matches.length === 0) {
-      throw new OpenDotaProviderError(
-        "PARSE_PENDING",
-        "player_data_unavailable",
-        "OpenDota returned recent matches, but none contain enough data to import",
-        true,
-        null,
-        null,
-        qualityContext,
-      );
-    }
-
     return {
       accountId: validatedAccountId,
       requestedLimit: limit,
+      offset,
+      rawCount: rawMatches.length,
+      reachedEnd: rawMatches.length < limit,
       ...qualityContext,
       quality: excludedCount === 0 ? "complete" : "partial",
       matches: matches.sort(compareMatchesNewestFirst),
@@ -451,6 +581,10 @@ export class OpenDotaProvider {
       patchId: readOptionalId(raw.patch),
       gameMode: readId(raw.game_mode, "match.game_mode"),
       region: readOptionalId(raw.region),
+      lobbyType: readOptionalId(raw.lobby_type),
+      cluster: readOptionalId(raw.cluster),
+      radiantScore: readOptionalInteger(raw.radiant_score),
+      direScore: readOptionalInteger(raw.dire_score),
       radiantWin,
       eligiblePlayerCount: normalizedPlayers.length,
       excludedPlayerCount,
@@ -476,6 +610,7 @@ export class OpenDotaProvider {
           primaryAttribute: normalizePrimaryAttribute(hero.primary_attr),
           attackType: normalizeAttackType(hero.attack_type),
           roles,
+          officialVersion: null,
         } satisfies CanonicalHeroConstant;
       })
       .sort((a, b) => Number(a.id) - Number(b.id));
@@ -487,7 +622,7 @@ export class OpenDotaProvider {
     const { payload, fetchedAt } = await this.requestJson("constants/items");
     const root = readRecord(payload, "item constants");
     const items = Object.entries(root)
-      .map(([name, value]) => {
+      .map(([name, value]): CanonicalItemConstant | null => {
         const item = readRecord(value, `item.${name}`);
         const id = readOptionalId(item.id);
         if (id === null) return null;
@@ -516,10 +651,142 @@ export class OpenDotaProvider {
           description: readNullableString(item.desc) ?? "",
           attributes,
           componentNames,
+          kind: "item",
+          availabilityStatus: "unverified",
+          officialVersion: null,
         } satisfies CanonicalItemConstant;
       })
       .filter((item): item is CanonicalItemConstant => item !== null)
       .sort((a, b) => Number(a.id) - Number(b.id));
+
+    return { items, source: sourceMetadata(fetchedAt) };
+  }
+
+  async getHeroAbilityConstants(): Promise<CanonicalHeroAbilityConstants> {
+    const [abilityIdsResponse, abilitiesResponse, heroAbilitiesResponse] = await Promise.all([
+      this.requestJson("constants/ability_ids"),
+      this.requestJson("constants/abilities"),
+      this.requestJson("constants/hero_abilities"),
+    ]);
+    const abilityIds = readNonEmptyRecord(abilityIdsResponse.payload, "ability ID constants");
+    const abilities = readNonEmptyRecord(abilitiesResponse.payload, "ability constants");
+    const heroAbilities = readNonEmptyRecord(
+      heroAbilitiesResponse.payload,
+      "hero ability constants",
+    );
+    const idByName = new Map<string, string>();
+
+    for (const [rawId, rawName] of Object.entries(abilityIds)) {
+      if (!/^\d+$/.test(rawId)) continue;
+      const id = readId(rawId, "ability ID key");
+      const name = readString(rawName, `ability ID ${id}`);
+      if (idByName.has(name)) payloadError(`ability name ${name} maps to multiple IDs`);
+      idByName.set(name, id);
+    }
+    if (idByName.size === 0) payloadError("ability ID constants contain no numeric IDs");
+
+    const heroes = Object.fromEntries(Object.entries(heroAbilities).map(([heroName, rawHero]) => {
+      const hero = readRecord(rawHero, `hero abilities.${heroName}`);
+      const ordinaryNames = readArray(hero.abilities, `hero abilities.${heroName}.abilities`)
+        .flatMap((name) => Array.isArray(name) ? name : [name])
+        .map((name) => readString(name, `hero abilities.${heroName}.ability`));
+      const rawTalents = readArray(hero.talents, `hero abilities.${heroName}.talents`)
+        .map((rawTalent, index) => {
+          const talent = readRecord(rawTalent, `hero abilities.${heroName}.talents[${index}]`);
+          return {
+            name: readString(talent.name, `hero abilities.${heroName}.talents[${index}].name`),
+            level: readInteger(talent.level, `hero abilities.${heroName}.talents[${index}].level`, 1),
+            index,
+          };
+        })
+        .sort((left, right) => left.level - right.level || left.index - right.index);
+      const excludedAbilityNames: string[] = [];
+      const normalizedAbilities: CanonicalHeroAbilityConstant[] = [];
+      const orderedAbilities = [
+        ...ordinaryNames.map((name, slot) => ({ name, slot, type: "ability" as const })),
+        ...rawTalents.map(({ name }, index) => ({
+          name,
+          slot: ordinaryNames.length + index,
+          type: "talent" as const,
+        })),
+      ];
+
+      for (const candidate of orderedAbilities) {
+        const id = idByName.get(candidate.name);
+        if (id === undefined) {
+          excludedAbilityNames.push(candidate.name);
+          continue;
+        }
+        const rawAbility = abilities[candidate.name];
+        const ability = isRecord(rawAbility) ? rawAbility : null;
+        if (ability === null) excludedAbilityNames.push(candidate.name);
+        const type = candidate.type === "talent"
+          ? "talent"
+          : ability?.is_innate === true
+            ? "innate"
+            : candidate.slot === 5
+              ? "ultimate"
+              : "basic";
+        normalizedAbilities.push({
+          id,
+          name: candidate.name,
+          localizedName: readNullableString(ability?.dname) ?? candidate.name,
+          description: readNullableString(ability?.desc) ?? "",
+          slot: candidate.slot,
+          type,
+        });
+      }
+
+      const facets = hero.facets === undefined
+        ? []
+        : readArray(hero.facets, `hero abilities.${heroName}.facets`).map((rawFacet, index) => {
+            const facet = readRecord(rawFacet, `hero abilities.${heroName}.facets[${index}]`);
+            return {
+              name:
+                readNullableString(facet.title) ??
+                readString(facet.name, `hero abilities.${heroName}.facets[${index}].name`),
+              description: readNullableString(facet.description) ?? "",
+            };
+          });
+
+      return [heroName, {
+        heroName,
+        abilities: normalizedAbilities,
+        facetsStatus: "unavailable" as const,
+        facets,
+        excludedAbilityNames,
+      }];
+    }));
+    const fetchedAt = [
+      abilityIdsResponse.fetchedAt,
+      abilitiesResponse.fetchedAt,
+      heroAbilitiesResponse.fetchedAt,
+    ].reduce((latest, current) => current > latest ? current : latest);
+
+    return { heroes, source: sourceMetadata(fetchedAt) };
+  }
+
+  async getPatchConstants(): Promise<CanonicalConstantsSnapshot<CanonicalPatchSummary>> {
+    const { payload, fetchedAt } = await this.requestJson("constants/patch");
+    const rawPatches = readArray(payload, "patch constants");
+    if (rawPatches.length === 0) payloadError("patch constants must not be empty");
+
+    const items = rawPatches
+      .map((value, index) => {
+        const patch = readRecord(value, `patch[${index}]`);
+        return {
+          id: readId(patch.id, `patch[${index}].id`),
+          name: readString(patch.name, `patch[${index}].name`),
+          releasedAt: timestampFromIsoString(patch.date, `patch[${index}].date`),
+        } satisfies CanonicalPatchSummary;
+      })
+      .sort((a, b) => {
+        const releasedAtDifference = Date.parse(a.releasedAt) - Date.parse(b.releasedAt);
+        if (releasedAtDifference !== 0) return releasedAtDifference;
+        const aId = BigInt(a.id);
+        const bId = BigInt(b.id);
+        return aId === bId ? 0 : aId < bId ? -1 : 1;
+      });
 
     return { items, source: sourceMetadata(fetchedAt) };
   }
@@ -533,15 +800,37 @@ export class OpenDotaProvider {
 
   private async requestJson(path: string): Promise<{ payload: unknown; fetchedAt: Date }> {
     const url = new URL(path, this.baseUrl);
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (this.apiKey !== null) headers.Authorization = `Bearer ${this.apiKey}`;
+
+    for (let attempt = 0; attempt < DEFAULT_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.requestJsonAttempt(url, headers);
+      } catch (error) {
+        if (
+          !(error instanceof OpenDotaProviderError) ||
+          !isRetryableRequestError(error) ||
+          attempt === DEFAULT_MAX_ATTEMPTS - 1
+        ) {
+          throw error;
+        }
+        await this.sleep(retryDelayMs(error, attempt));
+      }
+    }
+
+    throw new Error("OpenDota retry attempts were unexpectedly exhausted");
+  }
+
+  private async requestJsonAttempt(
+    url: URL,
+    headers: Record<string, string>,
+  ): Promise<{ payload: unknown; fetchedAt: Date }> {
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
     }, this.timeoutMs);
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (this.apiKey !== null) headers.Authorization = `Bearer ${this.apiKey}`;
-
     try {
       const response = await this.fetchImpl(url, {
         method: "GET",

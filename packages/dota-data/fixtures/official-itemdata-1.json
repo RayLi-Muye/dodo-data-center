@@ -1,0 +1,24 @@
+{
+  "result": {
+    "status": 1,
+    "data": {
+      "items": [
+        {
+          "id": 1,
+          "name": "item_blink",
+          "name_loc": "Blink Dagger",
+          "desc_loc": "<h1>Active: Blink</h1> Teleport up to %blink_range% units.",
+          "item_cost": 2250,
+          "item_quality": 1,
+          "special_values": [
+            {
+              "name": "blink_range",
+              "values_float": [1200],
+              "heading_loc": "CAST RANGE:"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -3,7 +3,9 @@ import type {
   ItemDetail,
   MapVersion,
   MatchDetail,
+  PatchSummary,
   PlayerProfile,
+  UpdateReleaseDetail,
 } from "@dodo/contracts";
 
 import { MemoryDodoRepository } from "./memory-repository.js";
@@ -24,7 +26,8 @@ const heroSeed: HeroDetail[] = [
     primaryAttribute: "agility",
     attackType: "melee",
     roles: ["Carry", "Escape"],
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
       {
@@ -45,7 +48,8 @@ const heroSeed: HeroDetail[] = [
     primaryAttribute: "strength",
     attackType: "melee",
     roles: ["Initiator", "Durable"],
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
       {
@@ -66,7 +70,8 @@ const heroSeed: HeroDetail[] = [
     primaryAttribute: "universal",
     attackType: "ranged",
     roles: ["Support", "Disabler"],
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
       {
@@ -89,7 +94,9 @@ const itemSeed: ItemDetail[] = [
     localizedName: "Seed Blink Dagger",
     cost: 2250,
     category: "mobility",
-    patch: SEED_PATCH,
+    kind: "item",
+    availabilityStatus: "unverified",
+    officialVersion: SEED_PATCH,
     description: "Deterministic test-only item.",
     attributes: [{ label: "Active", value: "Seed Blink" }],
     components: [],
@@ -101,7 +108,9 @@ const itemSeed: ItemDetail[] = [
     localizedName: "Seed Power Treads",
     cost: 1400,
     category: "boots",
-    patch: SEED_PATCH,
+    kind: "item",
+    availabilityStatus: "unverified",
+    officialVersion: SEED_PATCH,
     description: "Deterministic test-only item.",
     attributes: [{ label: "Move speed", value: "+45" }],
     components: [],
@@ -113,7 +122,9 @@ const itemSeed: ItemDetail[] = [
     localizedName: "Seed Black King Bar",
     cost: 4050,
     category: "defense",
-    patch: SEED_PATCH,
+    kind: "item",
+    availabilityStatus: "unverified",
+    officialVersion: SEED_PATCH,
     description: "Deterministic test-only item.",
     attributes: [{ label: "Active", value: "Seed Avatar" }],
     components: [],
@@ -144,6 +155,34 @@ const mapSeed: MapVersion = {
   ],
   sourceSnapshot: "curated-map://maps/seed-map",
   verifiedAt: SEED_UPDATED_AT,
+};
+
+const patchSeed: PatchSummary[] = [
+  {
+    id: SEED_PATCH,
+    name: "Seed Patch",
+    releasedAt: SEED_UPDATED_AT,
+  },
+];
+
+const updateSeed: UpdateReleaseDetail = {
+  version: "7.41",
+  releasedAt: SEED_UPDATED_AT,
+  sourceUrl: "https://www.dota2.com/patches/7.41",
+  changeGroupCount: 1,
+  contentStatus: "complete",
+  excludedNoteCount: 0,
+  groups: [
+    {
+      kind: "general",
+      subsection: "overview",
+      entityId: null,
+      entityName: null,
+      relatedAbilityId: null,
+      title: "Seed gameplay update",
+      notes: [{ text: "Deterministic test-only update note.", info: null, indentLevel: 1 }],
+    },
+  ],
 };
 
 const playerSeeds: PlayerProfile[] = [
@@ -204,11 +243,19 @@ const createMatch = (index: number): MatchDetail => {
     id,
     startTime,
     durationSeconds: 1800 + index,
-    patch: SEED_PATCH,
+    officialVersion: SEED_PATCH,
+    openDotaPatchId: null,
+    officialVersionSource: "start_time_inferred",
     gameMode: "seed-ranked-all-pick",
     region: "seed-region",
     radiantWin,
+    detailStatus: "enriched",
+    enrichmentSources: [],
     parseStatus: "unparsed",
+    lobbyType: "seed-lobby",
+    cluster: "seed-cluster",
+    radiantScore: 30 + index,
+    direScore: 25 + index,
     players: slots.map((playerSlot, playerIndex) => {
       const side = playerSlot < 128 ? "radiant" : "dire";
       const isTarget = playerIndex === 0;
@@ -229,8 +276,20 @@ const createMatch = (index: number): MatchDetail => {
         gpm: isTarget && index % 5 === 0 ? null : 400 + index,
         xpm: isTarget && index % 7 === 0 ? null : 500 + index,
         lastHits: 100 + index,
+        denies: playerIndex,
         heroDamage: 10_000 + index * 100,
+        heroHealing: 0,
+        towerDamage: 1_000 + index,
+        level: 20,
+        netWorth: 15_000 + index,
         finalItemIds: [String((index % 3) + 1)],
+        backpackItemIds: [],
+        neutralItemId: null,
+        neutralItemEnhancementId: null,
+        abilityBuild: [],
+        abilityBuildStatus: "unavailable",
+        itemTimeline: [],
+        itemTimelineStatus: "unavailable",
       };
     }),
   };
@@ -242,8 +301,35 @@ export const seedCuratedMap = async (repository: DodoRepository): Promise<DodoRe
 };
 
 export const seedRepository = async (repository: DodoRepository): Promise<DodoRepository> => {
-  for (const hero of heroSeed) await repository.upsertHero(hero);
-  for (const item of itemSeed) await repository.upsertItem(item);
+  const staticSnapshot = {
+    source: "seed" as const,
+    quality: "complete" as const,
+    fetchedAt: SEED_UPDATED_AT,
+    checkedAt: SEED_UPDATED_AT,
+    changedAt: SEED_UPDATED_AT,
+    contentHash: null,
+    officialVersion: SEED_PATCH,
+  };
+  await repository.replaceHeroes(heroSeed, staticSnapshot);
+  await repository.replaceItems(itemSeed, staticSnapshot);
+  await repository.replacePatches(patchSeed, {
+    source: "seed",
+    quality: "complete",
+    fetchedAt: SEED_UPDATED_AT,
+    checkedAt: SEED_UPDATED_AT,
+    changedAt: SEED_UPDATED_AT,
+    contentHash: null,
+    officialVersion: SEED_PATCH,
+  });
+  await repository.replaceUpdateReleases([updateSeed], {
+    source: "seed",
+    quality: "complete",
+    fetchedAt: SEED_UPDATED_AT,
+    checkedAt: SEED_UPDATED_AT,
+    changedAt: SEED_UPDATED_AT,
+    contentHash: null,
+    officialVersion: SEED_PATCH,
+  });
   await seedCuratedMap(repository);
   for (const player of playerSeeds) await repository.upsertPlayer(player);
   for (let index = 0; index < 105; index += 1) {
@@ -261,4 +347,4 @@ export const createSeedRepository = async (): Promise<MemoryDodoRepository> =>
   (await seedRepository(new MemoryDodoRepository())) as MemoryDodoRepository;
 
 export const createLiveRepository = async (): Promise<MemoryDodoRepository> =>
-  (await seedCuratedMap(new MemoryDodoRepository())) as MemoryDodoRepository;
+  new MemoryDodoRepository();
