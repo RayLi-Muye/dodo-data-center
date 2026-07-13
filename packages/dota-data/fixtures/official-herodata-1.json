@@ -6,31 +6,55 @@
         {
           "id": 1,
           "name": "npc_dota_hero_antimage",
-          "name_loc": "Anti-Mage",
+          "name_loc": "敌法师",
+          "hype_loc": "敌法师会<b>燃烧敌人的魔法</b>，并在战场上快速闪烁。",
+          "bio_loc": "星隐寺陷落后，最后的侍僧立誓终结世间的魔法。",
+          "complexity": 1,
           "primary_attr": 1,
           "attack_capability": 1,
           "role_levels": [3, 0, 1, 0, 0, 0, 3, 0, 0],
+          "max_health": 582,
+          "health_regen": 3.6,
+          "max_mana": 219,
+          "mana_regen": 0.6,
+          "armor": 6.166667,
+          "magic_resistance": 25,
+          "damage_min": 54,
+          "damage_max": 58,
+          "str_base": 21,
+          "str_gain": 1.6,
+          "agi_base": 25,
+          "agi_gain": 2.8,
+          "int_base": 12,
+          "int_gain": 1.8,
+          "movement_speed": 315,
+          "attack_range": 150,
+          "attack_rate": 1.4,
+          "projectile_speed": 0,
+          "turn_rate": 0.6,
+          "sight_range_day": 1800,
+          "sight_range_night": 800,
           "abilities": [
             {
               "id": 5004,
               "name": "antimage_blink",
-              "name_loc": "Blink",
-              "desc_loc": "<h1>Active: Blink</h1> Teleport up to %blink_range% units.",
+              "name_loc": "闪烁",
+              "desc_loc": "<h1>主动：闪烁</h1> 最远传送 %blink_range% 距离。",
               "type": 0,
               "ability_is_innate": false,
               "special_values": [
                 {
                   "name": "blink_range",
                   "values_float": [875, 950, 1025, 1100],
-                  "heading_loc": "CAST RANGE:"
+                  "heading_loc": "施法距离："
                 }
               ]
             },
             {
               "id": 0,
               "name": "generic_hidden",
-              "name_loc": "Hidden",
-              "desc_loc": "Not player-visible.",
+              "name_loc": "隐藏技能",
+              "desc_loc": "玩家不可见。",
               "type": 0,
               "ability_is_innate": false,
               "special_values": []
@@ -38,15 +62,15 @@
             {
               "id": 1447,
               "name": "antimage_persecutor",
-              "name_loc": "Persecutor",
-              "desc_loc": "Slows by {s:slow}%.",
+              "name_loc": "迫害者",
+              "desc_loc": "减速 {s:slow}%。",
               "type": 0,
               "ability_is_innate": true,
               "special_values": [
                 {
                   "name": "slow",
                   "values_float": [24],
-                  "heading_loc": "SLOW:"
+                  "heading_loc": "减速："
                 }
               ]
             }
@@ -55,7 +79,7 @@
             {
               "id": 1495,
               "name": "special_bonus_hp_regen_3",
-              "name_loc": "+{s:value} Health Regen",
+              "name_loc": "+{s:value} 生命恢复",
               "desc_loc": "",
               "type": 2,
               "ability_is_innate": false,
@@ -79,8 +103,8 @@
             {
               "id": 1497,
               "name": "special_bonus_unresolved_fixture",
-              "name_loc": "+{s:missing_value} Unresolved Fixture",
-              "desc_loc": "",
+              "name_loc": "+20 攻击速度",
+              "desc_loc": "提升 {s:missing_value} 攻击速度。",
               "type": 2,
               "ability_is_innate": false,
               "special_values": []
@@ -89,8 +113,8 @@
           "facets": [
             {
               "name": "mana_thirst",
-              "title_loc": "Mana Thirst",
-              "description_loc": "Historical facet.",
+              "title_loc": "魔法渴望",
+              "description_loc": "历史命石。",
               "deprecated": true
             }
           ],

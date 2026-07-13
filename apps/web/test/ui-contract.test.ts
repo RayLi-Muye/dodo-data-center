@@ -143,4 +143,57 @@ describe("Web UI copy and touch contract", () => {
     expect(itemDetail).toContain("官方定义存在不等于当前商店可购买");
     expect(patchesPage).toContain("updatedAt={detail.meta.updatedAt}");
   });
+
+  it("localizes official hero roles and marks unavailable snapshot descriptions", () => {
+    const heroList = source("../app/heroes/page.tsx");
+    const heroDetail = source("../app/heroes/[heroId]/page.tsx");
+    const itemDetail = source("../app/items/[itemId]/page.tsx");
+    const patchesPage = source("../app/patches/page.tsx");
+
+    expect(heroList).toContain('hero.roles.map(heroRoleLabel).join(" / ")');
+    expect(heroDetail).toContain("heroRoleLabel(role)");
+    expect(heroDetail).toContain("officialDescription(ability.description)");
+    expect(heroDetail).toContain("officialDescription(facet.description)");
+    expect(itemDetail).toContain("officialDescription(item.data.description)");
+    expect(patchesPage).toContain('detail.data.contentStatus === "partial"');
+    expect(patchesPage).toContain('title="更新正文仅部分可用"');
+  });
+
+  it("shows the official hero profile and base-stat fields in a responsive reference grid", () => {
+    const heroDetail = source("../app/heroes/[heroId]/page.tsx");
+    const css = source("../app/globals.css");
+
+    expect(heroDetail).toContain("hero.data.hype.trim()");
+    expect(heroDetail).toContain("当前官方快照玩法简介不可用");
+    expect(heroDetail).toContain("hero.data.biography.trim()");
+    expect(heroDetail).toContain("当前官方快照背景说明不可用");
+    expect(heroDetail).toContain("hero.data.complexity");
+    expect(heroDetail).toContain("当前官方快照复杂度不可用");
+    expect(heroDetail).toContain("当前官方快照基础属性不可用");
+    for (const field of [
+      "maxHealth",
+      "healthRegen",
+      "maxMana",
+      "manaRegen",
+      "armor",
+      "magicResistance",
+      "damageMin",
+      "damageMax",
+      "strength",
+      "agility",
+      "intelligence",
+      "movementSpeed",
+      "attackRange",
+      "attackRate",
+      "projectileSpeed",
+      "turnRate",
+      "sightRangeDay",
+      "sightRangeNight",
+    ]) {
+      expect(heroDetail).toContain(`stats.${field}`);
+    }
+    expect(css).toContain(".hero-reference-grid");
+    expect(css).toContain(".hero-primary-stats");
+    expect(css).toMatch(/@media \(min-width: 40rem\)[\s\S]*?\.hero-reference-grid[^}]+grid-template-columns:/);
+  });
 });

@@ -9,6 +9,15 @@ export const formatPercent = (value: number | null, digits = 1): string =>
         minimumFractionDigits: digits,
       }).format(value);
 
+const statNumberFormatter = new Intl.NumberFormat("zh-CN", {
+  maximumFractionDigits: 2,
+});
+
+export const formatStatValue = (value: number): string => statNumberFormatter.format(value);
+
+export const formatStatGain = (value: number): string =>
+  `${value > 0 ? "+" : ""}${formatStatValue(value)}`;
+
 export const formatDuration = (seconds: number): string => {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
@@ -48,6 +57,23 @@ const gameModeLabels: Record<string, string> = {
 
 export const gameModeLabel = (gameMode: string): string =>
   gameModeLabels[gameMode] ?? gameMode;
+
+const heroRoleLabels: Record<string, string> = {
+  Carry: "核心",
+  Support: "辅助",
+  Nuker: "爆发",
+  Disabler: "控制",
+  Jungler: "打野",
+  Durable: "耐久",
+  Escape: "逃生",
+  Pusher: "推进",
+  Initiator: "先手",
+};
+
+export const heroRoleLabel = (role: string): string => heroRoleLabels[role] ?? role;
+
+export const officialDescription = (description: string): string =>
+  description.trim() || "当前官方快照说明不可用";
 
 export const encyclopediaVersionLabel = (officialVersion: string | null): string =>
   officialVersion ?? "版本待确认";

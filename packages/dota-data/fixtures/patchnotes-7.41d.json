@@ -4,12 +4,12 @@
   "patch_timestamp": 1780556400,
   "general_notes": [
     {
-      "title": "<b>Mechanics &amp; Systems</b>",
+      "title": "<b>机制与系统</b>",
       "generic": [
         {
           "indent_level": 1,
-          "note": "Armor <strong>changed</strong><br>and tuned &amp; tested",
-          "info": "<i>Official detail</i>"
+          "note": "护甲机制<strong>已调整</strong><br>并完成平衡 &amp; 测试",
+          "info": "<i>官方说明</i>"
         },
         { "indent_level": 1, "note": "<br>" }
       ]
@@ -18,28 +18,28 @@
   "items": [
     {
       "ability_id": 104,
-      "ability_notes": [{ "indent_level": 1, "note": "Recipe cost decreased" }]
+      "ability_notes": [{ "indent_level": 1, "note": "卷轴价格降低" }]
     }
   ],
   "neutral_items": [
     {
       "ability_id": -1,
       "is_general_note": true,
-      "title": "Artifacts"
+      "title": "宝物"
     }
   ],
   "heroes": [
     {
       "hero_id": 107,
       "name": "npc_dota_hero_earth_spirit",
-      "localized_name": "Earth Spirit",
-      "hero_notes": [{ "indent_level": 1, "note": "Base strength increased" }],
-      "talent_notes": [{ "indent_level": 1, "note": "Level 10 talent improved" }],
+      "localized_name": "大地之灵",
+      "hero_notes": [{ "indent_level": 1, "note": "基础力量提升" }],
+      "talent_notes": [{ "indent_level": 1, "note": "10级天赋增强" }],
       "abilities": [
         {
           "ability_id": 5608,
-          "title": "Boulder Smash",
-          "ability_notes": [{ "indent_level": 2, "note": "Damage increased" }]
+          "title": "巨石冲击",
+          "ability_notes": [{ "indent_level": 2, "note": "伤害提升" }]
         }
       ]
     }
@@ -48,8 +48,8 @@
     {
       "neutral_creep_id": 12,
       "name": "npc_dota_neutral_kobold",
-      "localized_name": "Kobold",
-      "neutral_creep_notes": [{ "indent_level": 1, "note": "Bounty increased" }]
+      "localized_name": "狗头人",
+      "neutral_creep_notes": [{ "indent_level": 1, "note": "赏金提升" }]
     }
   ],
   "success": true

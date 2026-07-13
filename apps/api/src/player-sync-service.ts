@@ -102,6 +102,10 @@ export const toHeroDetail = (
 ): HeroDetail => ({
   ...hero,
   officialVersion,
+  hype: hero.hype ?? "",
+  biography: hero.biography ?? "",
+  complexity: hero.complexity ?? null,
+  baseStats: hero.baseStats ?? null,
   facetsStatus: abilitySet?.facetsStatus ?? "unavailable",
   facets: abilitySet?.facets ?? [],
   abilities: abilitySet?.abilities ?? [],

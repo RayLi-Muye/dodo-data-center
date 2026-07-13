@@ -106,8 +106,8 @@ describeWithDatabase("PostgresDodoRepository", () => {
       contentHash: null,
       officialVersion: null,
     };
-    await repository.replaceHeroes([hero], snapshot);
-    await repository.replaceItems([item], snapshot);
+    await repository.replaceHeroes([hero], snapshot, [hero.id]);
+    await repository.replaceItems([item], snapshot, [item.id]);
     await repository.replacePatches([patch], snapshot);
     await repository.replaceUpdateReleases([update], snapshot);
     await repository.upsertMap(map);
@@ -211,6 +211,69 @@ describeWithDatabase("PostgresDodoRepository", () => {
     await repository.clearPlayerSyncFailure(SEED_ACCOUNT_ID);
     expect(await repository.getPlayerSyncFailure(SEED_ACCOUNT_ID)).toBeUndefined();
     expect(await repository.getLatestMatchAt()).toBe(matches[0]!.detail.startTime);
+  });
+
+  it("prunes legacy catalog rows but keeps current failed entries transactionally", async () => {
+    const fixtures = await createSeedRepository();
+    const heroes = await fixtures.listHeroes();
+    const items = await fixtures.listItems();
+    const initialSnapshot = {
+      source: "seed" as const,
+      quality: "complete" as const,
+      fetchedAt: SEED_UPDATED_AT,
+      checkedAt: SEED_UPDATED_AT,
+      changedAt: SEED_UPDATED_AT,
+      contentHash: "initial-catalog",
+      officialVersion: SEED_PATCH,
+    };
+    const partialSnapshot = {
+      ...initialSnapshot,
+      source: "dota2_official" as const,
+      quality: "partial" as const,
+      contentHash: "partial-current",
+      officialVersion: "7.41d",
+    };
+    const heroUniverse = [heroes[0]!.id, heroes[1]!.id];
+    const itemUniverse = [items[0]!.id, items[1]!.id];
+
+    await repository.replaceHeroes(heroes, initialSnapshot, heroes.map((hero) => hero.id));
+    await repository.replaceItems(items, initialSnapshot, items.map((item) => item.id));
+    await repository.replaceHeroes(
+      [{ ...heroes[0]!, officialVersion: "7.41d" }],
+      partialSnapshot,
+      heroUniverse,
+    );
+    await repository.replaceItems(
+      [{ ...items[0]!, officialVersion: "7.41d" }],
+      partialSnapshot,
+      itemUniverse,
+    );
+    await repository.replaceHeroes(
+      [{ ...heroes[0]!, officialVersion: "7.41d" }],
+      partialSnapshot,
+      heroUniverse,
+    );
+    await repository.replaceItems(
+      [{ ...items[0]!, officialVersion: "7.41d" }],
+      partialSnapshot,
+      itemUniverse,
+    );
+
+    expect((await repository.listHeroes()).map((hero) => hero.id).sort()).toEqual(
+      [...heroUniverse].sort(),
+    );
+    expect((await repository.getHero(heroes[0]!.id))?.officialVersion).toBe("7.41d");
+    expect((await repository.getHero(heroes[1]!.id))?.officialVersion).toBe(SEED_PATCH);
+    expect((await repository.listItems()).map((item) => item.id).sort()).toEqual(
+      [...itemUniverse].sort(),
+    );
+    expect((await repository.getItem(items[0]!.id))?.officialVersion).toBe("7.41d");
+    expect((await repository.getItem(items[1]!.id))?.officialVersion).toBe(SEED_PATCH);
+
+    await repository.replaceHeroes([], partialSnapshot, []);
+    await repository.replaceItems([], partialSnapshot, []);
+    expect(await repository.listHeroes()).toEqual([]);
+    expect(await repository.listItems()).toEqual([]);
   });
 
   it("persists official Dota provider health through the database source constraint", async () => {
@@ -391,11 +454,18 @@ describeWithDatabase("PostgresDodoRepository", () => {
     ).toEqual([]);
   });
 
-  it("marks legacy non-empty facets unavailable instead of active", async () => {
+  it("reads legacy heroes with conservative encyclopedia and facet defaults", async () => {
     const fixtures = await createSeedRepository();
     const hero = await fixtures.getHero("1");
     if (!hero) throw new Error("Hero fixture missing");
-    const { facetsStatus: _facetsStatus, ...legacyHero } = hero;
+    const {
+      hype: _hype,
+      biography: _biography,
+      complexity: _complexity,
+      baseStats: _baseStats,
+      facetsStatus: _facetsStatus,
+      ...legacyHero
+    } = hero;
     await admin`
       insert into dodo.heroes (id, payload, updated_at)
       values (${hero.id}, ${admin.json(legacyHero)}, now())
@@ -403,7 +473,13 @@ describeWithDatabase("PostgresDodoRepository", () => {
 
     const restored = await repository.getHero(hero.id);
     expect(restored?.facets).not.toEqual([]);
-    expect(restored?.facetsStatus).toBe("unavailable");
+    expect(restored).toMatchObject({
+      hype: "",
+      biography: "",
+      complexity: null,
+      baseStats: null,
+      facetsStatus: "unavailable",
+    });
   });
 
   it("reads legacy items with conservative kind and availability defaults", async () => {
@@ -453,10 +529,18 @@ describeWithDatabase("PostgresDodoRepository", () => {
     };
 
     await Promise.all([
-      repository.replaceHeroes([heroes[0]!], firstSnapshot),
-      repository.replaceHeroes([heroes[1]!, heroes[2]!], secondSnapshot),
-      repository.replaceItems([items[0]!], firstSnapshot),
-      repository.replaceItems([items[1]!, items[2]!], secondSnapshot),
+      repository.replaceHeroes([heroes[0]!], firstSnapshot, [heroes[0]!.id]),
+      repository.replaceHeroes(
+        [heroes[1]!, heroes[2]!],
+        secondSnapshot,
+        [heroes[1]!.id, heroes[2]!.id],
+      ),
+      repository.replaceItems([items[0]!], firstSnapshot, [items[0]!.id]),
+      repository.replaceItems(
+        [items[1]!, items[2]!],
+        secondSnapshot,
+        [items[1]!.id, items[2]!.id],
+      ),
       repository.replacePatches(
         [{ id: "59", name: "7.38c", releasedAt: "2026-03-27T00:00:00.000Z" }],
         firstSnapshot,

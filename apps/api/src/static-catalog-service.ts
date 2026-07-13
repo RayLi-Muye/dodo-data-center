@@ -13,6 +13,23 @@ import {
 
 const REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1_000;
 
+const catalogUniverseIds = (
+  entityType: "hero" | "item",
+  successfulIds: string[],
+  exclusions: Array<{ entityType: string; entityId: string | null; kind: string }>,
+): string[] => [
+  ...new Set([
+    ...successfulIds,
+    ...exclusions.flatMap((exclusion) =>
+      exclusion.entityType === entityType &&
+      exclusion.kind === "failed" &&
+      exclusion.entityId !== null
+        ? [exclusion.entityId]
+        : [],
+    ),
+  ]),
+].sort();
+
 type StaticCatalogServiceOptions = {
   repository: DodoRepository;
   provider: PlayerDataProvider;
@@ -99,11 +116,16 @@ export class StaticCatalogService {
             this.#provider.getHeroConstants(),
             this.#provider.getHeroAbilityConstants(),
           ]).then(async ([heroes, abilities]) => {
+            const universeIds = catalogUniverseIds(
+              "hero",
+              heroes.items.map((hero) => hero.id),
+              [...heroes.exclusions, ...abilities.exclusions],
+            );
             const quality =
               heroes.quality === "complete" && abilities.quality === "complete"
                 ? "complete"
                 : "partial";
-            const hash = contentHash([heroes.items, abilities.heroes]);
+            const hash = contentHash([heroes.items, abilities.heroes, universeIds]);
             const fetchedAt =
               heroes.source.fetchedAt > abilities.source.fetchedAt
                 ? heroes.source.fetchedAt
@@ -131,6 +153,7 @@ export class StaticCatalogService {
                   ),
                 ),
                 snapshot,
+                universeIds,
               );
             }
           });
@@ -143,12 +166,17 @@ export class StaticCatalogService {
       ) && itemSnapshot?.officialVersion === officialVersion
         ? Promise.resolve()
         : this.#provider.getItemConstants().then(async (items) => {
+            const universeIds = catalogUniverseIds(
+              "item",
+              items.items.map((item) => item.id),
+              items.exclusions,
+            );
             const details = toItemDetails(
               items.items,
               items.source.fetchedAt,
               items.officialVersion,
             );
-            const hash = contentHash(items.items);
+            const hash = contentHash([items.items, universeIds]);
             const snapshot = nextSnapshot(
               itemSnapshot,
               "dota2_official",
@@ -160,7 +188,7 @@ export class StaticCatalogService {
             );
             if (itemSnapshot?.contentHash === hash) {
               await this.#repository.touchStaticSnapshot("item", itemSnapshot.contentHash, snapshot);
-            } else await this.#repository.replaceItems(details, snapshot);
+            } else await this.#repository.replaceItems(details, snapshot, universeIds);
           });
 
     await Promise.all([updateRefresh, heroRefresh, itemRefresh]);

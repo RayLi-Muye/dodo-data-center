@@ -174,6 +174,29 @@ const heroes: CanonicalOfficialConstantsSnapshot<CanonicalHeroConstant> = {
       attackType: "melee",
       roles: ["Carry", "Escape"],
       officialVersion: null,
+      hype: "They call him Anti-Mage.",
+      biography: "A warrior devoted to ending magic.",
+      complexity: 1,
+      baseStats: {
+        maxHealth: 538,
+        healthRegen: 2.4,
+        maxMana: 219,
+        manaRegen: 0.9,
+        armor: 4.8,
+        magicResistance: 25,
+        damageMin: 53,
+        damageMax: 57,
+        strength: { base: 19, gain: 1.6 },
+        agility: { base: 24, gain: 2.8 },
+        intelligence: { base: 12, gain: 1.8 },
+        movementSpeed: 310,
+        attackRange: 150,
+        attackRate: 1.4,
+        projectileSpeed: 0,
+        turnRate: 0.6,
+        sightRangeDay: 1800,
+        sightRangeNight: 800,
+      },
     },
     {
       id: "2",
@@ -477,14 +500,16 @@ describe("live player synchronization", () => {
     if (!heroSnapshot || !itemSnapshot || !updateSnapshot) {
       throw new Error("Static snapshot missing");
     }
-    await repository.replaceHeroes(await repository.listHeroes(), {
+    const currentHeroes = await repository.listHeroes();
+    const currentItems = await repository.listItems();
+    await repository.replaceHeroes(currentHeroes, {
       ...heroSnapshot,
       quality: "partial",
-    });
-    await repository.replaceItems(await repository.listItems(), {
+    }, currentHeroes.map((hero) => hero.id));
+    await repository.replaceItems(currentItems, {
       ...itemSnapshot,
       quality: "partial",
-    });
+    }, currentItems.map((item) => item.id));
     await repository.replaceUpdateReleases([officialUpdate], {
       ...updateSnapshot,
       quality: "partial",
@@ -674,9 +699,26 @@ describe("live player synchronization", () => {
     expect(hero.data).toMatchObject({
       name: "antimage",
       officialVersion: "7.41b",
+      hype: "They call him Anti-Mage.",
+      biography: "A warrior devoted to ending magic.",
+      complexity: 1,
+      baseStats: {
+        maxHealth: 538,
+        agility: { base: 24, gain: 2.8 },
+      },
       facetsStatus: "unavailable",
     });
     expect(hero.meta.sources).toEqual(["dota2_official"]);
+
+    const heroWithMissingOptionalFields = heroDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/heroes/2" })),
+    );
+    expect(heroWithMissingOptionalFields.data).toMatchObject({
+      hype: "",
+      biography: "",
+      complexity: null,
+      baseStats: null,
+    });
 
     const item = itemDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/items/2" })),
@@ -1091,6 +1133,112 @@ describe("live player synchronization", () => {
     expect(changed?.contentHash).not.toBe(initial?.contentHash);
   });
 
+  it("prunes legacy catalog rows while retaining current official detail failures", async () => {
+    const repository = await createPreparedRepository();
+    const existingHero = await repository.getHero("2");
+    const existingItem = await repository.getItem("2");
+    if (!existingHero || !existingItem) throw new Error("Static fixture missing");
+    await repository.upsertHero({
+      ...existingHero,
+      id: "999",
+      name: "legacy_hero",
+      localizedName: "Legacy Hero",
+    });
+    await repository.upsertHero({
+      ...existingHero,
+      id: "998",
+      name: "removed_hero",
+      localizedName: "Removed Hero",
+    });
+    await repository.upsertItem({
+      ...existingItem,
+      id: "999",
+      name: "legacy_item",
+      localizedName: "Legacy Item",
+    });
+    await repository.upsertItem({
+      ...existingItem,
+      id: "998",
+      name: "removed_item",
+      localizedName: "Removed Item",
+    });
+
+    const provider = createProvider();
+    provider.getHeroConstants = vi.fn(async () => ({
+      ...heroes,
+      quality: "partial" as const,
+      items: heroes.items
+        .filter((hero) => hero.id !== "2")
+        .map((hero) => hero.id === "1" ? { ...hero, roles: [...hero.roles, "Support"] } : hero),
+      exclusions: [
+        {
+          entityType: "hero" as const,
+          entityId: "2",
+          entityName: "axe",
+          kind: "failed" as const,
+          reason: "upstream_5xx",
+          retryable: true,
+        },
+        {
+          entityType: "hero" as const,
+          entityId: "999",
+          entityName: "legacy_hero",
+          kind: "filtered" as const,
+          reason: "localized_name_unavailable",
+          retryable: false,
+        },
+      ],
+    }));
+    provider.getItemConstants = vi.fn(async () => ({
+      ...items,
+      quality: "partial" as const,
+      items: items.items
+        .filter((item) => item.id !== "2")
+        .map((item) => item.id === "1" ? { ...item, cost: 2300 } : item),
+      exclusions: [
+        {
+          entityType: "item" as const,
+          entityId: "2",
+          entityName: "power_treads",
+          kind: "failed" as const,
+          reason: "upstream_5xx",
+          retryable: true,
+        },
+        {
+          entityType: "item" as const,
+          entityId: "999",
+          entityName: "legacy_item",
+          kind: "filtered" as const,
+          reason: "localized_name_unavailable",
+          retryable: false,
+        },
+      ],
+    }));
+    let now = new Date(Date.parse(CLOCK_AT) + 8 * 24 * 60 * 60 * 1_000);
+    const service = new StaticCatalogService({ repository, provider, clock: () => now });
+
+    await service.refresh();
+    now = new Date(now.getTime() + 3 * 60 * 60 * 1_000);
+    await service.refresh();
+
+    expect(
+      (await repository.listHeroes())
+        .map((hero) => hero.id)
+        .sort((left, right) => Number(left) - Number(right)),
+    ).toEqual(["1", "2", "107"]);
+    expect((await repository.getHero("1"))?.roles).toContain("Support");
+    expect(await repository.getHero("2")).toEqual(existingHero);
+    expect(await repository.getHero("998")).toBeUndefined();
+    expect(await repository.getHero("999")).toBeUndefined();
+    expect((await repository.listItems()).map((item) => item.id)).toEqual(["1", "2"]);
+    expect((await repository.getItem("1"))?.cost).toBe(2300);
+    expect(await repository.getItem("2")).toEqual(existingItem);
+    expect(await repository.getItem("998")).toBeUndefined();
+    expect(await repository.getItem("999")).toBeUndefined();
+    expect(provider.getHeroConstants).toHaveBeenCalledTimes(2);
+    expect(provider.getItemConstants).toHaveBeenCalledTimes(2);
+  });
+
   it("settles fresh partial catalogs as degraded and retries them after the short TTL", async () => {
     const repository = await createPreparedRepository();
     const provider = createProvider();
@@ -1101,14 +1249,16 @@ describe("live player synchronization", () => {
       repository.getItemSnapshot(),
     ]);
     if (!heroSnapshot || !itemSnapshot) throw new Error("Static snapshot missing");
-    await repository.replaceHeroes(await repository.listHeroes(), {
+    const currentHeroes = await repository.listHeroes();
+    const currentItems = await repository.listItems();
+    await repository.replaceHeroes(currentHeroes, {
       ...heroSnapshot,
       quality: "partial",
-    });
-    await repository.replaceItems(await repository.listItems(), {
+    }, currentHeroes.map((hero) => hero.id));
+    await repository.replaceItems(currentItems, {
       ...itemSnapshot,
       quality: "partial",
-    });
+    }, currentItems.map((item) => item.id));
     vi.mocked(provider.getHeroConstants).mockClear();
     vi.mocked(provider.getHeroAbilityConstants).mockClear();
     const upsertProviderHealth = vi.spyOn(repository, "upsertProviderHealth");

@@ -6,6 +6,7 @@ import patchNotesList from "../fixtures/patchnotes-list.json";
 import officialHeroData from "../fixtures/official-herodata-1.json";
 import officialHeroList from "../fixtures/official-herolist.json";
 import officialItemData from "../fixtures/official-itemdata-1.json";
+import officialItemDataUnresolved from "../fixtures/official-itemdata-unresolved-4.json";
 import officialItemList from "../fixtures/official-itemlist.json";
 import { Dota2OfficialProviderError } from "../src/dota2-official-errors.js";
 import { Dota2OfficialProvider, officialNoteText } from "../src/dota2-official-provider.js";
@@ -35,6 +36,14 @@ function providerFor(
     }),
     fetchImpl,
   };
+}
+
+function officialHeroDetailWith(field: string, value?: unknown): unknown {
+  const detail = structuredClone(officialHeroData);
+  const hero = detail.result.data.heroes[0] as unknown as Record<string, unknown>;
+  if (value === undefined) delete hero[field];
+  else hero[field] = value;
+  return detail;
 }
 
 describe("Dota2OfficialProvider", () => {
@@ -75,16 +84,42 @@ describe("Dota2OfficialProvider", () => {
     ]);
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls.every(([input]) =>
+      new URL(String(input)).searchParams.get("language") === "schinese"
+    )).toBe(true);
     expect(heroes.quality).toBe("partial");
     expect(abilities.quality).toBe("partial");
     expect(heroes.items).toEqual([expect.objectContaining({
       id: "1",
       name: "antimage",
-      localizedName: "Anti-Mage",
+      localizedName: "敌法师",
       primaryAttribute: "agility",
       attackType: "melee",
       roles: ["Carry", "Nuker", "Escape"],
       officialVersion: "7.41d",
+      hype: "敌法师会 燃烧敌人的魔法 ，并在战场上快速闪烁。",
+      biography: "星隐寺陷落后，最后的侍僧立誓终结世间的魔法。",
+      complexity: 1,
+      baseStats: {
+        maxHealth: 582,
+        healthRegen: 3.6,
+        maxMana: 219,
+        manaRegen: 0.6,
+        armor: 6.166667,
+        magicResistance: 25,
+        damageMin: 54,
+        damageMax: 58,
+        strength: { base: 21, gain: 1.6 },
+        agility: { base: 25, gain: 2.8 },
+        intelligence: { base: 12, gain: 1.8 },
+        movementSpeed: 315,
+        attackRange: 150,
+        attackRate: 1.4,
+        projectileSpeed: 0,
+        turnRate: 0.6,
+        sightRangeDay: 1800,
+        sightRangeNight: 800,
+      },
     })]);
     const antiMage = abilities.heroes.npc_dota_hero_antimage!;
     expect(antiMage.facetsStatus).toBe("removed");
@@ -92,7 +127,6 @@ describe("Dota2OfficialProvider", () => {
     expect(antiMage.excludedAbilityNames).toEqual([
       "generic_hidden",
       "special_bonus_hidden_fixture",
-      "special_bonus_unresolved_fixture",
     ]);
     expect(abilities.exclusions).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -108,6 +142,7 @@ describe("Dota2OfficialProvider", () => {
       }),
       expect.objectContaining({
         entityType: "ability",
+        entityId: "1497",
         entityName: "special_bonus_unresolved_fixture",
         reason: expect.stringMatching(/^unresolved_template:/),
       }),
@@ -115,21 +150,98 @@ describe("Dota2OfficialProvider", () => {
     expect(antiMage.abilities).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "antimage_blink",
-        description: "Active: Blink Teleport up to 875 / 950 / 1025 / 1100 units.",
+        localizedName: "闪烁",
+        description: "主动：闪烁 最远传送 875 / 950 / 1025 / 1100 距离。",
         type: "basic",
       }),
       expect.objectContaining({
         name: "antimage_persecutor",
-        description: "Slows by 24%.",
+        localizedName: "迫害者",
+        description: "减速 24%。",
         type: "innate",
       }),
       expect.objectContaining({
         name: "special_bonus_hp_regen_3",
-        localizedName: "+3 Health Regen",
+        localizedName: "+3 生命恢复",
+        type: "talent",
+      }),
+      expect.objectContaining({
+        id: "1497",
+        name: "special_bonus_unresolved_fixture",
+        localizedName: "+20 攻击速度",
+        description: "",
         type: "talent",
       }),
     ]));
     expect(JSON.stringify(antiMage)).not.toMatch(/<[^>]+>|\{s:|%blink_range%/);
+  });
+
+  it.each([
+    "hype_loc",
+    "bio_loc",
+    "complexity",
+    "max_health",
+    "health_regen",
+    "max_mana",
+    "mana_regen",
+    "armor",
+    "magic_resistance",
+    "damage_min",
+    "damage_max",
+    "str_base",
+    "str_gain",
+    "agi_base",
+    "agi_gain",
+    "int_base",
+    "int_gain",
+    "movement_speed",
+    "attack_range",
+    "attack_rate",
+    "projectile_speed",
+    "turn_rate",
+    "sight_range_day",
+    "sight_range_night",
+  ])("rejects official hero detail missing %s", async (field) => {
+    const provider = new Dota2OfficialProvider({
+      fetchImpl: vi.fn(async (input: string | URL | Request) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith("patchnoteslist")) return response(patchNotesList);
+        return response(path.endsWith("herolist") ? officialHeroList : officialHeroDetailWith(field));
+      }),
+    });
+
+    await expect(provider.getHeroConstants()).rejects.toMatchObject({
+      reason: "invalid_response",
+    });
+  });
+
+  it.each([
+    { field: "hype_loc", value: "<br>", label: "empty normalized hype" },
+    { field: "bio_loc", value: 42, label: "non-string biography" },
+    { field: "complexity", value: 4, label: "out-of-range complexity" },
+    { field: "health_regen", value: "3.6", label: "non-number stat" },
+    { field: "max_health", value: -1, label: "negative max health" },
+    { field: "max_mana", value: -1, label: "negative max mana" },
+    { field: "movement_speed", value: -1, label: "negative movement speed" },
+    { field: "attack_range", value: -1, label: "negative attack range" },
+    { field: "attack_rate", value: -1, label: "negative attack rate" },
+    { field: "projectile_speed", value: -1, label: "negative projectile speed" },
+    { field: "sight_range_day", value: -1, label: "negative day sight" },
+    { field: "sight_range_night", value: -1, label: "negative night sight" },
+  ])("rejects official hero detail with $label", async ({ field, value }) => {
+    const provider = new Dota2OfficialProvider({
+      fetchImpl: vi.fn(async (input: string | URL | Request) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith("patchnoteslist")) return response(patchNotesList);
+        return response(
+          path.endsWith("herolist") ? officialHeroList : officialHeroDetailWith(field, value),
+        );
+      }),
+    });
+
+    await expect(provider.getHeroConstants()).rejects.toMatchObject({
+      reason: "invalid_response",
+    });
   });
 
   it.each([
@@ -200,16 +312,19 @@ describe("Dota2OfficialProvider", () => {
 
     const result = await provider.getItemConstants();
 
+    expect(fetchImpl.mock.calls.every(([input]) =>
+      new URL(String(input)).searchParams.get("language") === "schinese"
+    )).toBe(true);
     expect(result.officialVersion).toBe("7.41d");
     expect(result.quality).toBe("partial");
     expect(result.items).toEqual([expect.objectContaining({
       id: "1",
       name: "blink",
-      localizedName: "Blink Dagger",
+      localizedName: "闪烁匕首",
       category: "official_quality_1",
       kind: "item",
       availabilityStatus: "unverified",
-      description: "Active: Blink Teleport up to 1200 units.",
+      description: "主动：闪烁 最远传送 1200 距离。",
       componentNames: ["blades_of_attack", "broadsword"],
       officialVersion: "7.41d",
       officialRecipes: [{
@@ -267,6 +382,61 @@ describe("Dota2OfficialProvider", () => {
     ]);
   });
 
+  it("keeps a localized official item when only its description template is unresolved", async () => {
+    const listItems = [
+      { id: 4, name: "item_claymore", name_loc: "大剑" },
+      { id: 5, name: "item_removed_internal", name_loc: "" },
+    ].map((item) => ({
+      ...item,
+      neutral_item_tier: -1,
+      is_pregame_suggested: false,
+      is_earlygame_suggested: false,
+      is_lategame_suggested: false,
+      recipes: [],
+      is_innate: false,
+    }));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("patchnoteslist")) return response(patchNotesList);
+      if (url.pathname.endsWith("itemlist")) {
+        return response({ result: { status: 1, data: { itemabilities: listItems } } });
+      }
+      if (url.pathname.endsWith("itemdata") && url.searchParams.get("item_id") === "4") {
+        return response(officialItemDataUnresolved);
+      }
+      return response({}, 404);
+    });
+    const provider = new Dota2OfficialProvider({ fetchImpl, clock: () => NOW });
+
+    const result = await provider.getItemConstants();
+
+    expect(result.quality).toBe("partial");
+    expect(result.items).toEqual([expect.objectContaining({
+      id: "4",
+      name: "claymore",
+      localizedName: "大剑",
+      description: "",
+      cost: 1350,
+    })]);
+    expect(result.exclusions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entityType: "item",
+        entityId: "4",
+        entityName: "item_claymore",
+        kind: "filtered",
+        reason: "unresolved_template:{s:missing_damage}",
+      }),
+      expect.objectContaining({
+        entityType: "item",
+        entityId: "5",
+        kind: "filtered",
+        reason: "localized_name_unavailable",
+      }),
+    ]));
+    expect(JSON.stringify(result.items)).not.toContain("{s:missing_damage}");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
   it("bounds hero detail requests at three", async () => {
     const ids = [1, 2, 3, 4, 5];
     let activeDetails = 0;
@@ -309,7 +479,10 @@ describe("Dota2OfficialProvider", () => {
     expect(result.items.map((item) => item.version)).toEqual(["7.41d", "7.41c"]);
     expect(result.excludedVersions).toContain("7.41-hotfix");
     expect(result.source).toEqual({ source: "dota2_official", fetchedAt: NOW.toISOString() });
-    expect(latest.sourceUrl).toBe("https://www.dota2.com/patches/7.41d?l=english");
+    expect(fetchImpl.mock.calls.every(([input]) =>
+      new URL(String(input)).searchParams.get("language") === "schinese"
+    )).toBe(true);
+    expect(latest.sourceUrl).toBe("https://www.dota2.com/patches/7.41d?l=schinese");
     expect(new Set(latest.groups.map((group) => group.kind))).toEqual(new Set([
       "general", "hero", "item", "neutral_item", "neutral_creep",
     ]));
@@ -321,17 +494,17 @@ describe("Dota2OfficialProvider", () => {
         entityId: "107",
         relatedAbilityId: "5608",
       }),
-      expect.objectContaining({ kind: "neutral_item", entityId: null, title: "Artifacts" }),
+      expect.objectContaining({ kind: "neutral_item", entityId: null, title: "宝物" }),
       expect.objectContaining({
         kind: "neutral_creep",
         entityId: "12",
-        entityName: "Kobold",
+        entityName: "狗头人",
         title: "npc_dota_neutral_kobold",
       }),
     ]));
     expect(latest.groups.every((group) => group.notes.length > 0)).toBe(true);
-    expect(latest.groups.find((group) => group.title === "Artifacts")?.notes[0]?.text)
-      .toBe("Artifacts");
+    expect(latest.groups.find((group) => group.title === "宝物")?.notes[0]?.text)
+      .toBe("宝物");
   });
 
   it("strips HTML, decodes entities, and marks empty excluded notes partial", async () => {
@@ -339,10 +512,10 @@ describe("Dota2OfficialProvider", () => {
     const latest = result.items[0]!;
     const general = latest.groups.find((group) => group.kind === "general")!;
 
-    expect(general.title).toBe("Mechanics & Systems");
+    expect(general.title).toBe("机制与系统");
     expect(general.notes[0]).toEqual({
-      text: "Armor changed and tuned & tested",
-      info: "Official detail",
+      text: "护甲机制 已调整 并完成平衡 & 测试",
+      info: "官方说明",
       indentLevel: 1,
     });
     expect(latest.excludedNoteCount).toBe(1);
