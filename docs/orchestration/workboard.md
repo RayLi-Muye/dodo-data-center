@@ -16,8 +16,8 @@
 | API-012 sync coalescing and idempotency audit | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-012 | ACCEPTED |
 | QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | ACCEPTED |
 | ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
-| DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | RUNNING |
-| DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | REVIEW |
+| DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | ACCEPTED |
+| DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
 | MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
 
@@ -28,6 +28,7 @@
 - 等待外部授权期间，OpenDota 继续作为完整 MVP 基线；STRATZ 只负责可选的带时间加点与购买事件增强。
 - 第 2 阶段的内部门禁是错误分类、无损降级、来源归属、密钥边界和测试；真实 Railway 增强是外部授权门禁，不阻断 DATA-014。
 - 第 2 阶段只承诺 opportunistic secondary enrichment；已落库但 partial 的 STRATZ 结果如何再次回填，归入 API-WEB-015，不以 `enrichmentSources` 误称完整。
+- Railway 部署后真实账号 `224328273` 手动同步在约 5 秒内完成 `public_complete`，STRATZ health 于 `2026-07-13T02:59:58Z` 更新为 ready；最近 5 场全部同时标注 OpenDota/STRATZ，分别具有 66–156 个 timed ability events 与 246–416 个 item events。此前外部授权门禁已解除。
 
 ### Wave 12 phase 3 baseline
 
@@ -47,6 +48,9 @@
 - 全仓 typecheck、生产 build、302 项常规测试、41 项 schema 检查与真实 PostgreSQL 29/29 通过；最终 QA 和海外部署待完成。
 - 390×844 本地真实页面验证英雄资料默认为单列，页面与 body `scrollWidth=390`；英雄头图、玩法/背景、基础属性、技能与命石均可访问，无浏览器 console error/warning。
 - 最终窄 QA 对新字段默认值、数值单位、API/Web 空值处理与 failed-universe 剪枝复核 PASS，P0/P1/P2 均为 0；海外预览与生产目录计数仍待部署后验收。
+- Vercel main 部署 `web-g5pdrty2a-rays-projects-f956e95b.vercel.app` ready；Railway deployment `2d8a6994-c96f-4c0a-8bcd-a22b3268e686` success。
+- 生产对账为 127 个 7.41d 英雄、507 个 7.41d 物品、0 个 stale item；敌法师简中简介/背景/复杂度/基础属性与 7.41d 简中更新正文可读。账号 `224328273` 最近 20 场仍返回 200、`sampleSize=20`、quality complete。
+- 已知运维缺口：本次 main merge 未自动创建 Railway deployment，使用已合并同内容的受控 CLI deployment 完成发布；GitHub→Railway webhook/branch trigger 必须在下一运维切片修复，不能把手动发布当长期机制。
 
 ### Wave 12 phase 1 evidence
 
