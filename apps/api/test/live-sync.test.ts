@@ -37,7 +37,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import type { PlayerDataProvider } from "../src/player-data-provider.js";
 import { PlayerHistorySyncService } from "../src/player-history-sync-service.js";
-import { PlayerSyncService } from "../src/player-sync-service.js";
+import {
+  PLAYER_SYNC_TTL_MS,
+  PlayerSyncService,
+} from "../src/player-sync-service.js";
 import { StaticCatalogService } from "../src/static-catalog-service.js";
 import { StratzMatchEnrichmentService } from "../src/stratz-match-enrichment-service.js";
 
@@ -1591,6 +1594,60 @@ describe("live player synchronization", () => {
     expect(status.data.providers[0]?.message).toBeNull();
   });
 
+  it("skips a fresh automatic refresh while still allowing a manual refresh", async () => {
+    const repository = await createPreparedRepository();
+    const provider = createProvider();
+    let now = new Date(CLOCK_AT);
+    const service = new PlayerSyncService({ repository, provider, clock: () => now });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository,
+      syncService: service,
+      clock: () => now,
+    });
+
+    const initial = syncJobResponseSchema.parse(
+      json(await app.inject({ method: "POST", url: `/v1/players/${ACCOUNT_ID}/sync` })),
+    ).data;
+    await service.waitForJob(initial.jobId);
+    expect(provider.getRecentMatches).toHaveBeenCalledTimes(1);
+
+    now = new Date(Date.parse(FETCHED_AT) + PLAYER_SYNC_TTL_MS - 1);
+    const automatic = syncJobResponseSchema.parse(
+      json(await app.inject({
+        method: "POST",
+        url: `/v1/players/${ACCOUNT_ID}/sync`,
+        payload: { trigger: "automatic" },
+      })),
+    ).data;
+    expect(automatic.status).toBe("public_partial");
+    expect(provider.getRecentMatches).toHaveBeenCalledTimes(1);
+
+    const manual = syncJobResponseSchema.parse(
+      json(await app.inject({
+        method: "POST",
+        url: `/v1/players/${ACCOUNT_ID}/sync`,
+        payload: { trigger: "manual" },
+      })),
+    ).data;
+    expect(manual.status).toBe("syncing");
+    await service.waitForJob(manual.jobId);
+    expect(provider.getRecentMatches).toHaveBeenCalledTimes(2);
+
+    now = new Date(Date.parse(FETCHED_AT) + PLAYER_SYNC_TTL_MS);
+    const staleAutomatic = syncJobResponseSchema.parse(
+      json(await app.inject({
+        method: "POST",
+        url: `/v1/players/${ACCOUNT_ID}/sync`,
+        payload: { trigger: "automatic" },
+      })),
+    ).data;
+    expect(staleAutomatic.status).toBe("syncing");
+    await service.waitForJob(staleAutomatic.jobId);
+    expect(provider.getRecentMatches).toHaveBeenCalledTimes(3);
+  });
+
   it("derives exact last-20, last-50, and last-100 metrics from the candidate ledger", async () => {
     const repository = await createPreparedRepository();
     const provider = createProvider();
@@ -1836,6 +1893,193 @@ describe("live player synchronization", () => {
         json(await app.inject({ method: "GET", url: "/v1/data-status" })),
       );
       expect(status.data.providers[0]?.status).toBe(providerStatus);
+    },
+  );
+
+  it.each([
+    {
+      name: "timeout",
+      error: new OpenDotaProviderError(
+        "SOURCE_UNAVAILABLE",
+        "timeout",
+        "timeout",
+        true,
+      ),
+      jobStatus: "source_unavailable",
+      quality: "stale",
+    },
+    {
+      name: "rate limit",
+      error: new OpenDotaProviderError(
+        "SOURCE_RATE_LIMITED",
+        "rate_limited",
+        "limited",
+        true,
+        429,
+        17,
+      ),
+      jobStatus: "source_rate_limited",
+      quality: "partial",
+    },
+    {
+      name: "parse pending with a failed candidate ledger",
+      error: new OpenDotaProviderError(
+        "PARSE_PENDING",
+        "player_data_unavailable",
+        "pending",
+        true,
+        null,
+        null,
+        {
+          eligibleCount: 2,
+          excludedCount: 2,
+          exclusionReasons: ["radiant_win_unavailable"],
+          candidateLedger: [
+            {
+              providerIndex: 0,
+              status: "excluded",
+              exclusionReasons: ["radiant_win_unavailable"],
+            },
+            {
+              providerIndex: 1,
+              status: "excluded",
+              exclusionReasons: ["radiant_win_unavailable"],
+            },
+          ],
+        },
+      ),
+      jobStatus: "parse_pending",
+      quality: "partial",
+    },
+    {
+      name: "unexpected failure",
+      error: new Error("test-only unexpected failure"),
+      jobStatus: "failed",
+      quality: "stale",
+    },
+  ] as const)(
+    "keeps the last successful snapshot readable after $name",
+    async ({ error, jobStatus, quality }) => {
+      const repository = await createPreparedRepository();
+      const provider = createProvider();
+      let now = new Date(CLOCK_AT);
+      const service = new PlayerSyncService({ repository, provider, clock: () => now });
+      app = await buildApp({
+        environment: "test",
+        dataMode: "live",
+        repository,
+        syncService: service,
+        clock: () => now,
+      });
+
+      const initial = await service.requestSync(ACCOUNT_ID);
+      await service.waitForJob(initial.jobId);
+      const successfulBatch = await repository.getPlayerSyncBatch(ACCOUNT_ID);
+      const initialOverview = playerOverviewResponseSchema.parse(
+        json(await app.inject({ method: "GET", url: `/v1/players/${ACCOUNT_ID}` })),
+      );
+      const initialMatches = playerMatchesResponseSchema.parse(
+        json(await app.inject({ method: "GET", url: `/v1/players/${ACCOUNT_ID}/matches` })),
+      );
+
+      now = new Date("2026-07-10T01:10:00.000Z");
+      provider.getRecentMatches = vi.fn(async () => {
+        throw error;
+      });
+      const refresh = await service.requestSync(ACCOUNT_ID);
+      await service.waitForJob(refresh.jobId);
+
+      expect(await repository.getSyncJob(refresh.jobId)).toMatchObject({ status: jobStatus });
+      expect((await repository.getPlayer(ACCOUNT_ID))?.status).toBe("public_partial");
+      expect(await repository.getPlayerSyncBatch(ACCOUNT_ID)).toEqual(successfulBatch);
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: `/v1/players/${ACCOUNT_ID}`,
+      });
+      const overview = playerOverviewResponseSchema.parse(json(overviewResponse));
+      expect(overviewResponse.statusCode).toBe(200);
+      expect(overview.meta).toMatchObject({
+        sampleSize: initialOverview.meta.sampleSize,
+        eligibleCount: initialOverview.meta.eligibleCount,
+        quality,
+        updatedAt: now.toISOString(),
+      });
+
+      const matchesResponse = await app.inject({
+        method: "GET",
+        url: `/v1/players/${ACCOUNT_ID}/matches`,
+      });
+      const matches = playerMatchesResponseSchema.parse(json(matchesResponse));
+      expect(matchesResponse.statusCode).toBe(200);
+      expect(matches.data.items).toEqual(initialMatches.data.items);
+      expect(matches.meta).toMatchObject({ quality, updatedAt: now.toISOString() });
+    },
+  );
+
+  it.each([
+    {
+      name: "profile becomes private",
+      stage: "profile",
+      error: new OpenDotaProviderError(
+        "PROFILE_PRIVATE",
+        "profile_unavailable",
+        "private",
+        false,
+        403,
+      ),
+      status: "profile_private",
+      errorCode: "PROFILE_PRIVATE",
+    },
+    {
+      name: "match history becomes private",
+      stage: "matches",
+      error: new OpenDotaProviderError(
+        "HISTORY_PRIVATE",
+        "history_unavailable",
+        "private",
+        false,
+        403,
+      ),
+      status: "history_private",
+      errorCode: "HISTORY_PRIVATE",
+    },
+  ] as const)(
+    "stops serving an old public snapshot when $name",
+    async ({ stage, error, status, errorCode }) => {
+      const repository = await createPreparedRepository();
+      const provider = createProvider();
+      const service = new PlayerSyncService({
+        repository,
+        provider,
+        clock: () => new Date(CLOCK_AT),
+      });
+      app = await buildApp({
+        environment: "test",
+        dataMode: "live",
+        repository,
+        syncService: service,
+        clock: () => new Date(CLOCK_AT),
+      });
+      const initial = await service.requestSync(ACCOUNT_ID);
+      await service.waitForJob(initial.jobId);
+
+      const failingCall = vi.fn(async () => {
+        throw error;
+      });
+      if (stage === "profile") provider.getPlayerProfile = failingCall;
+      else provider.getRecentMatches = failingCall;
+      const refresh = await service.requestSync(ACCOUNT_ID);
+      await service.waitForJob(refresh.jobId);
+
+      expect(failingCall).toHaveBeenCalledTimes(1);
+      expect((await repository.getPlayer(ACCOUNT_ID))?.status).toBe(status);
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/players/${ACCOUNT_ID}`,
+      });
+      expect(response.statusCode).toBe(403);
+      expect(apiErrorSchema.parse(json(response)).error.code).toBe(errorCode);
     },
   );
 

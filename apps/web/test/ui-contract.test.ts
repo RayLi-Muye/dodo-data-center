@@ -35,6 +35,7 @@ describe("Web UI copy and touch contract", () => {
     expect(syncControl).toContain("刷新数据");
     expect(syncControl).toContain("超过 30 分钟");
     expect(syncControl).toContain("disabled={state.running}");
+    expect(syncControl).toContain('trigger: force ? "manual" : "automatic"');
     expect(accountSearch.indexOf("await startAndPollPlayerSync")).toBeLessThan(
       accountSearch.indexOf("router.push"),
     );

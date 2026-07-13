@@ -8,6 +8,19 @@
 
 ## Active wave
 
+### Wave 12: Five-stage MVP hardening
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| DATA-012 OpenDota bounded retry | Data Source Agent | `packages/dota-data/**` | Wave 11 | RUNNING |
+| API-012 sync coalescing and idempotency audit | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-012 | RUNNING |
+| QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | RUNNING |
+| ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | RUNNING |
+| DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | READY |
+| DATA-014 encyclopedia correctness | Data Source Agent | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | READY |
+| API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
+| MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
+
 | Task | Owner | Paths | Depends on | State |
 |---|---|---|---|---|
 | ROOT-001 contracts and docs | Root | Root-only paths | none | ACCEPTED |

@@ -31,6 +31,7 @@ import type { StratzMatchEnrichmentService } from "./stratz-match-enrichment-ser
 
 export const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const UPDATE_TTL_MS = 2 * 60 * 60 * 1_000;
+export const PLAYER_SYNC_TTL_MS = 30 * 60 * 1_000;
 
 const stableValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -86,6 +87,10 @@ type PlayerSyncServiceOptions = {
   provider: PlayerDataProvider;
   matchEnrichmentService?: StratzMatchEnrichmentService;
   clock?: () => Date;
+};
+
+type PlayerSyncRequestOptions = {
+  force?: boolean;
 };
 
 export const toHeroDetail = (
@@ -279,13 +284,23 @@ const asPlayerProfile = (
   };
 };
 
+const hasReadableImportedProfile = (
+  profile: PlayerProfile | undefined,
+): profile is PlayerProfile =>
+  profile !== undefined &&
+  profile.importedMatchCount > 0 &&
+  (profile.status === "public_complete" || profile.status === "public_partial");
+
 export class PlayerSyncService {
   readonly #repository: DodoRepository;
   readonly #provider: PlayerDataProvider;
   readonly #matchEnrichmentService: StratzMatchEnrichmentService | undefined;
   readonly #clock: () => Date;
   readonly #inFlight = new Map<string, Promise<void>>();
-  readonly #requests = new Map<string, Promise<SyncJob>>();
+  readonly #requests = new Map<
+    string,
+    { force: boolean; promise: Promise<SyncJob> }
+  >();
 
   constructor({
     repository,
@@ -299,16 +314,29 @@ export class PlayerSyncService {
     this.#clock = clock;
   }
 
-  requestSync(accountId: string): Promise<SyncJob> {
+  requestSync(
+    accountId: string,
+    { force = true }: PlayerSyncRequestOptions = {},
+  ): Promise<SyncJob> {
     const jobId = `job-${accountId}`;
     const existingRequest = this.#requests.get(jobId);
-    if (existingRequest) return existingRequest;
-    const request = this.#requestSync(accountId).finally(() => this.#requests.delete(jobId));
-    this.#requests.set(jobId, request);
+    if (existingRequest && (!force || existingRequest.force)) {
+      return existingRequest.promise;
+    }
+    const request = (existingRequest?.promise ?? Promise.resolve(undefined))
+      .then((existingJob) =>
+        existingJob?.status === "syncing"
+          ? existingJob
+          : this.#requestSync(accountId, force),
+      )
+      .finally(() => {
+        if (this.#requests.get(jobId)?.promise === request) this.#requests.delete(jobId);
+      });
+    this.#requests.set(jobId, { force, promise: request });
     return request;
   }
 
-  async #requestSync(accountId: string): Promise<SyncJob> {
+  async #requestSync(accountId: string, force: boolean): Promise<SyncJob> {
     const jobId = `job-${accountId}`;
     if (this.#inFlight.has(jobId)) {
       const existing = await this.#repository.getSyncJob(jobId);
@@ -317,7 +345,35 @@ export class PlayerSyncService {
     }
 
     const requestedAt = this.#clock().toISOString();
-    const previousProfile = await this.#repository.getPlayer(accountId);
+    const [previousProfile, previousBatch, previousJob] = await Promise.all([
+      this.#repository.getPlayer(accountId),
+      force ? Promise.resolve(undefined) : this.#repository.getPlayerSyncBatch(accountId),
+      force ? Promise.resolve(undefined) : this.#repository.getSyncJob(jobId),
+    ]);
+    const hasFreshReadableData =
+      !force &&
+      previousProfile !== undefined &&
+      (previousProfile.status === "public_complete" ||
+        previousProfile.status === "public_partial") &&
+      previousBatch !== undefined &&
+      Date.parse(requestedAt) - Date.parse(previousBatch.fetchedAt) >= 0 &&
+      Date.parse(requestedAt) - Date.parse(previousBatch.fetchedAt) < PLAYER_SYNC_TTL_MS;
+    if (hasFreshReadableData) {
+      if (
+        previousJob?.status === "public_complete" ||
+        previousJob?.status === "public_partial"
+      ) {
+        return previousJob;
+      }
+      return {
+        jobId,
+        accountId,
+        status: previousProfile.status,
+        requestedAt: previousBatch.fetchedAt,
+        completedAt: previousBatch.fetchedAt,
+        errorCode: null,
+      };
+    }
     const job: SyncJob = {
       jobId,
       accountId,
@@ -327,11 +383,7 @@ export class PlayerSyncService {
       errorCode: null,
     };
     await this.#repository.upsertSyncJob(job);
-    const hasReadableImportedProfile =
-      previousProfile !== undefined &&
-      previousProfile.importedMatchCount > 0 &&
-      (previousProfile.status === "public_complete" || previousProfile.status === "public_partial");
-    if (!hasReadableImportedProfile) {
+    if (!hasReadableImportedProfile(previousProfile)) {
       await this.#repository.upsertPlayer(asPlayerProfile(accountId, "syncing", previousProfile));
     }
 
@@ -348,7 +400,8 @@ export class PlayerSyncService {
   }
 
   async close(): Promise<void> {
-    await Promise.all([...this.#requests.values(), ...this.#inFlight.values()]);
+    await Promise.all([...this.#requests.values()].map(({ promise }) => promise));
+    await Promise.all(this.#inFlight.values());
   }
 
   async #execute(job: SyncJob, previousProfile: PlayerProfile | undefined): Promise<void> {
@@ -547,9 +600,11 @@ export class PlayerSyncService {
           error.code === "DOTA2_OFFICIAL_RATE_LIMITED"
             ? "source_rate_limited"
             : "source_unavailable";
-        await this.#repository.upsertPlayer(
-          asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
-        );
+        if (!hasReadableImportedProfile(previousProfile)) {
+          await this.#repository.upsertPlayer(
+            asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
+          );
+        }
         await this.#repository.upsertPlayerSyncFailure({
           accountId: job.accountId,
           source: "dota2_official",
@@ -569,7 +624,7 @@ export class PlayerSyncService {
       }
       if (error instanceof OpenDotaProviderError) {
         const status = statusForProviderError(error);
-        if (error.qualityContext) {
+        if (error.qualityContext && !hasReadableImportedProfile(previousProfile)) {
           await this.#repository.upsertPlayerSyncBatch({
             accountId: job.accountId,
             eligibleCount: error.qualityContext.eligibleCount,
@@ -583,9 +638,15 @@ export class PlayerSyncService {
             candidateLedger: error.qualityContext.candidateLedger,
           });
         }
-        await this.#repository.upsertPlayer(
-          asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
-        );
+        const transientFailure =
+          status === "source_rate_limited" ||
+          status === "source_unavailable" ||
+          status === "parse_pending";
+        if (!hasReadableImportedProfile(previousProfile) || !transientFailure) {
+          await this.#repository.upsertPlayer(
+            asPlayerProfile(job.accountId, status, fetchedProfile ?? previousProfile),
+          );
+        }
         await this.#repository.upsertPlayerSyncFailure({
           accountId: job.accountId,
           source: "opendota",
@@ -602,9 +663,11 @@ export class PlayerSyncService {
         return;
       }
 
-      await this.#repository.upsertPlayer(
-        asPlayerProfile(job.accountId, "failed", fetchedProfile ?? previousProfile),
-      );
+      if (!hasReadableImportedProfile(previousProfile)) {
+        await this.#repository.upsertPlayer(
+          asPlayerProfile(job.accountId, "failed", fetchedProfile ?? previousProfile),
+        );
+      }
       await this.#repository.upsertPlayerSyncFailure({
         accountId: job.accountId,
         source: "opendota",

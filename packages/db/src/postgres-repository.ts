@@ -804,7 +804,7 @@ export class PostgresDodoRepository implements DodoRepository {
       quality: match.quality,
     }));
     await sql`
-      insert into dodo.matches
+      insert into dodo.matches as stored_match
         (id, payload, start_time, imported_at, source, quality, updated_at)
       select id, payload, start_time, imported_at, source, quality, now()
       from jsonb_to_recordset(${sql.json(toJson(matchRows))}::jsonb)
@@ -816,6 +816,10 @@ export class PostgresDodoRepository implements DodoRepository {
         payload = excluded.payload, start_time = excluded.start_time,
         imported_at = excluded.imported_at, source = excluded.source,
         quality = excluded.quality, updated_at = now()
+      where stored_match.payload is distinct from excluded.payload
+        or stored_match.start_time is distinct from excluded.start_time
+        or stored_match.source is distinct from excluded.source
+        or stored_match.quality is distinct from excluded.quality
     `;
     const associationByKey = new Map<string, { account_id: string; match_id: string; start_time: string }>();
     for (const entry of merged.flatMap((match) => {
@@ -848,7 +852,7 @@ export class PostgresDodoRepository implements DodoRepository {
       match.detail,
     );
     await sql`
-      insert into dodo.matches
+      insert into dodo.matches as stored_match
         (id, payload, start_time, imported_at, source, quality, updated_at)
       values (
         ${detail.id}, ${sql.json(toJson(detail))}, ${detail.startTime}, ${match.importedAt},
@@ -861,6 +865,10 @@ export class PostgresDodoRepository implements DodoRepository {
         source = excluded.source,
         quality = excluded.quality,
         updated_at = now()
+      where stored_match.payload is distinct from excluded.payload
+        or stored_match.start_time is distinct from excluded.start_time
+        or stored_match.source is distinct from excluded.source
+        or stored_match.quality is distinct from excluded.quality
     `;
     if (!indexPlayers) return;
     const accountIds = [...new Set(detail.players.flatMap((player) => player.accountId ?? []))];

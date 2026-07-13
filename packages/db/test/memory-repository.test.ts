@@ -234,6 +234,18 @@ describe("MemoryDodoRepository", () => {
     expect((await repository.getMatch(match.detail.id))?.detail.players).toHaveLength(10);
   });
 
+  it("does not replace an unchanged match only to advance its import timestamp", async () => {
+    const repository = await createSeedRepository();
+    const match = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+
+    await repository.upsertMatch({
+      ...match,
+      importedAt: "2026-07-13T12:00:00.000Z",
+    });
+
+    expect((await repository.getMatch(match.detail.id))?.importedAt).toBe(match.importedAt);
+  });
+
   it("detects legacy match players by own neutral enhancement property", async () => {
     const repository = await createSeedRepository();
     const match = await repository.getMatch("9000000000");

@@ -49,6 +49,7 @@ export function PlayerSyncControl({
           tone: "neutral",
         }),
         signal: controller.signal,
+        trigger: force ? "manual" : "automatic",
       });
       const presentation = playerSyncPresentation(job.status);
       setState({ ...presentation, running: false });

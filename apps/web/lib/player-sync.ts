@@ -28,6 +28,7 @@ type RunPlayerSyncOptions = {
   pollIntervalMs?: number;
   requestTimeoutMs?: number;
   signal?: AbortSignal;
+  trigger?: "automatic" | "manual";
   wait?: Wait;
 };
 
@@ -172,7 +173,11 @@ export async function startAndPollPlayerSync(
     options.onProgress?.({ phase: "starting" });
     let job = await requestJob(
       `/api/players/${encodeURIComponent(accountId)}/sync`,
-      { method: "POST" },
+      {
+        body: JSON.stringify({ trigger: options.trigger ?? "manual" }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
       signal,
       fetcher,
       requestTimeoutMs,

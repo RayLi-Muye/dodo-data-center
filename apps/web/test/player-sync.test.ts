@@ -52,6 +52,24 @@ describe("player sync workflow", () => {
       "/api/sync-jobs/job-123456789",
       "/api/sync-jobs/job-123456789",
     ]);
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      body: JSON.stringify({ trigger: "manual" }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+  });
+
+  it("sends canonical automatic and manual sync triggers", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jobResponse("public_complete"));
+
+    await startAndPollPlayerSync("123456789", { fetcher, trigger: "automatic" });
+    await startAndPollPlayerSync("123456789", { fetcher, trigger: "manual" });
+
+    expect(fetcher.mock.calls.map(([, init]) => init?.body)).toEqual([
+      JSON.stringify({ trigger: "automatic" }),
+      JSON.stringify({ trigger: "manual" }),
+    ]);
   });
 
   it("keeps privacy, rate-limit, unavailable, and failed outcomes non-navigable", () => {

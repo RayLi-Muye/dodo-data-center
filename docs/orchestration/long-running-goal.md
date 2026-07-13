@@ -2,6 +2,18 @@
 
 本文件约束 Dodo 长时间开发 Goal 的执行、检查点和自动恢复行为。
 
+## Active goal: five-stage MVP hardening
+
+当前 Goal 按以下顺序推进；前一阶段达到 Root 与 QA 门禁后才进入下一阶段，但不依赖同一上游的任务可以并行审计：
+
+1. OpenDota 自动同步：有限重试、请求合并、30 分钟 freshness、无变化不写入，以及 `main` 自动部署基线。
+2. STRATZ 自动增强：确认 Railway `403` 的服务端访问方案；不得使用代理绕过上游限制，未解决时保持 OpenDota 降级。
+3. 英雄、物品和更新百科：清理 legacy rows、简中或双语、保留未完全解析天赋并扩展官方字段。
+4. 比赛详情：加点、购买时间线、来源完整度与批量回填状态。
+5. 地图百科：只接受版本化、可审计的静态地图快照；热图和 replay parser 仍不属于 MVP。
+
+每阶段完成条件：相关包测试、全仓 typecheck、真实 PostgreSQL、生产 build、真实账号 `224328273`、QA 无 P0/P1、GitHub PR 与海外部署验证。
+
 ## Delivery loop
 
 每个垂直切片都必须依次完成：

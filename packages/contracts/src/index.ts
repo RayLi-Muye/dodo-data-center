@@ -85,6 +85,10 @@ export const itemIdParamsSchema = z.object({ itemId: identifierSchema });
 export const matchIdParamsSchema = z.object({ matchId: identifierSchema });
 export const syncJobParamsSchema = z.object({ jobId: identifierSchema });
 
+export const playerSyncRequestSchema = z.object({
+  trigger: z.enum(["automatic", "manual"]).default("manual"),
+}).default({ trigger: "manual" });
+
 export const paginationQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),

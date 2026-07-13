@@ -90,7 +90,12 @@ export class MemoryDodoRepository implements DodoRepository {
       ...match,
       detail: mergeMatchDetails(existing?.detail, match.detail),
     });
-    this.#matches.set(match.detail.id, stored);
+    const contentChanged =
+      !existing ||
+      existing.source !== stored.source ||
+      existing.quality !== stored.quality ||
+      JSON.stringify(existing.detail) !== JSON.stringify(stored.detail);
+    if (contentChanged) this.#matches.set(match.detail.id, stored);
     for (const player of stored.detail.players) {
       if (player.accountId === null) continue;
       const matchIds = this.#playerMatchIds.get(player.accountId) ?? new Set<string>();

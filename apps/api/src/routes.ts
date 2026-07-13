@@ -10,6 +10,7 @@ import {
   paginationQuerySchema,
   playerHeroesQuerySchema,
   playerMatchesQuerySchema,
+  playerSyncRequestSchema,
   playerWindowQuerySchema,
   syncJobParamsSchema,
 } from "@dodo/contracts";
@@ -98,9 +99,6 @@ const canonicalizeSyncJobId = (jobId: string, errorMeta: ErrorMeta): string => {
   const match = /^job-(\d+)$/.exec(jobId);
   return match?.[1] ? `job-${canonicalizeAccountId(match[1], errorMeta)}` : jobId;
 };
-
-const qualityForProfile = (profile: PlayerProfile): "complete" | "partial" =>
-  profile.status === "public_complete" ? "complete" : "partial";
 
 const profileStatusError = async (
   profile: PlayerProfile,
@@ -480,8 +478,34 @@ export const registerRoutes = async (
       ),
     );
   const playerDescriptor = async (accountId: string): Promise<MetaDescriptor> => {
-    const batch = await repository.getPlayerSyncBatch(accountId);
-    return batch ? descriptorFromBatch(batch) : defaultDescriptor();
+    const [batch, failure, job, profile] = await Promise.all([
+      repository.getPlayerSyncBatch(accountId),
+      repository.getPlayerSyncFailure(accountId),
+      repository.getSyncJob(`job-${accountId}`),
+      repository.getPlayer(accountId),
+    ]);
+    if (!batch) {
+      const descriptor = await defaultDescriptor();
+      return profile?.status === "public_partial"
+        ? { ...descriptor, quality: "partial" }
+        : descriptor;
+    }
+    const failedAfterBatch =
+      failure !== undefined &&
+      Date.parse(failure.checkedAt) >= Date.parse(batch.fetchedAt) &&
+      job !== undefined &&
+      job.status !== "syncing" &&
+      job.status !== "public_complete" &&
+      job.status !== "public_partial";
+    if (!failedAfterBatch) return descriptorFromBatch(batch);
+    return {
+      updatedAt: failure.checkedAt,
+      sources: [failure.source],
+      quality:
+        job.status === "source_unavailable" || job.status === "failed"
+          ? "stale"
+          : "partial",
+    };
   };
   const playerErrorMeta = async (
     accountId: string,
@@ -524,10 +548,14 @@ export const registerRoutes = async (
   });
 
   app.post("/v1/players/:accountId/sync", async (request, reply) => {
-    const accountId = parseAccountId(request.params, await defaultErrorMeta());
+    const errorMeta = await defaultErrorMeta();
+    const accountId = parseAccountId(request.params, errorMeta);
+    const { trigger } = parse(playerSyncRequestSchema, request.body, errorMeta);
     if (dataMode === "live") {
       if (!syncService) throw new Error("Live data mode requires a player sync service");
-      const job = await syncService.requestSync(accountId);
+      const job = await syncService.requestSync(accountId, {
+        force: trigger === "manual",
+      });
       return reply.code(202).send({
         data: job,
         meta: createOperationMeta({
@@ -656,7 +684,7 @@ export const registerRoutes = async (
       query.patch,
     );
     const descriptor = descriptorWithMatchSources(
-      batch ? descriptorFromBatch(batch) : await defaultDescriptor(),
+      await playerDescriptor(accountId),
       selectedMatches,
     );
     return {
@@ -672,7 +700,7 @@ export const registerRoutes = async (
         exclusionReasons: qualityWindow.exclusionReasons,
         filtersApplied: { window: query.window, patch: query.patch ?? null },
         inputWatermark: selectedMatches[0]?.detail.startTime ?? null,
-        quality: batch?.quality ?? qualityForProfile(profile),
+        quality: descriptor.quality,
         updatedAt: descriptor.updatedAt,
         sources: descriptor.sources,
         metricVersion: dataMode === "live" ? "player-v1" : "seed-v1",
@@ -683,7 +711,7 @@ export const registerRoutes = async (
   app.get("/v1/players/:accountId/matches", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const accountId = parseAccountId(request.params, errorMeta);
-    const profile = await accessiblePlayer(accountId);
+    await accessiblePlayer(accountId);
     const query = parse(playerMatchesQuerySchema, request.query, errorMeta);
     const batch = await repository.getPlayerSyncBatch(accountId);
     const selectedMatches = selectWindow(
@@ -702,6 +730,10 @@ export const registerRoutes = async (
       (match) => match.detail.id,
       errorMeta,
     );
+    const descriptor = descriptorWithMatchSources(
+      await playerDescriptor(accountId),
+      page.items,
+    );
     return {
       data: {
         items: page.items.map((match) => toMatchSummary(match.detail, accountId)),
@@ -709,11 +741,7 @@ export const registerRoutes = async (
       },
       meta: {
         ...createOperationMeta({
-          ...descriptorWithMatchSources(
-            await playerDescriptor(accountId),
-            page.items,
-          ),
-          quality: batch?.quality ?? qualityForProfile(profile),
+          ...descriptor,
         }),
         filtersApplied: {
           window: query.window,
@@ -732,7 +760,7 @@ export const registerRoutes = async (
   app.get("/v1/players/:accountId/heroes", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const accountId = parseAccountId(request.params, errorMeta);
-    const profile = await accessiblePlayer(accountId);
+    await accessiblePlayer(accountId);
     const query = parse(playerHeroesQuerySchema, request.query, errorMeta);
     const matches = await listVersionedMatches(accountId);
     const batch = await repository.getPlayerSyncBatch(accountId);
@@ -750,7 +778,7 @@ export const registerRoutes = async (
       query.patch,
     );
     const descriptor = descriptorWithMatchSources(
-      batch ? descriptorFromBatch(batch) : await defaultDescriptor(),
+      await playerDescriptor(accountId),
       selectedMatches,
     );
     const sampleSize = qualityWindow.sampleSize;
@@ -765,7 +793,7 @@ export const registerRoutes = async (
         exclusionReasons: qualityWindow.exclusionReasons,
         filtersApplied: { window: query.window, patch: query.patch ?? null },
         inputWatermark: selectedMatches[0]?.detail.startTime ?? null,
-        quality: batch?.quality ?? qualityForProfile(profile),
+        quality: descriptor.quality,
         updatedAt: descriptor.updatedAt,
         sources: descriptor.sources,
         metricVersion: dataMode === "live" ? "player-hero-v1" : "seed-v1",
@@ -778,7 +806,7 @@ export const registerRoutes = async (
     const accountId = parseAccountId(request.params, errorMeta);
     const { heroId } = parse(heroIdParamsSchema, request.params, errorMeta);
     const { window, patch } = parse(playerWindowQuerySchema, request.query, errorMeta);
-    const profile = await accessiblePlayer(accountId);
+    await accessiblePlayer(accountId);
     const hero = await repository.getHero(heroId);
     if (!hero) {
       throw new ApiHttpError(404, "NOT_FOUND", "Hero was not found.", false, errorMeta);
@@ -820,8 +848,7 @@ export const registerRoutes = async (
             ),
           )?.detail.startTime ?? null,
         filtersApplied: { window, patch: patch ?? null, heroId },
-        quality:
-          (await repository.getPlayerSyncBatch(accountId))?.quality ?? qualityForProfile(profile),
+        quality: descriptor.quality,
         updatedAt: descriptor.updatedAt,
         sources: descriptor.sources,
         metricVersion: dataMode === "live" ? "player-hero-v1" : "seed-v1",

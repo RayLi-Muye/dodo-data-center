@@ -20,7 +20,7 @@ GET  /v1/updates?cursor=&limit=
 GET  /v1/updates/{version}
 ```
 
-`POST /sync` 返回 `202` 和 `jobId`，不得让 HTTP 请求等待全量同步。
+`POST /sync` 接收可选请求体 `{ "trigger": "automatic" | "manual" }`，省略时保持向后兼容并视为 `manual`。`automatic` 必须在服务端再次检查 30 分钟 freshness，新鲜的可读数据不得调用上游；`manual` 始终允许强制刷新。接口返回 `202` 和 `jobId`，不得让 HTTP 请求等待全量同步。
 
 `POST /history-sync` 每次在后台导入一个有界历史批次，使用持久化 `nextOffset` 继续；重复请求不得重复计数。`GET /history-sync` 返回批次数、累计导入数、最早比赛、是否到达上游末端和错误状态。普通最新比赛同步必须追加/更新最近记录，不得删除历史回填得到的旧比赛。
 
@@ -47,6 +47,7 @@ GET  /v1/updates/{version}
 - 单场比赛的 `parse_pending` 仅限制 replay 派生能力，基础比赛详情仍可成功返回并明确 parse 状态。
 - 玩家同步若因所有候选比赛缺少核心字段而进入 `parse_pending`，玩家统计请求返回 HTTP 409 `PARSE_PENDING`，不得返回 200 空统计；同步任务将同名错误码写入 `errorCode`。
 - 当前没有经过来源验证的地图时，地图请求返回 HTTP 503 `MAP_UNAVAILABLE`；不得用 seed、空 geometry 或 complete meta 代替。
+- 已有成功快照后发生 timeout、429、5xx 或内部瞬时失败时，旧玩家数据继续返回 200，并通过 `quality=partial|stale`、同步任务与 provider health 表达失败。`PROFILE_PRIVATE`、`HISTORY_PRIVATE` 与 `NOT_FOUND` 不是可保留旧公开数据的瞬时失败，必须更新访问状态并阻断读取。
 
 列表响应的 `data` 必须包含 `items` 与 `nextCursor`；无下一页时 `nextCursor=null`。`cursor` 是 opaque string，客户端不得解析。
 

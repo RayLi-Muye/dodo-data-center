@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dodo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dodo_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: node supabase/tests/static-schema-check.mjs
+      - name: Apply migrations to the test database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d dodo_test -v ON_ERROR_STOP=1 \
+            -c 'create role anon' \
+            -c 'create role authenticated' \
+            -c 'create role service_role'
+          for migration in supabase/migrations/*.sql; do
+            psql -h 127.0.0.1 -U postgres -d dodo_test -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: PostgreSQL repository tests
+        env:
+          DODO_ALLOW_TEST_DB_RESET: "1"
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dodo_test
+        run: pnpm --filter @dodo/db test

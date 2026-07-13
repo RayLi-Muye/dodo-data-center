@@ -295,6 +295,29 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(stored?.detail.players.some((candidate) => candidate.accountId === SEED_ACCOUNT_ID)).toBe(true);
   });
 
+  it("does not update an unchanged match row for a newer import timestamp", async () => {
+    const fixtures = await createSeedRepository();
+    const match = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch(match);
+    const [before] = await admin<
+      { imported_at: Date; updated_at: Date }[]
+    >`
+      select imported_at, updated_at from dodo.matches where id = ${match.detail.id}
+    `;
+
+    await repository.upsertMatch({
+      ...match,
+      importedAt: "2026-07-13T12:00:00.000Z",
+    });
+    const [after] = await admin<
+      { imported_at: Date; updated_at: Date }[]
+    >`
+      select imported_at, updated_at from dodo.matches where id = ${match.detail.id}
+    `;
+
+    expect(after).toEqual(before);
+  });
+
   it("reads legacy match JSON into separated version and neutral fields", async () => {
     const fixtures = await createSeedRepository();
     const stored = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;

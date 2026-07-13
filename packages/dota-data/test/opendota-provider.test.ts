@@ -28,12 +28,14 @@ function providerFor(body: unknown, status = 200, headers?: HeadersInit) {
   const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
     jsonResponse(body, status, headers),
   );
+  const sleep = vi.fn(async (_delayMs: number) => undefined);
   const provider = new OpenDotaProvider({
     baseUrl: "https://opendota.fixture/api/",
     fetchImpl,
     clock: () => NOW,
+    sleep,
   });
-  return { provider, fetchImpl };
+  return { provider, fetchImpl, sleep };
 }
 
 function providerForHeroAbilities({
@@ -593,7 +595,7 @@ describe("OpenDotaProvider", () => {
       .rejects.toMatchObject({
         code: "SOURCE_UNAVAILABLE",
         reason: "invalid_response",
-        retryable: true,
+        retryable: false,
       });
   });
 
@@ -617,7 +619,7 @@ describe("OpenDotaProvider", () => {
     await expect(providerFor([]).provider.getPatchConstants()).rejects.toMatchObject({
       code: "SOURCE_UNAVAILABLE",
       reason: "invalid_response",
-      retryable: true,
+      retryable: false,
     });
   });
 
@@ -631,7 +633,7 @@ describe("OpenDotaProvider", () => {
     await expect(providerFor(payload).provider.getPatchConstants()).rejects.toMatchObject({
       code: "SOURCE_UNAVAILABLE",
       reason: "invalid_response",
-      retryable: true,
+      retryable: false,
     });
   });
 
@@ -663,13 +665,16 @@ describe("OpenDotaProvider", () => {
   });
 
   it("classifies invalid upstream JSON independently from network failure", async () => {
+    const fetchImpl = vi.fn(async () => new Response("not-json", { status: 200 }));
     const provider = new OpenDotaProvider({
-      fetchImpl: async () => new Response("not-json", { status: 200 }),
+      fetchImpl,
     });
     await expect(provider.getPlayerProfile("123456789")).rejects.toMatchObject({
       code: "SOURCE_UNAVAILABLE",
       reason: "invalid_response",
+      retryable: false,
     });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("classifies a valid JSON response with an invalid shape", async () => {
@@ -681,16 +686,21 @@ describe("OpenDotaProvider", () => {
   });
 
   it("classifies network errors", async () => {
+    const sleep = vi.fn(async (_delayMs: number) => undefined);
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("offline");
+    });
     const provider = new OpenDotaProvider({
-      fetchImpl: async () => {
-        throw new TypeError("offline");
-      },
+      fetchImpl,
+      sleep,
     });
     await expect(provider.getPlayerProfile("123456789")).rejects.toMatchObject({
       code: "SOURCE_UNAVAILABLE",
       reason: "network",
       retryable: true,
     });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
   });
 
   it("aborts and classifies timed out requests", async () => {
@@ -702,7 +712,8 @@ describe("OpenDotaProvider", () => {
           );
         }),
     );
-    const provider = new OpenDotaProvider({ fetchImpl, timeoutMs: 5 });
+    const sleep = vi.fn(async (_delayMs: number) => undefined);
+    const provider = new OpenDotaProvider({ fetchImpl, timeoutMs: 5, sleep });
 
     await expect(provider.getPlayerProfile("123456789")).rejects.toMatchObject({
       code: "SOURCE_UNAVAILABLE",
@@ -710,6 +721,100 @@ describe("OpenDotaProvider", () => {
       retryable: true,
     });
     expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
+
+  it("retries once after a first-attempt timeout and then succeeds", async () => {
+    const fetchImpl = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          if (fetchImpl.mock.calls.length === 1) {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+            return;
+          }
+          resolve(jsonResponse(publicProfileFixture));
+        }),
+    );
+    const sleep = vi.fn(async (_delayMs: number) => undefined);
+    const provider = new OpenDotaProvider({ fetchImpl, sleep, timeoutMs: 5 });
+
+    await expect(provider.getPlayerProfile("123456789")).resolves.toMatchObject({
+      accountId: "123456789",
+      status: "public_complete",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
+  it("retries once after a first-attempt HTTP 503 and then succeeds", async () => {
+    const fetchImpl = vi
+      .fn(async () => jsonResponse(publicProfileFixture))
+      .mockResolvedValueOnce(jsonResponse({}, 503));
+    const sleep = vi.fn(async (_delayMs: number) => undefined);
+    const provider = new OpenDotaProvider({ fetchImpl, sleep });
+
+    await expect(provider.getPlayerProfile("123456789")).resolves.toMatchObject({
+      accountId: "123456789",
+      status: "public_complete",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
+  it("honors Retry-After within the bounded retry delay", async () => {
+    const fetchImpl = vi
+      .fn(async () => jsonResponse(publicProfileFixture))
+      .mockResolvedValueOnce(jsonResponse({}, 429, { "retry-after": "30" }))
+      .mockResolvedValueOnce(jsonResponse(publicProfileFixture));
+    const sleep = vi.fn(async (_delayMs: number) => undefined);
+    const provider = new OpenDotaProvider({ fetchImpl, sleep, clock: () => NOW });
+
+    await expect(provider.getPlayerProfile("123456789")).resolves.toMatchObject({
+      accountId: "123456789",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(10_000);
+  });
+
+  it.each([
+    { name: "not found", body: {}, status: 404, reason: "not_found" },
+    {
+      name: "private profile",
+      body: { profile: null },
+      status: 200,
+      reason: "profile_unavailable",
+    },
+    { name: "invalid payload", body: { profile: [] }, status: 200, reason: "invalid_response" },
+  ])("does not retry a $name response", async ({ body, status, reason }) => {
+    const { provider, fetchImpl, sleep } = providerFor(body, status);
+
+    await expect(provider.getPlayerProfile("123456789")).rejects.toMatchObject({
+      reason,
+      retryable: false,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("keeps the final retryable failure classification after attempts are exhausted", async () => {
+    const fetchImpl = vi
+      .fn(async () => jsonResponse({}, 503))
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce(jsonResponse({}, 503));
+    const sleep = vi.fn(async (_delayMs: number) => undefined);
+    const provider = new OpenDotaProvider({ fetchImpl, sleep });
+
+    await expect(provider.getPlayerProfile("123456789")).rejects.toMatchObject({
+      code: "SOURCE_UNAVAILABLE",
+      reason: "upstream_5xx",
+      status: 503,
+      retryable: true,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
   });
 
   it("exposes typed provider errors", () => {

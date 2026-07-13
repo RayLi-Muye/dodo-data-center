@@ -19,6 +19,9 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.opendota.com/api/";
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_ATTEMPTS = 2;
+const DEFAULT_RETRY_DELAY_MS = 250;
+const MAX_RETRY_DELAY_MS = 10_000;
 const DEFAULT_RECENT_MATCH_LIMIT = 100;
 const REQUIRED_RECENT_MATCH_FIELDS = [
   "match_id",
@@ -49,6 +52,7 @@ const REQUIRED_MATCH_PLAYER_FIELDS = [
 ] as const;
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Sleep = (delayMs: number) => Promise<void>;
 type JsonRecord = Record<string, unknown>;
 
 export type OpenDotaProviderConfig = {
@@ -57,6 +61,7 @@ export type OpenDotaProviderConfig = {
   timeoutMs?: number;
   fetchImpl?: FetchLike;
   clock?: () => Date;
+  sleep?: Sleep;
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -68,7 +73,7 @@ function payloadError(message: string): never {
     "SOURCE_UNAVAILABLE",
     "invalid_response",
     message,
-    true,
+    false,
   );
 }
 
@@ -316,6 +321,30 @@ function parseRetryAfter(value: string | null, now: Date): number | null {
   return Math.max(1, Math.ceil((retryAt - now.getTime()) / 1_000));
 }
 
+function isRetryableRequestError(error: OpenDotaProviderError): boolean {
+  return (
+    error.reason === "network" ||
+    error.reason === "timeout" ||
+    error.reason === "rate_limited" ||
+    error.reason === "upstream_5xx"
+  );
+}
+
+function retryDelayMs(error: OpenDotaProviderError, failedAttempt: number): number {
+  const backoffMs = Math.min(
+    DEFAULT_RETRY_DELAY_MS * 2 ** failedAttempt,
+    MAX_RETRY_DELAY_MS,
+  );
+  const requestedDelayMs = error.retryAfterSeconds === null
+    ? backoffMs
+    : error.retryAfterSeconds * 1_000;
+  return Math.min(requestedDelayMs, MAX_RETRY_DELAY_MS);
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 function formatAttributeValue(value: unknown): string {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -330,6 +359,7 @@ export class OpenDotaProvider {
   private readonly timeoutMs: number;
   private readonly fetchImpl: FetchLike;
   private readonly clock: () => Date;
+  private readonly sleep: Sleep;
 
   constructor(config: OpenDotaProviderConfig = {}) {
     const baseUrl = new URL(config.baseUrl ?? DEFAULT_BASE_URL);
@@ -342,6 +372,7 @@ export class OpenDotaProvider {
     }
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.clock = config.clock ?? (() => new Date());
+    this.sleep = config.sleep ?? defaultSleep;
   }
 
   async getPlayerProfile(accountId: string): Promise<CanonicalPlayerProfile> {
@@ -365,7 +396,7 @@ export class OpenDotaProvider {
         "SOURCE_UNAVAILABLE",
         "invalid_response",
         "OpenDota returned a profile for a different account",
-        true,
+        false,
       );
     }
 
@@ -769,15 +800,37 @@ export class OpenDotaProvider {
 
   private async requestJson(path: string): Promise<{ payload: unknown; fetchedAt: Date }> {
     const url = new URL(path, this.baseUrl);
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (this.apiKey !== null) headers.Authorization = `Bearer ${this.apiKey}`;
+
+    for (let attempt = 0; attempt < DEFAULT_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.requestJsonAttempt(url, headers);
+      } catch (error) {
+        if (
+          !(error instanceof OpenDotaProviderError) ||
+          !isRetryableRequestError(error) ||
+          attempt === DEFAULT_MAX_ATTEMPTS - 1
+        ) {
+          throw error;
+        }
+        await this.sleep(retryDelayMs(error, attempt));
+      }
+    }
+
+    throw new Error("OpenDota retry attempts were unexpectedly exhausted");
+  }
+
+  private async requestJsonAttempt(
+    url: URL,
+    headers: Record<string, string>,
+  ): Promise<{ payload: unknown; fetchedAt: Date }> {
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
     }, this.timeoutMs);
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (this.apiKey !== null) headers.Authorization = `Bearer ${this.apiKey}`;
-
     try {
       const response = await this.fetchImpl(url, {
         method: "GET",
