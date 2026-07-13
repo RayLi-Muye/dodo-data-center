@@ -20,7 +20,7 @@
 | DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | ACCEPTED |
 | MAP-016A audited static map foundation | Root / Data / API / Web Agents | 严格 geometry、审计哈希、原子存储与 honest UI | DATA-014 | ACCEPTED |
-| MAP-016C conservative official-version invalidation | Root / Data / API Agents | latest raw Patch 与 current map 复核门禁 | MAP-016A | REVIEW |
+| MAP-016C conservative official-version invalidation | Root / Data / API Agents | latest raw Patch 与 current map 复核门禁 | MAP-016A | ACCEPTED |
 | MAP-016B lawful current map snapshot | Root / Data Agents | 当前 App 570 地图快照与 manifest/resource 监测 | MAP-016A、MAP-016C、合法来源与下载授权 | BLOCKED |
 
 ### Wave 12 phase 2 checkpoint
@@ -74,6 +74,7 @@
 - 官方 patch 索引刷新成功后，只要最新 raw 官方版本与 curated map 的已验证 `patch` 不同就原子撤销 current；历史行与审计 snapshot 保留，seed 豁免，重复执行幂等，官方请求失败不作为失效证据。该保守策略表示“需要重新验证”，不声称地图确实改变。
 - 不受展示格式支持的新 hotfix 仍从公开 Patch 列表排除并将目录标为 partial，但会作为 `officialVersion` 触发上述失效。无 patch note 的 build-only hotfix 仍需未来 App 570 manifest/resource hash 监测；该能力与真实快照使用同一外部来源门禁。
 - MAP-016C 本地门禁通过：全仓 typecheck、366 项常规测试、生产 build、43 项 schema 检查与真实 PostgreSQL 37/37；最终 QA P0/P1/P2 代码问题均为 0。剩余激活阻塞只有合法 App 570 快照与 build/depot manifest/resource-hash 监测。
+- PR #10 的 GitHub verify 与 Vercel Preview 通过后合并。Railway deployment `11d386b1-7c3b-4ba8-acb8-b24f9fc971f4` success；Vercel production `web-h66l7xkxs-rays-projects-f956e95b.vercel.app` ready。生产 readiness 200、最新 Patch 7.41d、地图继续 503 `MAP_UNAVAILABLE`；账号 `224328273` 的 100 场 complete 统计仍为 200 且来源保留 OpenDota/STRATZ。MAP-016C 接受。
 - MAP-016A 最终本地门禁通过：全仓 typecheck、358 项常规测试、生产 build、43 项 schema 检查及真实 PostgreSQL 35/35；修复后 QA P0/P1 均为 0。浏览器确认 seed 页面明确显示 `PARTIAL`、11 类逐项排除与 test-only 来源，console 无 error/warning。
 - PR #8 的 GitHub verify 与 Vercel Preview 均通过后合并。Railway deployment `df59f6fa-270f-4d8c-829b-4ea331dcd023` success；Vercel production `web-n3mqu73ov-rays-projects-f956e95b.vercel.app` ready。
 - 生产 API readiness 为 200，`/v1/maps/current` 明确返回 503 `MAP_UNAVAILABLE`；生产地图页显示“当前地图资料不可用”且说明不会用示例数据冒充。账号 `224328273` 仍可读取已导入比赛、100 场统计与英雄分布，地图页和账号页浏览器 console 均无 error/warning。MAP-016A 接受，MAP-016B 保持外部来源阻塞。
