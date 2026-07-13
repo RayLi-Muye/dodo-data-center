@@ -163,8 +163,10 @@ describe("Web UI copy and touch contract", () => {
       expect(page).toContain("<QualityNotice");
       expect(page).toContain("showComplete");
     }
-    expect(itemList).toContain("itemKindLabel[item.kind]");
-    expect(itemList).toContain("availabilityLabel[item.availabilityStatus]");
+    expect(heroList).toContain("collectAllHeroesWithMeta");
+    expect(itemList).toContain("collectAllItemsWithMeta");
+    expect(itemList).toContain('item.kind !== "recipe"');
+    expect(itemList).toContain('label: "其他当前物品"');
     expect(itemDetail).toContain('item.data.availabilityStatus === "unverified"');
     expect(itemDetail).toContain("官方定义存在不等于当前商店可购买");
     expect(patchesPage).toContain("updatedAt={detail.meta.updatedAt}");
@@ -172,17 +174,36 @@ describe("Web UI copy and touch contract", () => {
 
   it("localizes official hero roles and marks unavailable snapshot descriptions", () => {
     const heroList = source("../app/heroes/page.tsx");
+    const heroBrowser = source("../components/hero-catalog-browser.tsx");
     const heroDetail = source("../app/heroes/[heroId]/page.tsx");
     const itemDetail = source("../app/items/[itemId]/page.tsx");
     const patchesPage = source("../app/patches/page.tsx");
 
-    expect(heroList).toContain('hero.roles.map(heroRoleLabel).join(" / ")');
+    expect(heroList).toContain("<HeroCatalogBrowser");
+    expect(heroBrowser).toContain("map(heroRoleLabel)");
     expect(heroDetail).toContain("heroRoleLabel(role)");
     expect(heroDetail).toContain("officialDescription(ability.description)");
     expect(heroDetail).toContain("officialDescription(facet.description)");
     expect(itemDetail).toContain("officialDescription(item.data.description)");
     expect(patchesPage).toContain('detail.data.contentStatus === "partial"');
     expect(patchesPage).toContain('title="更新正文仅部分可用"');
+  });
+
+  it("shows all heroes in official attribute groups and preserves local custom groups", () => {
+    const heroList = source("../app/heroes/page.tsx");
+    const heroBrowser = source("../components/hero-catalog-browser.tsx");
+    const itemList = source("../app/items/page.tsx");
+
+    expect(heroList).toContain("collectAllHeroesWithMeta(query.q)");
+    for (const attribute of ["strength", "agility", "intelligence", "universal"]) {
+      expect(heroBrowser).toContain(`key: "${attribute}"`);
+    }
+    expect(heroBrowser).toContain('useState<"official" | "custom">("official")');
+    expect(heroBrowser).toContain("readHeroGroups(window.localStorage)");
+    expect(heroBrowser).toContain("writeHeroGroups(window.localStorage, customGroups)");
+    expect(itemList).toContain("groupCurrentItems(currentItems)");
+    expect(itemList).toContain('kind === "neutral_enhancement"');
+    expect(itemList).toContain('kind === "neutral_item"');
   });
 
   it("shows the official hero profile and base-stat fields in a responsive reference grid", () => {

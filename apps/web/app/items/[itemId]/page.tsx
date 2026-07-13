@@ -37,6 +37,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
   const components = componentResults.flatMap((component) => component.ok ? [component.value.data] : []);
   const heroById = new Map<string, HeroSummary>();
   const itemById = new Map([[item.data.id, item.data]]);
+  const categoryLabel = itemCategoryLabel(item.data.category, item.data.kind);
 
   return (
     <div className="page-shell item-detail-page">
@@ -44,10 +45,10 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
       <section className="item-profile">
         <AssetImage alt={`${item.data.localizedName} 物品图标`} className="item-profile__image" kind="item" name={item.data.name} priority />
         <div>
-          <p className="page-heading__eyebrow">ITEM / {item.data.id} / {item.data.category}</p>
+          <p className="page-heading__eyebrow">ITEM / {item.data.id} / {versionLabel}</p>
           <h1>{item.data.localizedName}</h1>
           <p>{officialDescription(item.data.description)}</p>
-          <div className="tag-row"><span>{item.data.category}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span></div>
+          <div className="tag-row"><span>{categoryLabel}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span></div>
         </div>
         <div className="item-profile__cost"><span>COST</span><strong>{item.data.cost.toLocaleString("zh-CN")}</strong><small>金币</small></div>
       </section>
@@ -94,4 +95,21 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
       <p className="source-snapshot">来源快照：{item.data.sourceSnapshot}</p>
     </div>
   );
+}
+
+function itemCategoryLabel(category: string, kind: keyof typeof itemKindLabel): string {
+  if (kind === "neutral_enhancement") return "中立附魔";
+  if (kind === "neutral_item") {
+    const tier = /^neutral_tier_(\d+)$/.exec(category)?.[1];
+    return tier ? `中立物品 · ${tier} 级` : "中立物品";
+  }
+  return ({
+    official_quality_0: "消耗用品",
+    official_quality_1: "基础组件",
+    official_quality_2: "常规装备",
+    official_quality_3: "进阶装备",
+    official_quality_4: "高阶装备",
+    official_quality_5: "特殊装备",
+    official_quality_6: "神秘商店组件",
+  } as Record<string, string>)[category] ?? "其他当前物品";
 }

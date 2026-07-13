@@ -223,11 +223,14 @@ export class MemoryDodoRepository implements DodoRepository {
     universeIds: string[],
   ): Promise<void> {
     const universe = new Set(universeIds);
-    for (const id of this.#items.keys()) {
-      if (!universe.has(id)) this.#items.delete(id);
-    }
-    for (const item of items) await this.upsertItem(item);
-    this.#itemSnapshot = clone(normalizeSnapshot(snapshot));
+    const next = new Map(
+      [...this.#items].filter(([id]) => universe.has(id)),
+    );
+    for (const item of items) next.set(item.id, clone(item));
+    const nextSnapshot = clone(normalizeSnapshot(snapshot));
+    this.#items.clear();
+    for (const [id, item] of next) this.#items.set(id, item);
+    this.#itemSnapshot = nextSnapshot;
   }
 
   async replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void> {

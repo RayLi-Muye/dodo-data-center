@@ -398,7 +398,7 @@ describe("Dota2OfficialProvider", () => {
       localizedName: "闪烁匕首",
       category: "official_quality_1",
       kind: "item",
-      availabilityStatus: "unverified",
+      availabilityStatus: "verified_current",
       description: "主动：闪烁 最远传送 1200 距离。",
       componentNames: ["blades_of_attack", "broadsword"],
       attributes: [
@@ -415,8 +415,18 @@ describe("Dota2OfficialProvider", () => {
       }],
     })]);
     expect(result.exclusions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ entityId: "1001", kind: "filtered" }),
-      expect.objectContaining({ entityId: "182", kind: "failed", reason: "upstream_5xx" }),
+      expect.objectContaining({
+        entityId: "1001",
+        kind: "filtered",
+        reason: "recipe_definition",
+      }),
+      expect.objectContaining({ entityId: "2", kind: "failed", reason: "upstream_5xx" }),
+      expect.objectContaining({ entityId: "3", kind: "failed", reason: "upstream_5xx" }),
+      expect.objectContaining({
+        entityId: "182",
+        kind: "filtered",
+        reason: "current_availability_unverified",
+      }),
     ]));
   });
 
@@ -461,7 +471,7 @@ describe("Dota2OfficialProvider", () => {
     }));
   });
 
-  it("classifies official item definitions without claiming current availability", async () => {
+  it("keeps only official current item classifications as verified current", async () => {
     const listItems = [
       { id: 1, name: "item_blink", name_loc: "Blink Dagger", neutral_item_tier: -1 },
       { id: 2, name: "item_recipe_fixture", name_loc: "Recipe Fixture", neutral_item_tier: -1 },
@@ -471,7 +481,7 @@ describe("Dota2OfficialProvider", () => {
       ...item,
       is_pregame_suggested: false,
       is_earlygame_suggested: false,
-      is_lategame_suggested: false,
+      is_lategame_suggested: item.id === 1,
       recipes: [],
       is_innate: false,
     }));
@@ -498,11 +508,74 @@ describe("Dota2OfficialProvider", () => {
       kind,
       availabilityStatus,
     }))).toEqual([
-      { id: "1", kind: "item", availabilityStatus: "unverified" },
-      { id: "2", kind: "recipe", availabilityStatus: "unverified" },
-      { id: "3", kind: "neutral_item", availabilityStatus: "unverified" },
-      { id: "1592", kind: "neutral_enhancement", availabilityStatus: "unverified" },
+      { id: "1", kind: "item", availabilityStatus: "verified_current" },
+      { id: "3", kind: "neutral_item", availabilityStatus: "verified_current" },
+      { id: "1592", kind: "neutral_enhancement", availabilityStatus: "verified_current" },
     ]);
+    expect(result.exclusions).toContainEqual(expect.objectContaining({
+      entityId: "2",
+      reason: "recipe_definition",
+    }));
+  });
+
+  it("uses the official active recipe graph and audited standalone shop allowlist", async () => {
+    const listItems = officialItemList.result.data.itemabilities;
+    const requestedDetailIds: number[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("patchnoteslist")) return response(patchNotesList);
+      if (url.pathname.endsWith("itemlist")) return response(officialItemList);
+      if (url.pathname.endsWith("itemdata")) {
+        const id = Number(url.searchParams.get("item_id"));
+        requestedDetailIds.push(id);
+        const listItem = listItems.find((item) => item.id === id)!;
+        const detail = structuredClone(officialItemData);
+        detail.result.data.items[0]!.id = id;
+        detail.result.data.items[0]!.name = listItem.name;
+        detail.result.data.items[0]!.name_loc = listItem.name_loc;
+        return response(detail);
+      }
+      return response({}, 404);
+    });
+    const result = await new Dota2OfficialProvider({ fetchImpl, clock: () => NOW })
+      .getItemConstants();
+
+    expect(result.items.map(({ id, kind, availabilityStatus }) => ({
+      id,
+      kind,
+      availabilityStatus,
+    }))).toEqual([
+      { id: "1", kind: "item", availabilityStatus: "verified_current" },
+      { id: "2", kind: "item", availabilityStatus: "verified_current" },
+      { id: "3", kind: "item", availabilityStatus: "verified_current" },
+      { id: "10", kind: "item", availabilityStatus: "verified_current" },
+      { id: "30", kind: "item", availabilityStatus: "verified_current" },
+      { id: "40", kind: "item", availabilityStatus: "verified_current" },
+      { id: "42", kind: "item", availabilityStatus: "verified_current" },
+      { id: "46", kind: "item", availabilityStatus: "verified_current" },
+      { id: "104", kind: "item", availabilityStatus: "verified_current" },
+      { id: "133", kind: "item", availabilityStatus: "verified_current" },
+      { id: "204", kind: "item", availabilityStatus: "verified_current" },
+      { id: "1125", kind: "item", availabilityStatus: "verified_current" },
+      { id: "1500", kind: "neutral_item", availabilityStatus: "verified_current" },
+      { id: "1592", kind: "neutral_enhancement", availabilityStatus: "verified_current" },
+    ]);
+    expect(requestedDetailIds.sort((left, right) => left - right)).toEqual([
+      1, 2, 3, 10, 30, 40, 42, 46, 104, 133, 204, 1125, 1500, 1592,
+    ]);
+    expect(result.quality).toBe("partial");
+    expect(result.exclusions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityId: "1001", reason: "recipe_definition" }),
+      expect.objectContaining({ entityId: "200", reason: "recipe_definition" }),
+      expect.objectContaining({ entityId: "182", reason: "current_availability_unverified" }),
+      expect.objectContaining({ entityId: "212", reason: "current_availability_unverified" }),
+      expect.objectContaining({ entityId: "239", reason: "current_availability_unverified" }),
+      expect.objectContaining({ entityId: "369", reason: "current_availability_unverified" }),
+      expect.objectContaining({ entityId: "117", reason: "current_availability_unverified" }),
+      expect.objectContaining({ entityId: "1999", reason: "internal_definition" }),
+    ]));
+    expect(result.exclusions.map((exclusion) => exclusion.reason).join(","))
+      .not.toMatch(/\$|\{s:|<[^>]*>/);
   });
 
   it("keeps a localized official item when only its description template is unresolved", async () => {
@@ -513,7 +586,7 @@ describe("Dota2OfficialProvider", () => {
       ...item,
       neutral_item_tier: -1,
       is_pregame_suggested: false,
-      is_earlygame_suggested: false,
+      is_earlygame_suggested: item.id === 4,
       is_lategame_suggested: false,
       recipes: [],
       is_innate: false,

@@ -18,6 +18,14 @@ const OFFICIAL_LANGUAGE = "schinese";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_DETAIL_CONCURRENCY = 3;
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+[a-z]?$/;
+const CURRENT_STANDALONE_SHOP_ITEM_NAMES = new Set([
+  "item_cornucopia",
+  "item_dust",
+  "item_gem",
+  "item_quarterstaff",
+  "item_rapier",
+  "item_tpscroll",
+]);
 const HERO_ROLES = [
   "Carry",
   "Support",
@@ -817,6 +825,7 @@ type OfficialItemListEntry = {
   name: string;
   localizedName: string;
   neutralItemTier: number | null;
+  isInnate: boolean;
   isPregameSuggested: boolean;
   isEarlygameSuggested: boolean;
   isLategameSuggested: boolean;
@@ -871,7 +880,7 @@ function normalizeItemDetail(
       attributes: attributes.attributes,
       componentNames: listEntry.recipes[0]?.componentNames ?? [],
       kind: normalizeOfficialItemKind(listEntry.name, listEntry.neutralItemTier),
-      availabilityStatus: "unverified",
+      availabilityStatus: "verified_current",
       officialVersion,
       officialClassification: {
         itemQuality,
@@ -946,14 +955,34 @@ export class Dota2OfficialProvider {
 
     const rawEntries = rawItems.map((rawItem, index) => {
       const item = readRecord(rawItem, `item list.itemabilities[${index}]`);
+      const rawTier = readInteger(
+        item.neutral_item_tier,
+        `item list.itemabilities[${index}].neutral_item_tier`,
+      );
       return {
         raw: item,
         id: readPositiveId(item.id, `item list.itemabilities[${index}].id`),
         name: readString(item.name, `item list.itemabilities[${index}].name`),
         localizedName: readOptionalString(item.name_loc) ?? "",
+        neutralItemTier: rawTier < 0 ? null : rawTier,
+        isInnate: readBoolean(item.is_innate, `item list.itemabilities[${index}].is_innate`),
+        isPregameSuggested: readBoolean(
+          item.is_pregame_suggested,
+          `item list.itemabilities[${index}].is_pregame_suggested`,
+        ),
+        isEarlygameSuggested: readBoolean(
+          item.is_earlygame_suggested,
+          `item list.itemabilities[${index}].is_earlygame_suggested`,
+        ),
+        isLategameSuggested: readBoolean(
+          item.is_lategame_suggested,
+          `item list.itemabilities[${index}].is_lategame_suggested`,
+        ),
       };
     });
     const nameById = new Map(rawEntries.map((entry) => [entry.id, entry.name.replace(/^item_/, "")]));
+    const entryById = new Map(rawEntries.map((entry) => [entry.id, entry]));
+    const entryByName = new Map(rawEntries.map((entry) => [entry.name, entry]));
     const recipesByResultName = new Map<string, OfficialItemListEntry["recipes"]>();
     for (const entry of rawEntries) {
       if (!entry.name.startsWith("item_recipe_")) continue;
@@ -982,35 +1011,83 @@ export class Dota2OfficialProvider {
       if (recipes.length > 0) recipesByResultName.set(resultName, recipes);
     }
 
+    const browsableNames = new Set(rawEntries.flatMap((entry) => {
+      const isRecipe = entry.name.startsWith("item_recipe_");
+      const isSuggested = entry.isPregameSuggested ||
+        entry.isEarlygameSuggested ||
+        entry.isLategameSuggested;
+      const isCurrentNeutral = entry.neutralItemTier !== null;
+      const isNeutralEnhancement = entry.name.startsWith("item_enhancement_");
+      if (
+        isRecipe ||
+        entry.isInnate ||
+        entry.localizedName.length === 0 ||
+        (!isSuggested && !isCurrentNeutral && !isNeutralEnhancement)
+      ) return [];
+      return [entry.name];
+    }));
+    for (const name of CURRENT_STANDALONE_SHOP_ITEM_NAMES) {
+      const entry = entryByName.get(name);
+      if (
+        entry !== undefined &&
+        !entry.isInnate &&
+        entry.localizedName.length > 0
+      ) browsableNames.add(name);
+    }
+    const pendingNames = [...browsableNames];
+    for (let index = 0; index < pendingNames.length; index += 1) {
+      const recipes = recipesByResultName.get(pendingNames[index]!) ?? [];
+      for (const componentId of recipes.flatMap((recipe) => recipe.componentIds)) {
+        const component = entryById.get(componentId);
+        if (
+          component === undefined ||
+          component.name.startsWith("item_recipe_") ||
+          component.isInnate ||
+          component.localizedName.length === 0 ||
+          browsableNames.has(component.name)
+        ) continue;
+        browsableNames.add(component.name);
+        pendingNames.push(component.name);
+      }
+    }
+
     const exclusions: CanonicalOfficialCatalogExclusion[] = [];
     const candidates: OfficialItemListEntry[] = [];
     for (const entry of rawEntries) {
+      if (entry.name.startsWith("item_recipe_")) {
+        exclusions.push(filteredExclusion("item", entry.id, entry.name, "recipe_definition"));
+        continue;
+      }
+      if (entry.isInnate) {
+        exclusions.push(filteredExclusion("item", entry.id, entry.name, "internal_definition"));
+        continue;
+      }
       if (entry.localizedName.length === 0) {
         exclusions.push(filteredExclusion("item", entry.id, entry.name, "localized_name_unavailable"));
         continue;
       }
-      const rawTier = readInteger(entry.raw.neutral_item_tier, `item ${entry.id}.neutral_item_tier`);
+      if (!browsableNames.has(entry.name)) {
+        exclusions.push(filteredExclusion(
+          "item",
+          entry.id,
+          entry.name,
+          "current_availability_unverified",
+        ));
+        continue;
+      }
       candidates.push({
         id: entry.id,
         name: entry.name,
         localizedName: entry.localizedName,
-        neutralItemTier: rawTier < 0 ? null : rawTier,
-        isPregameSuggested: readBoolean(
-          entry.raw.is_pregame_suggested,
-          `item ${entry.id}.is_pregame_suggested`,
-        ),
-        isEarlygameSuggested: readBoolean(
-          entry.raw.is_earlygame_suggested,
-          `item ${entry.id}.is_earlygame_suggested`,
-        ),
-        isLategameSuggested: readBoolean(
-          entry.raw.is_lategame_suggested,
-          `item ${entry.id}.is_lategame_suggested`,
-        ),
+        neutralItemTier: entry.neutralItemTier,
+        isInnate: entry.isInnate,
+        isPregameSuggested: entry.isPregameSuggested,
+        isEarlygameSuggested: entry.isEarlygameSuggested,
+        isLategameSuggested: entry.isLategameSuggested,
         recipes: recipesByResultName.get(entry.name) ?? [],
       });
     }
-    if (candidates.length === 0) providerError("item list contains no localized entries");
+    if (candidates.length === 0) providerError("item list contains no verified current entries");
 
     const results = await mapWithConcurrency(candidates, MAX_DETAIL_CONCURRENCY, async (candidate) => {
       const detailUrl = new URL("datafeed/itemdata", this.baseUrl);
@@ -1059,7 +1136,11 @@ export class Dota2OfficialProvider {
     items.sort((left, right) => Number(left.id) - Number(right.id));
     const incomplete = exclusions.some((exclusion) =>
       exclusion.kind === "failed" || (
-        exclusion.entityType === "item" && exclusion.reason.startsWith("unresolved_template:")
+        exclusion.entityType === "item" && (
+          exclusion.reason === "current_availability_unverified" ||
+          exclusion.reason === "localized_name_unavailable" ||
+          exclusion.reason.startsWith("unresolved_template:")
+        )
       )
     );
     return {

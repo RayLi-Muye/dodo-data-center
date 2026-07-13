@@ -52,7 +52,10 @@ import {
   PLAYER_SYNC_TTL_MS,
   PlayerSyncService,
 } from "../src/player-sync-service.js";
-import { StaticCatalogService } from "../src/static-catalog-service.js";
+import {
+  OFFICIAL_ITEM_CATALOG_REVISION,
+  StaticCatalogService,
+} from "../src/static-catalog-service.js";
 import { StratzMatchEnrichmentService } from "../src/stratz-match-enrichment-service.js";
 
 const ACCOUNT_ID = "86745912";
@@ -1424,6 +1427,79 @@ describe("live player synchronization", () => {
       "7.41b",
       "7.41a",
     ]);
+  });
+
+  it("refreshes a fresh pre-visibility item snapshot once and persists its revision", async () => {
+    const repository = await createPreparedRepository();
+    const existingItems = await repository.listItems();
+    const itemSnapshot = await repository.getItemSnapshot();
+    if (!existingItems[0] || !itemSnapshot) throw new Error("Static item fixture missing");
+    const legacyRecipe = {
+      ...existingItems[0],
+      id: "999",
+      name: "recipe_legacy_item",
+      localizedName: "Legacy Item Recipe",
+      kind: "recipe" as const,
+    };
+    await repository.replaceItems(
+      [...existingItems, legacyRecipe],
+      { ...itemSnapshot, contentHash: "pre-visibility-item-hash" },
+      [...existingItems.map((item) => item.id), legacyRecipe.id],
+    );
+    const provider = createProvider();
+    const service = new StaticCatalogService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    await service.refresh();
+    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
+    expect(provider.getHeroConstants).not.toHaveBeenCalled();
+    expect(await repository.getItem(legacyRecipe.id)).toBeUndefined();
+    expect((await repository.getItemSnapshot())?.contentHash).toMatch(
+      new RegExp(`^${OFFICIAL_ITEM_CATALOG_REVISION}:`),
+    );
+
+    await service.refresh();
+    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a pre-visibility item catalog readable when its forced refresh fails", async () => {
+    const repository = await createPreparedRepository();
+    const existingItems = await repository.listItems();
+    const itemSnapshot = await repository.getItemSnapshot();
+    if (!existingItems[0] || !itemSnapshot) throw new Error("Static item fixture missing");
+    const legacyItem = {
+      ...existingItems[0],
+      id: "999",
+      name: "legacy_visible_item",
+      localizedName: "Legacy Visible Item",
+    };
+    const legacySnapshot = { ...itemSnapshot, contentHash: "pre-visibility-item-hash" };
+    await repository.replaceItems(
+      [...existingItems, legacyItem],
+      legacySnapshot,
+      [...existingItems.map((item) => item.id), legacyItem.id],
+    );
+    const provider = createProvider();
+    provider.getItemConstants = vi.fn(async () => {
+      throw new Error("test-only item visibility refresh failure");
+    });
+    const service = new StaticCatalogService({
+      repository,
+      provider,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    service.start();
+    await service.close();
+    expect(provider.getItemConstants).toHaveBeenCalledTimes(1);
+    expect(await repository.getItem(legacyItem.id)).toEqual(legacyItem);
+    expect(await repository.getItemSnapshot()).toEqual(legacySnapshot);
+    expect(await repository.getProviderHealth("dota2_official")).toMatchObject({
+      status: "unavailable",
+    });
   });
 
   it("touches unchanged stale catalogs and advances changedAt only for changed content", async () => {

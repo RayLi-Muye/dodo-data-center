@@ -67,6 +67,8 @@ GET  /v1/updates/{version}
 - 玩家英雄：`games DESC, hero.id ASC`。
 - 英雄百科：`localizedName ASC, id ASC`。
 - 物品百科：`localizedName ASC, id ASC`。
+
+百科列表继续使用最多 100 条的游标分页；客户端需要完整英雄池时必须遍历 `nextCursor`，不得提高全局分页上限或只读取第一页。物品列表和详情只暴露当前普通比赛目录：当前商店物品、当前中立物品与当前中立附魔。`recipe` 保留为向后兼容的 schema 枚举，但当前百科快照不得包含图纸；仅存在于官方底层定义、却缺少当前可见性证据的 legacy/event/internal 条目同样不得公开。
 - 地图地点：`type ASC, localizedName ASC, id ASC`。
 
 统计响应使用 metric meta；账号解析、同步任务、原始比赛详情、静态百科和数据状态使用 operation meta，不伪造统计样本字段。
@@ -89,7 +91,7 @@ A successfully observed latest official version that differs from a curated map'
 
 `GET /v1/heroes/{heroId}` 的 `hype`、`biography`、`complexity` 与 `baseStats` 使用 Dota 2 official current-data。`baseStats` 包括初始生命/魔法、恢复、护甲、魔抗、攻击、三维及成长、移速、攻击距离/间隔、弹道、转身和昼夜视野；历史 payload 缺少这些字段时返回空文本或 `null`，不得从比赛样本反推。`abilities` 使用比赛加点事件同一 numeric ability ID，并以 Dota 2 official current-data 为规则主源；`attributes` 只保存官方结构化技能数值。普通技能保持官方编排顺序，天赋随后按等级顺序排列；隐藏技能不得公开。`facetsStatus=active|removed|unavailable` 区分当前启用、当前版本已移除和来源不足；deprecated facet 不得作为当前 facet 展示。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
 
-物品响应使用 `kind=item|recipe|neutral_item|neutral_enhancement` 区分定义类型，并返回 `availabilityStatus=verified_current|unverified`。官方 datafeed 中存在一条定义不能单独证明它当前可在商店购买；未建立独立可用性证据时必须返回 `unverified`，前端不得将其描述为“当前可购买”。
+物品响应使用 `kind=item|recipe|neutral_item|neutral_enhancement` 区分定义类型，并返回 `availabilityStatus=verified_current|unverified`。官方 datafeed 中存在一条定义不能单独证明它当前可在商店购买；进入当前百科目录必须具有可审计的当前可见性证据，且图纸无条件排除。过滤后仍无法逐项证明“可购买”的条目保持 `unverified`，前端不得将其描述为“当前可购买”。
 
 比赛详情展示技能名称时只能使用 `abilityBuild[].abilityId` 与英雄技能字典的精确 ID 匹配。未命中时保留 `技能 #<id>`，不能根据加点位置猜测技能。
 

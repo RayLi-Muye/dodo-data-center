@@ -2,18 +2,18 @@
 
 本文件约束 Dodo 长时间开发 Goal 的执行、检查点和自动恢复行为。
 
-## Active goal: hero and item encyclopedia foundation
+## Active goal: complete and refine hero/item catalogs
 
-状态：已于 2026-07-13 完成海外生产验收。后续动态英雄/物品统计必须作为新的垂直切片单独启动。
+上一阶段静态百科已于 2026-07-13 完成海外生产验收。本阶段只修正目录完整性、当前物品口径和前端信息架构，不进入动态胜率或地图。
 
 地图真实快照激活暂缓，现有 `MAP_UNAVAILABLE` 与审计门禁保持不变。当前 Goal 按以下顺序推进：
 
-1. Root 冻结英雄技能数值与实体更新历史契约。
-2. Data Source Agent 从 Dota 2 official current-data 补齐可验证的技能效果字段，并对英雄、物品、更新实体 ID 做黄金样本对账。
-3. Backend/API Agent 在现有更新快照上实现英雄/物品最近变更查询；不新增分析型数据库或运行时上游直查。
-4. Web Agent 完善英雄与物品列表/详情，展示基础资料、价格、效果、合成与最近变更，并完成 390px 竖屏适配。
-5. QA Agent 只读验证完整/partial/unavailable、当前版本、官方来源链接与无匹配更新语义。
-6. Root 执行全仓门禁、真实生产数据对账和 Railway/Vercel 部署。
+1. Root 冻结完整英雄游标遍历、四种官方主属性、本地自定义分组和当前物品可见性口径。
+2. Data Source Agent 在 provider boundary 排除图纸及缺少当前可见性证据的 legacy/event/internal 物品，并保留 exclusions 与 partial 证据。
+3. Backend/API Agent 使既有 official item snapshot 一次性过期，确认新快照会原子删除不再属于 universe 的条目；不扩大分页上限。
+4. Frontend/Web Agent 参考 Dota 英雄浏览器与商店的紧凑信息层级重构英雄/物品目录和详情，并提供浏览器本地自定义英雄分组。
+5. QA Agent 只读验证 127 个英雄完整呈现、全才独立分组、图纸/legacy 排除、390px 和各类数据状态。
+6. Root 执行全仓门禁、真实生产目录对账和 Railway/Vercel 部署。
 
 英雄胜率、英雄使用率、物品购买率、购买时间与胜率属于百科第二阶段，不进入当前静态资料切片。
 

@@ -161,6 +161,8 @@ OpenDota 比赛中的 `patch` 是整数目录 ID。截至本次研究：
 
 官方 item list 当前返回 544 条 `itemabilities`，不能直接把全部条目视作 544 个玩家可购买物品；必须建立分类和可见性质量门禁。
 
+当前百科可见性采用同一 official snapshot 内的正向证据：推荐阶段标记或当前中立等级作为入口，递归纳入这些成品的配方组件；当前中立附魔使用官方 `item_enhancement_*` 定义；少数不进入推荐/配方图谱的独立商店物品必须经过黄金样本 allowlist 审计。`item_recipe_*`、`is_innate`、缺少本地化名称以及不在上述证据集合中的条目排除并记录原因。该规则不使用价格大于零作为可见性推断，也不运行时依赖版本落后的 STRATZ constants。
+
 ### Neutral items
 
 7.38 官方更新重做了中立物品机制并引入用于制作独特中立物品的资源。当前 OpenDota 比赛玩家结构同时包含 `item_neutral` 与 `item_neutral2`。

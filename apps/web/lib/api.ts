@@ -199,26 +199,67 @@ export const api = {
     }),
 };
 
-export async function collectAllHeroes() {
-  const items: HeroSummary[] = [];
+const MAX_CATALOG_PAGES = 50;
+const qualityRank: Record<OperationMeta["quality"], number> = {
+  complete: 0,
+  partial: 1,
+  stale: 2,
+};
+
+function mergeOperationMeta(current: OperationMeta | undefined, incoming: OperationMeta): OperationMeta {
+  if (!current) return incoming;
+  return {
+    quality: qualityRank[incoming.quality] > qualityRank[current.quality] ? incoming.quality : current.quality,
+    sources: [...new Set([...current.sources, ...incoming.sources])],
+    updatedAt: incoming.updatedAt > current.updatedAt ? incoming.updatedAt : current.updatedAt,
+  };
+}
+
+async function collectCatalog<T>(
+  fetchPage: (cursor?: string) => Promise<{
+    data: { items: T[]; nextCursor: string | null };
+    meta: OperationMeta;
+  }>,
+) {
+  const items: T[] = [];
+  const seenCursors = new Set<string>();
   let cursor: string | undefined;
-  do {
-    const page = await api.heroes({ cursor, limit: 100 });
+  let meta: OperationMeta | undefined;
+
+  for (let pageNumber = 0; pageNumber < MAX_CATALOG_PAGES; pageNumber += 1) {
+    const page = await fetchPage(cursor);
     items.push(...page.data.items);
-    cursor = page.data.nextCursor ?? undefined;
-  } while (cursor);
-  return items;
+    meta = mergeOperationMeta(meta, page.meta);
+
+    const nextCursor = page.data.nextCursor ?? undefined;
+    if (!nextCursor) {
+      if (!meta) throw new Error("Catalog did not return operation metadata.");
+      return { items, meta };
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Catalog pagination returned a repeated cursor.");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  throw new Error(`Catalog pagination exceeded ${MAX_CATALOG_PAGES} pages.`);
+}
+
+export async function collectAllHeroesWithMeta(q?: string) {
+  return collectCatalog<HeroSummary>((cursor) => api.heroes({ cursor, limit: 100, q }));
+}
+
+export async function collectAllHeroes() {
+  return (await collectAllHeroesWithMeta()).items;
+}
+
+export async function collectAllItemsWithMeta(q?: string) {
+  return collectCatalog<ItemSummary>((cursor) => api.items({ cursor, limit: 100, q }));
 }
 
 export async function collectAllItems() {
-  const items: ItemSummary[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await api.items({ cursor, limit: 100 });
-    items.push(...page.data.items);
-    cursor = page.data.nextCursor ?? undefined;
-  } while (cursor);
-  return items;
+  return (await collectAllItemsWithMeta()).items;
 }
 
 export async function collectAllPatches() {
