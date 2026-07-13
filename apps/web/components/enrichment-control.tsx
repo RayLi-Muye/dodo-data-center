@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EnrichmentRequestError,
   loadPlayerEnrichment,
+  playerEnrichmentControlPresentation,
   pollPlayerEnrichment,
   startAndPollPlayerEnrichment,
 } from "../lib/enrichment";
@@ -16,12 +17,6 @@ const scopeLabels: Record<MatchEnrichmentScope, string> = {
   recent: "最近 20 场",
   all_imported: "全部已导入",
 };
-
-const hasRemaining = (progress: PlayerEnrichmentProgress | null): boolean =>
-  progress !== null && (progress.retryEligibleCount > 0 || progress.notRequestedCount > 0);
-
-const remainingMessage = (progress: PlayerEnrichmentProgress): string =>
-  `${formatCount(progress.retryEligibleCount)} 场当前可处理，${formatCount(progress.notRequestedCount)} 场尚未请求`;
 
 export function EnrichmentControl({ accountId }: { accountId: string }) {
   const router = useRouter();
@@ -44,11 +39,9 @@ export function EnrichmentControl({ accountId }: { accountId: string }) {
       .then((initial) => pollPlayerEnrichment(accountId, scope, initial, { signal: controller.signal }))
       .then((next) => {
         setProgress(next);
-        const remaining = hasRemaining(next);
-        setMessage(remaining
-          ? `当前范围仍有 ${remainingMessage(next)}；每次只运行下一批。`
-          : "当前范围没有待处理的增强比赛。");
-        setTone(remaining ? "neutral" : "positive");
+        const presentation = playerEnrichmentControlPresentation(next, "loaded");
+        setMessage(presentation.message);
+        setTone(presentation.tone);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
@@ -79,11 +72,9 @@ export function EnrichmentControl({ accountId }: { accountId: string }) {
         signal: controller.signal,
       });
       setProgress(next);
-      const remaining = hasRemaining(next);
-      setMessage(remaining
-        ? `本批已结束，仍有 ${remainingMessage(next)}；需要时可继续下一批。`
-        : "本批已结束，当前范围没有待处理比赛。");
-      setTone(remaining ? "warning" : "positive");
+      const presentation = playerEnrichmentControlPresentation(next, "batch_finished");
+      setMessage(presentation.message);
+      setTone(presentation.tone);
       router.refresh();
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -97,11 +88,13 @@ export function EnrichmentControl({ accountId }: { accountId: string }) {
     }
   }, [accountId, router, running, scope]);
 
-  const remaining = hasRemaining(progress);
+  const presentation = progress
+    ? playerEnrichmentControlPresentation(progress, "loaded")
+    : null;
   const coverageRate = progress
     ? progress.totalMatches === 0 ? 1 : progress.completeCount / progress.totalMatches
     : null;
-  const disabled = loading || running || progress?.running === true || (progress !== null && !remaining);
+  const disabled = loading || running || progress?.running === true || presentation?.disabled === true;
 
   return (
     <section className={`enrichment-control enrichment-control--${tone}`} aria-label="比赛数据增强">
@@ -137,7 +130,7 @@ export function EnrichmentControl({ accountId }: { accountId: string }) {
       <div className="enrichment-control__footer">
         <span>完整增强覆盖 {formatPercent(coverageRate)}</span>
         <button disabled={disabled} onClick={() => void run()} type="button">
-          {running ? "正在运行本批…" : remaining ? "继续下一批" : progress ? "当前范围已处理" : "启动下一批"}
+          {running ? "正在运行本批…" : presentation?.buttonLabel ?? "启动下一批"}
         </button>
       </div>
       <p aria-live="polite" role="status">{message}</p>

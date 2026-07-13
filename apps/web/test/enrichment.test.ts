@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EnrichmentRequestError,
   loadPlayerEnrichment,
+  playerEnrichmentControlPresentation,
   refreshMatchEnrichment,
   startAndPollPlayerEnrichment,
 } from "../lib/enrichment";
@@ -93,5 +94,60 @@ describe("match enrichment workflow", () => {
     await expect(refreshMatchEnrichment("9000000001", { fetcher })).rejects.toEqual(
       new EnrichmentRequestError("增强服务暂时不可用，已有比赛数据仍会保留。"),
     );
+  });
+
+  it("distinguishes scheduled retries from completed or actionable work", () => {
+    const waiting = {
+      ...progress(false, 0),
+      retryEligibleCount: 0,
+      retryScheduledCount: 3,
+    };
+    expect(playerEnrichmentControlPresentation(waiting, "loaded")).toMatchObject({
+      buttonLabel: "等待计划重试",
+      disabled: true,
+      message: "3 场已计划重试，尚未到再次请求时间。",
+      tone: "warning",
+    });
+
+    expect(playerEnrichmentControlPresentation(progress(false, 2), "batch_finished")).toMatchObject({
+      buttonLabel: "继续下一批",
+      disabled: false,
+    });
+
+    const completed = {
+      ...progress(false, 0),
+      completeCount: 12,
+      retryEligibleCount: 0,
+    };
+    expect(playerEnrichmentControlPresentation(completed, "loaded")).toMatchObject({
+      buttonLabel: "当前范围已完成",
+      tone: "positive",
+    });
+  });
+
+  it("keeps terminal and empty ranges distinct", () => {
+    const terminal = {
+      ...progress(false, 0),
+      completeCount: 10,
+      retryEligibleCount: 0,
+      terminalFailedCount: 1,
+      terminalPartialCount: 1,
+    };
+    expect(playerEnrichmentControlPresentation(terminal, "loaded")).toMatchObject({
+      buttonLabel: "当前范围已结算",
+      tone: "warning",
+    });
+
+    const empty = {
+      ...progress(false, 0),
+      completeCount: 0,
+      detailReadyCount: 0,
+      retryEligibleCount: 0,
+      totalMatches: 0,
+    };
+    expect(playerEnrichmentControlPresentation(empty, "loaded")).toMatchObject({
+      buttonLabel: "当前范围为空",
+      message: "当前范围没有已导入比赛。",
+    });
   });
 });

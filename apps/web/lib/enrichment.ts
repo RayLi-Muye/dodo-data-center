@@ -32,6 +32,77 @@ export class EnrichmentRequestError extends Error {
   }
 }
 
+export type PlayerEnrichmentControlPresentation = {
+  buttonLabel: string;
+  disabled: boolean;
+  message: string;
+  tone: "neutral" | "positive" | "warning";
+};
+
+export const playerEnrichmentControlPresentation = (
+  progress: PlayerEnrichmentProgress,
+  phase: "loaded" | "batch_finished",
+): PlayerEnrichmentControlPresentation => {
+  const actionable = progress.retryEligibleCount > 0 || progress.notRequestedCount > 0;
+  if (actionable) {
+    const remaining = `${progress.retryEligibleCount.toLocaleString("zh-CN")} 场当前可处理，${progress.notRequestedCount.toLocaleString("zh-CN")} 场尚未请求`;
+    return {
+      buttonLabel: "继续下一批",
+      disabled: false,
+      message: phase === "batch_finished"
+        ? `本批已结束，仍有 ${remaining}；需要时可继续下一批。`
+        : `当前范围仍有 ${remaining}；每次只运行下一批。`,
+      tone: phase === "batch_finished" ? "warning" : "neutral",
+    };
+  }
+  if (progress.retryScheduledCount > 0) {
+    return {
+      buttonLabel: "等待计划重试",
+      disabled: true,
+      message: `${progress.retryScheduledCount.toLocaleString("zh-CN")} 场已计划重试，尚未到再次请求时间。`,
+      tone: "warning",
+    };
+  }
+  if (progress.providerBlockedCount > 0) {
+    return {
+      buttonLabel: "提供方暂不可用",
+      disabled: true,
+      message: `${progress.providerBlockedCount.toLocaleString("zh-CN")} 场受提供方阻断，当前不能再次请求；已有比赛数据仍会保留。`,
+      tone: "warning",
+    };
+  }
+  if (progress.totalMatches === 0) {
+    return {
+      buttonLabel: "当前范围为空",
+      disabled: true,
+      message: "当前范围没有已导入比赛。",
+      tone: "neutral",
+    };
+  }
+  if (progress.terminalPartialCount > 0 || progress.terminalFailedCount > 0) {
+    return {
+      buttonLabel: "当前范围已结算",
+      disabled: true,
+      message: `当前范围已无可自动处理比赛：${progress.completeCount.toLocaleString("zh-CN")} 场完整增强，${progress.terminalPartialCount.toLocaleString("zh-CN")} 场终止部分可用，${progress.terminalFailedCount.toLocaleString("zh-CN")} 场终止失败。`,
+      tone: "warning",
+    };
+  }
+  if (progress.completeCount === progress.totalMatches) {
+    return {
+      buttonLabel: "当前范围已完成",
+      disabled: true,
+      message: `当前范围 ${progress.completeCount.toLocaleString("zh-CN")} 场比赛均已完成增强。`,
+      tone: "positive",
+    };
+  }
+  return {
+    buttonLabel: "暂无可运行批次",
+    disabled: true,
+    message: "当前范围目前没有可启动的增强批次；已有比赛数据仍会保留。",
+    tone: "neutral",
+  };
+};
+
 const waitForDelay: Wait = (milliseconds, signal) =>
   new Promise((resolve, reject) => {
     if (signal.aborted) {
