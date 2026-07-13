@@ -218,10 +218,12 @@ describe("STRATZ match enrichment", () => {
   });
 
   it.each([
-    ["STRATZ_RATE_LIMITED", "rate_limited", "degraded", "rate_limited"],
-    ["STRATZ_UNAVAILABLE", "unavailable", "unavailable", "timeout"],
-    ["STRATZ_FAILED", "failed", "degraded", "invalid_response"],
-  ] as const)("classifies %s without erasing OpenDota data", async (code, status, health, reason) => {
+    ["AUTHENTICATION", "unavailable", "unavailable", "invalid_token", true],
+    ["RATE_LIMITED", "rate_limited", "degraded", "rate_limited", true],
+    ["UNAVAILABLE", "unavailable", "unavailable", "timeout", true],
+    ["FAILED", "failed", "degraded", "invalid_response", false],
+    ["NOT_FOUND", "failed", "degraded", "not_found", false],
+  ] as const)("classifies %s without erasing OpenDota data", async (code, status, health, reason, stopBatch) => {
     const repository = await createLiveRepository();
     await repository.upsertMatch(storedMatch());
     const failingProvider = {
@@ -231,7 +233,11 @@ describe("STRATZ match enrichment", () => {
     } as unknown as Pick<StratzProvider, "getMatchDetail">;
     const service = new StratzMatchEnrichmentService({ repository, provider: failingProvider });
 
-    await expect(service.enrichMatch("9000000001")).resolves.toEqual({ changed: false, status });
+    await expect(service.enrichMatch("9000000001")).resolves.toEqual({
+      changed: false,
+      status,
+      ...(stopBatch ? { stopBatch: true } : {}),
+    });
     expect((await repository.getMatch("9000000001"))?.detail.players[0]).toEqual(player());
     expect(await repository.getProviderHealth("stratz")).toMatchObject({
       status: health,

@@ -293,6 +293,8 @@ describe("StratzProvider", () => {
 
   it.each([
     { errors: [{ message: "Unauthenticated", extensions: { code: "UNAUTHENTICATED" } }], expected: { code: "AUTHENTICATION", retryable: false } },
+    { errors: [{ message: "Forbidden", extensions: { code: "AUTHENTICATION" } }], expected: { code: "AUTHENTICATION", reason: "forbidden", retryable: false } },
+    { errors: [{ message: "Authentication failed", extensions: { code: "AUTHENTICATION" } }], expected: { code: "AUTHENTICATION", reason: "invalid_token", retryable: false } },
     { errors: [{ message: "Rate limit exceeded" }], expected: { code: "RATE_LIMITED", retryable: true } },
     { errors: [{ message: "Unknown field", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }], expected: { code: "FAILED", retryable: false } },
   ])("classifies sanitized GraphQL errors", async ({ errors, expected }) => {

@@ -476,7 +476,10 @@ function graphQlErrorCategory(errors: unknown[]): Pick<StratzProviderError, "cod
       .filter((part): part is string => typeof part === "string")
       .map((part) => part.toLowerCase());
   }).join(" ");
-  if (/unauth|invalid.?token|forbidden|not.?authorized/.test(signals)) {
+  if (/forbidden|not.?authorized|access.?denied|permission.?denied/.test(signals)) {
+    return { code: "AUTHENTICATION", reason: "forbidden", retryable: false };
+  }
+  if (/unauth|invalid.?token|authenticat/.test(signals)) {
     return { code: "AUTHENTICATION", reason: "invalid_token", retryable: false };
   }
   if (/rate.?limit|too.?many/.test(signals)) {
