@@ -3,7 +3,6 @@ import {
   dataSourceSchema,
   heroDetailSchema,
   itemDetailSchema,
-  mapVersionSchema,
   matchDetailSchema,
   patchSummarySchema,
   playerHistorySyncSchema,
@@ -35,6 +34,11 @@ import type {
   StoredMatch,
 } from "./types.js";
 import { mergeMatchDetails } from "./match-merge.js";
+import {
+  calculateMapContentHash,
+  parseAuditedMapPayload,
+  parseConsistentMapSnapshot,
+} from "./map-snapshot.js";
 
 type JsonRow = { payload: unknown };
 type QuerySql = Sql | postgres.TransactionSql;
@@ -257,15 +261,35 @@ export class PostgresDodoRepository implements DodoRepository {
     await this.#upsertDocument("items", item.id, item);
   }
 
-  async upsertMap(map: MapVersion): Promise<void> {
+  async replaceMap(map: MapVersion, snapshot: StaticDataSnapshot): Promise<void> {
+    const parsed = parseConsistentMapSnapshot(map, snapshot);
     await this.#sql.begin(async (sql) => {
-      await sql`update dodo.maps set is_current = false, updated_at = now() where is_current`;
-      await sql`
-        insert into dodo.maps (id, payload, is_current, updated_at)
-        values (${map.id}, ${sql.json(toJson(map))}, true, now())
-        on conflict (id) do update
-        set payload = excluded.payload, is_current = true, updated_at = now()
+      await sql`select pg_advisory_xact_lock(hashtextextended('catalog:maps', 0))`;
+      const [existing] = await sql<JsonRow[]>`
+        select payload from dodo.maps where id = ${parsed.id} for update
       `;
+      if (existing) {
+        const stored = parseAuditedMapPayload(existing.payload);
+        if (calculateMapContentHash(stored) !== snapshot.contentHash) {
+          throw new Error(`Map version ${parsed.id} already exists with different content`);
+        }
+      }
+
+      const [current] = await sql<{ id: string }[]>`
+        select id from dodo.maps where is_current for update
+      `;
+      if (current?.id !== parsed.id) {
+        await sql`update dodo.maps set is_current = false where is_current`;
+        if (existing) {
+          await sql`update dodo.maps set is_current = true where id = ${parsed.id}`;
+        } else {
+          await sql`
+            insert into dodo.maps (id, payload, is_current, updated_at)
+            values (${parsed.id}, ${sql.json(toJson(parsed))}, true, now())
+          `;
+        }
+      }
+      await this.#upsertSnapshot(sql, "map", snapshot);
     });
   }
 
@@ -485,18 +509,33 @@ export class PostgresDodoRepository implements DodoRepository {
   }
 
   async touchStaticSnapshot(
-    kind: "hero" | "item" | "patch" | "update",
+    kind: "hero" | "item" | "patch" | "update" | "map",
     expectedContentHash: string | null,
     snapshot: StaticDataSnapshot,
   ): Promise<boolean> {
     const lockKind =
-      kind === "hero" ? "heroes" : kind === "item" ? "items" : kind === "patch" ? "patches" : "updates";
+      kind === "hero"
+        ? "heroes"
+        : kind === "item"
+          ? "items"
+          : kind === "patch"
+            ? "patches"
+            : kind === "update"
+              ? "updates"
+              : "maps";
     return this.#sql.begin(async (sql) => {
       await sql`select pg_advisory_xact_lock(hashtextextended(${`catalog:${lockKind}`}, 0))`;
       const [row] = await sql<JsonRow[]>`
         select payload from dodo.static_snapshots where kind = ${kind} for update
       `;
       if (!row || parseSnapshot(row.payload).contentHash !== expectedContentHash) return false;
+      if (kind === "map") {
+        const [mapRow] = await sql<JsonRow[]>`
+          select payload from dodo.maps where is_current for update
+        `;
+        if (!mapRow) return false;
+        parseConsistentMapSnapshot(mapRow.payload, snapshot);
+      }
       await this.#upsertSnapshot(sql, kind, snapshot);
       return true;
     });
@@ -573,15 +612,19 @@ export class PostgresDodoRepository implements DodoRepository {
     return this.#getSnapshot("update");
   }
 
+  async getMapSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#getSnapshot("map");
+  }
+
   async getCurrentMap(): Promise<MapVersion | undefined> {
     const [row] = await this.#sql<JsonRow[]>`
       select payload from dodo.maps where is_current order by updated_at desc limit 1
     `;
-    return row ? mapVersionSchema.parse(row.payload) : undefined;
+    return row ? parseAuditedMapPayload(row.payload) : undefined;
   }
 
   async getMap(id: string): Promise<MapVersion | undefined> {
-    return this.#getDocument("maps", id, mapVersionSchema.parse);
+    return this.#getDocument("maps", id, parseAuditedMapPayload);
   }
 
   async getPlayer(accountId: string): Promise<PlayerProfile | undefined> {
@@ -726,7 +769,7 @@ export class PostgresDodoRepository implements DodoRepository {
   }
 
   async #getSnapshot(
-    kind: "hero" | "item" | "patch" | "update",
+    kind: "hero" | "item" | "patch" | "update" | "map",
   ): Promise<StaticDataSnapshot | undefined> {
     return this.#getPayload(
       this.#sql`select payload from dodo.static_snapshots where kind = ${kind}`,
@@ -757,7 +800,7 @@ export class PostgresDodoRepository implements DodoRepository {
 
   async #upsertSnapshot(
     sql: QuerySql,
-    kind: "hero" | "item" | "patch" | "update",
+    kind: "hero" | "item" | "patch" | "update" | "map",
     snapshot: StaticDataSnapshot,
   ): Promise<void> {
     await sql`

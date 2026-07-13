@@ -69,7 +69,7 @@ export type PlayerSyncFailure = {
 export interface DodoRepository {
   upsertHero(hero: HeroDetail): Promise<void>;
   upsertItem(item: ItemDetail): Promise<void>;
-  upsertMap(map: MapVersion): Promise<void>;
+  replaceMap(map: MapVersion, snapshot: StaticDataSnapshot): Promise<void>;
   upsertPlayer(profile: PlayerProfile): Promise<void>;
   upsertMatch(match: StoredMatch): Promise<void>;
   replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
@@ -103,7 +103,7 @@ export interface DodoRepository {
     snapshot: StaticDataSnapshot,
   ): Promise<void>;
   touchStaticSnapshot(
-    kind: "hero" | "item" | "patch" | "update",
+    kind: "hero" | "item" | "patch" | "update" | "map",
     expectedContentHash: string | null,
     snapshot: StaticDataSnapshot,
   ): Promise<boolean>;
@@ -120,6 +120,7 @@ export interface DodoRepository {
   listUpdateReleases(): Promise<UpdateReleaseSummary[]>;
   getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined>;
   getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined>;
+  getMapSnapshot(): Promise<StaticDataSnapshot | undefined>;
   getCurrentMap(): Promise<MapVersion | undefined>;
   getMap(id: string): Promise<MapVersion | undefined>;
   getPlayer(accountId: string): Promise<PlayerProfile | undefined>;

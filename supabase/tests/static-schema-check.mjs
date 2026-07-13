@@ -62,7 +62,15 @@ const checks = [
     "stable recent index",
     /on dodo\.player_matches \(account_id, start_time desc, match_id desc\)/i,
   ],
-  ["static snapshot update kind", /check \(kind in \('hero', 'item', 'patch', 'update'\)\)/i],
+  ["static snapshot map kind", /check \(kind in \('hero', 'item', 'patch', 'update', 'map'\)\)/i],
+  [
+    "map payload id matches business key",
+    /constraint maps_payload_id_matches_check[\s\S]*payload \? 'id'[\s\S]*payload ->> 'id' = id/i,
+  ],
+  [
+    "map payload id constraint is validated",
+    /validate constraint maps_payload_id_matches_check/i,
+  ],
   ["official provider health source", /source in \([\s\S]*'dota2_official'[\s\S]*\)/i],
   ["seed map removal", /delete from dodo\.maps[\s\S]*id = 'seed-map'/i],
   ["anon schema revoke", /revoke all on schema dodo from anon;/i],

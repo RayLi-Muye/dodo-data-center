@@ -19,7 +19,8 @@
 | DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | ACCEPTED |
 | DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | ACCEPTED |
-| MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
+| MAP-016A audited static map foundation | Root / Data / API / Web Agents | 严格 geometry、审计哈希、原子存储与 honest UI | DATA-014 | REVIEW |
+| MAP-016B lawful current map snapshot | Root / Data Agents | 当前 App 570 版本化地图静态百科 | MAP-016A、合法来源与下载授权 | BLOCKED |
 
 ### Wave 12 phase 2 checkpoint
 
@@ -62,6 +63,15 @@
 - Vercel Production 原先缺少 `API_BASE_URL`，导致主站无法连接 Railway；已补为生产 API 并重新部署。账号 `224328273` 的玩家页、增强控件与单场接口恢复可读，浏览器无 error/warning、桌面无横向溢出。
 - 真实最近 20 场首批结束后：20 场详情均 ready，1 场 STRATZ complete、19 场因 partial response 计划重试、0 terminal/blocked/not-requested；立即再次 POST 不增加 attempt。赛事 `8894132397` 仍保留 timed ability 与 partial purchase timeline，来源为 OpenDota/STRATZ。
 - 生产文案不再把计划重试误称为完成：显示“19 场已计划重试，尚未到再次请求时间”，按钮禁用为“等待计划重试”。最终 QA P0/P1/P2 均为 0，API-WEB-015 接受。
+
+### Wave 12 phase 5 source gate
+
+- Dota 2 official 7.41/7.41d 只能证明地图机制和相对变化，不提供机器可读坐标。`dotaconstants` 无地图坐标；已审计的 GameTracking mirror 无明确许可证且不含当前主地图实例，不能作为可直接发布的数据集。
+- 本机 Steam library 没有 App 570 安装或 manifest。未获用户授权前不下载大体积 depot；未完成用途许可审查前不复制 minimap 或游戏资源。生产继续正确返回 `MAP_UNAVAILABLE`。
+- Phase 5 先交付严格 geometry、来源 revision/hash、coverage/exclusion、幂等原子存储和 honest API/Web 状态。真实 current snapshot 只有在合法 App 570 build/depot/resource 提取与双重审计后才可设为 current。
+- Coverage 契约要求全部 13 种已知地点类型恰好归入 included 或 exclusions；`complete` 必须全部纳入，`partial` 必须逐项说明遗漏，测试 fixture 不得伪装为完整地图。
+- 真实快照激活前还必须实现地图变更补丁对 current pointer 的自动失效。当前生产没有 curated map snapshot，因此该 P2 门禁不会造成线上陈旧地图，但不得在缺少失效机制时发布真实 current。
+- MAP-016A 最终本地门禁通过：全仓 typecheck、358 项常规测试、生产 build、43 项 schema 检查及真实 PostgreSQL 35/35；修复后 QA P0/P1 均为 0。浏览器确认 seed 页面明确显示 `PARTIAL`、11 类逐项排除与 test-only 来源，console 无 error/warning。
 
 ### Wave 12 phase 1 evidence
 

@@ -1,13 +1,15 @@
-import type {
-  HeroDetail,
-  ItemDetail,
-  MapVersion,
-  MatchDetail,
-  PatchSummary,
-  PlayerProfile,
-  UpdateReleaseDetail,
+import {
+  mapFeatureTypeSchema,
+  type HeroDetail,
+  type ItemDetail,
+  type MapVersion,
+  type MatchDetail,
+  type PatchSummary,
+  type PlayerProfile,
+  type UpdateReleaseDetail,
 } from "@dodo/contracts";
 
+import { calculateMapContentHash } from "./map-snapshot.js";
 import { MemoryDodoRepository } from "./memory-repository.js";
 import type { DodoRepository } from "./types.js";
 
@@ -163,10 +165,11 @@ const itemSeed: ItemDetail[] = [
   },
 ];
 
-const mapSeed: MapVersion = {
+const mapSeedDraft: MapVersion = {
   id: "seed-map",
   patch: SEED_PATCH,
-  coordinateSystem: "seed-normalized-0-100",
+  quality: "partial",
+  coordinateSystem: "source2-world-units",
   bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
   features: [
     {
@@ -175,6 +178,12 @@ const mapSeed: MapVersion = {
       localizedName: "Seed Middle Lane",
       description: "Deterministic test-only map feature.",
       geometry: { type: "LineString", coordinates: [[0, 0], [100, 100]] },
+      sourceRefs: [{
+        resourcePath: "seed/maps/seed-map.vmap_c",
+        entityClassname: "seed_lane",
+        entityTargetName: "seed_mid_lane",
+        entityIndex: 0,
+      }],
     },
     {
       id: "seed-roshan",
@@ -182,10 +191,41 @@ const mapSeed: MapVersion = {
       localizedName: "Seed Roshan Pit",
       description: "Deterministic test-only map feature.",
       geometry: { type: "Point", coordinates: [75, 25] },
+      sourceRefs: [{
+        resourcePath: "seed/maps/seed-map.vmap_c",
+        entityClassname: "seed_roshan_spawner",
+        entityTargetName: "seed_roshan",
+        entityIndex: 1,
+      }],
     },
   ],
-  sourceSnapshot: "curated-map://maps/seed-map",
+  sourceSnapshot: "https://fixtures.invalid/dodo/maps/seed-map-manifest.json",
+  sourceUrls: ["https://fixtures.invalid/dodo/maps/seed-map-source"],
+  sourceRevision: {
+    appId: "570",
+    buildId: "1",
+    depotManifestId: "1",
+    resourcePath: "seed/maps/seed-map.vmap_c",
+    resourceSha256: "1".repeat(64),
+    extractor: "dodo-seed-fixture",
+    extractorVersion: "1",
+    snapshotSha256: "0".repeat(64),
+  },
+  coverage: {
+    includedTypes: ["lane", "roshan"],
+    exclusions: mapFeatureTypeSchema.options
+      .filter((type) => type !== "lane" && type !== "roshan")
+      .map((type) => ({
+        type,
+        reason: "Deterministic seed fixture does not model this feature type.",
+      })),
+  },
   verifiedAt: SEED_UPDATED_AT,
+};
+const mapSeedHash = calculateMapContentHash(mapSeedDraft);
+const mapSeed: MapVersion = {
+  ...mapSeedDraft,
+  sourceRevision: { ...mapSeedDraft.sourceRevision, snapshotSha256: mapSeedHash },
 };
 
 const patchSeed: PatchSummary[] = [
@@ -336,7 +376,15 @@ const createMatch = (index: number): MatchDetail => {
 };
 
 export const seedCuratedMap = async (repository: DodoRepository): Promise<DodoRepository> => {
-  await repository.upsertMap(mapSeed);
+  await repository.replaceMap(mapSeed, {
+    source: "seed",
+    quality: mapSeed.quality,
+    fetchedAt: mapSeed.verifiedAt,
+    checkedAt: mapSeed.verifiedAt,
+    changedAt: mapSeed.verifiedAt,
+    contentHash: mapSeedHash,
+    officialVersion: mapSeed.patch,
+  });
   return repository;
 };
 

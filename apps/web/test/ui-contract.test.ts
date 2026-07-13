@@ -58,6 +58,32 @@ describe("Web UI copy and touch contract", () => {
     expect(heroDetail).toContain('hero.data.facetsStatus === "unavailable"');
   });
 
+  it("presents audited map coverage without implying live or raster data", () => {
+    const mapPage = source("../app/map/page.tsx");
+    const geometry = source("../lib/geometry.ts");
+    const css = source("../app/globals.css");
+
+    for (const label of ["痛苦魔方", "双生之门", "观测者", "智慧神符"]) {
+      expect(mapPage).toContain(label);
+    }
+    for (const field of ["buildId", "depotManifestId", "resourceSha256", "extractorVersion", "verifiedAt", "sourceUrls"]) {
+      expect(mapPage).toContain(`map.data.${field === "verifiedAt" || field === "sourceUrls" ? field : `sourceRevision.${field}`}`);
+    }
+    expect(mapPage).toContain("不是肉山的实时位置");
+    expect(mapPage).toContain("不显示或复制官方地图贴图");
+    expect(mapPage).toContain("不补画未经来源验证的地点、地形或通行路线");
+    expect(mapPage).toContain("map.data.coverage.exclusions");
+    expect(mapPage).toContain("map.data.quality === \"complete\"");
+    expect(mapPage).not.toContain("map-terrain");
+    expect(mapPage).not.toContain("if (!geometry) return null");
+    expect(geometry).toContain('parseGeometry(geometry: MapGeometry): RenderGeometry');
+    expect(geometry).not.toContain("RenderGeometry | null");
+    expect(css).toContain(".map-evidence-grid");
+    expect(css).toContain(".map-audit-grid");
+    expect(css).toMatch(/\.map-filter\s*\{[^}]*overflow-x:\s*auto/s);
+    expect(css).toMatch(/\.map-audit-grid dd\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
   it("shows friendly match labels without changing raw filter values", () => {
     const ledger = source("../components/match-ledger.tsx");
     const explorer = source("../components/match-explorer.tsx");

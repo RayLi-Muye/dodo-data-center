@@ -1,5 +1,12 @@
 export { MemoryDodoRepository } from "./memory-repository.js";
 export { PostgresDodoRepository } from "./postgres-repository.js";
+export {
+  calculateMapContentHash,
+  MapAuditError,
+  mapSnapshotIsConsistent,
+  parseAuditedMapPayload,
+  parseConsistentMapSnapshot,
+} from "./map-snapshot.js";
 export type { PostgresDodoRepositoryOptions } from "./postgres-repository.js";
 export {
   createSeedRepository,

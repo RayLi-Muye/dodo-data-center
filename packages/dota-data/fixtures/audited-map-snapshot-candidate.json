@@ -1,0 +1,113 @@
+{
+  "id": "synthetic-map-7-41d",
+  "patch": "7.41d",
+  "quality": "partial",
+  "coordinateSystem": "source2-world-units",
+  "bounds": {
+    "minX": -1000,
+    "minY": -1000,
+    "maxX": 1000,
+    "maxY": 1000
+  },
+  "features": [
+    {
+      "id": "synthetic-roshan-north",
+      "type": "roshan",
+      "localizedName": "合成北侧肉山巢穴",
+      "description": "Deterministic synthetic point; not Dota game data.",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [250, 600]
+      },
+      "sourceRefs": [
+        {
+          "resourcePath": "fixtures/synthetic-map.vmap_c",
+          "entityClassname": "synthetic_roshan_spawner",
+          "entityTargetName": "synthetic_roshan_north",
+          "entityIndex": 7
+        }
+      ]
+    },
+    {
+      "id": "synthetic-mid-lane",
+      "type": "lane",
+      "localizedName": "合成中路",
+      "description": "Deterministic synthetic line; not Dota game data.",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-800, -800], [0, 0], [800, 800]]
+      },
+      "sourceRefs": [
+        {
+          "resourcePath": "fixtures/synthetic-map.vmap_c",
+          "entityClassname": "synthetic_lane_waypoint",
+          "entityTargetName": "synthetic_mid_lane",
+          "entityIndex": 3
+        }
+      ]
+    }
+  ],
+  "sourceSnapshot": "https://fixture.invalid/manifests/570/synthetic-map-7-41d.json",
+  "sourceUrls": [
+    "https://fixture.invalid/evidence/synthetic-map-7-41d"
+  ],
+  "sourceRevision": {
+    "appId": "570",
+    "buildId": "123456",
+    "depotManifestId": "987654321",
+    "resourcePath": "fixtures/synthetic-map.vmap_c",
+    "resourceSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "extractor": "synthetic-map-extractor",
+    "extractorVersion": "1.0.0"
+  },
+  "coverage": {
+    "includedTypes": ["lane", "roshan"],
+    "exclusions": [
+      {
+        "type": "tower",
+        "reason": "Synthetic test-only fixture deliberately omits towers; this is not Dota game data."
+      },
+      {
+        "type": "tormentor",
+        "reason": "Synthetic test-only fixture deliberately omits Tormentors; this is not Dota game data."
+      },
+      {
+        "type": "twin_gate",
+        "reason": "Synthetic test-only fixture deliberately omits Twin Gates; this is not Dota game data."
+      },
+      {
+        "type": "watcher",
+        "reason": "Synthetic test-only fixture deliberately omits Watchers; this is not Dota game data."
+      },
+      {
+        "type": "wisdom_rune",
+        "reason": "Synthetic test-only fixture deliberately omits Wisdom Runes; this is not Dota game data."
+      },
+      {
+        "type": "outpost",
+        "reason": "Synthetic test-only fixture deliberately omits Outposts; this is not Dota game data."
+      },
+      {
+        "type": "shop",
+        "reason": "Synthetic test-only fixture deliberately omits shops; this is not Dota game data."
+      },
+      {
+        "type": "rune",
+        "reason": "Synthetic test-only fixture deliberately omits rune spawns; this is not Dota game data."
+      },
+      {
+        "type": "lotus_pool",
+        "reason": "Synthetic test-only fixture deliberately omits Lotus Pools; this is not Dota game data."
+      },
+      {
+        "type": "neutral_camp",
+        "reason": "Synthetic test-only fixture deliberately omits neutral camps; this is not Dota game data."
+      },
+      {
+        "type": "landmark",
+        "reason": "Synthetic test-only fixture deliberately omits landmarks; this is not Dota game data."
+      }
+    ]
+  },
+  "verifiedAt": "2026-07-13T00:00:00.000Z"
+}

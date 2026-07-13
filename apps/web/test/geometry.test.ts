@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseGeometry, svgPoints } from "../lib/geometry";
+import { parseGeometry, svgPoints, svgPolygonPath } from "../lib/geometry";
 
 describe("map geometry", () => {
   it("parses GeoJSON point and line shapes", () => {
@@ -11,12 +11,24 @@ describe("map geometry", () => {
     });
   });
 
-  it("rejects unknown or non-finite geometry", () => {
-    expect(parseGeometry({ type: "Point", coordinates: [Number.NaN, 1] })).toBeNull();
-    expect(parseGeometry({ type: "Circle", coordinates: [1, 2] })).toBeNull();
+  it("preserves every ring from strict polygon geometry", () => {
+    expect(parseGeometry({
+      type: "Polygon",
+      coordinates: [
+        [[0, 0], [10, 0], [10, 10], [0, 0]],
+        [[2, 2], [3, 2], [3, 3], [2, 2]],
+      ],
+    })).toEqual({
+      kind: "polygon",
+      rings: [
+        [[0, 0], [10, 0], [10, 10], [0, 0]],
+        [[2, 2], [3, 2], [3, 3], [2, 2]],
+      ],
+    });
   });
 
   it("serializes points for an SVG polyline", () => {
     expect(svgPoints([[0, 0], [5.5, 9]])).toBe("0,0 5.5,9");
+    expect(svgPolygonPath([[[0, 0], [5, 0], [0, 0]]])).toBe("M 0,0 5,0 0,0 Z");
   });
 });

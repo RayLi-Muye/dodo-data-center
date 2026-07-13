@@ -1,7 +1,65 @@
-import { dataStatusResponseSchema } from "@dodo/contracts";
+import { dataStatusResponseSchema, mapFeatureTypeSchema } from "@dodo/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api, DodoApiError, fetchApi, getApiBaseUrl } from "../lib/api";
+
+const validMapResponse = {
+  data: {
+    id: "map-7.41d-build-123456",
+    patch: "7.41d",
+    quality: "partial",
+    coordinateSystem: "source2-world-units",
+    bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+    features: [{
+      id: "radiant-top-tier-one",
+      type: "tower",
+      localizedName: "天辉上路一塔",
+      description: "结构化防御塔位置。",
+      geometry: { type: "Point", coordinates: [25, 30] },
+      sourceRefs: [{
+        resourcePath: "game/dota/maps/dota.vmap_c",
+        entityClassname: "npc_dota_tower",
+        entityTargetName: "radiant_top_tier_one",
+        entityIndex: 18,
+      }],
+    }],
+    sourceSnapshot: "https://example.com/maps/7.41d/manifest.json",
+    sourceUrls: ["https://www.dota2.com/patches/7.41d"],
+    sourceRevision: {
+      appId: "570",
+      buildId: "123456",
+      depotManifestId: "987654",
+      resourcePath: "game/dota/maps/dota.vmap_c",
+      resourceSha256: "a".repeat(64),
+      extractor: "dodo-map-extractor",
+      extractorVersion: "1.0.0",
+      snapshotSha256: "b".repeat(64),
+    },
+    coverage: {
+      includedTypes: ["tower"],
+      exclusions: [
+        { type: "lane", reason: "最小 Web 合约测试快照未包含兵线拓扑。" },
+        { type: "tormentor", reason: "最小 Web 合约测试快照未包含痛苦魔方。" },
+        { type: "twin_gate", reason: "最小 Web 合约测试快照未包含双生之门。" },
+        { type: "watcher", reason: "最小 Web 合约测试快照未包含观测者。" },
+        { type: "wisdom_rune", reason: "最小 Web 合约测试快照未包含智慧神符。" },
+        { type: "outpost", reason: "最小 Web 合约测试快照未包含前哨。" },
+        { type: "shop", reason: "最小 Web 合约测试快照未包含商店。" },
+        { type: "roshan", reason: "最小 Web 合约测试快照未包含肉山巢穴。" },
+        { type: "rune", reason: "最小 Web 合约测试快照未包含其他神符点。" },
+        { type: "lotus_pool", reason: "最小 Web 合约测试快照未包含莲花池。" },
+        { type: "neutral_camp", reason: "最小 Web 合约测试快照未包含野怪营地。" },
+        { type: "landmark", reason: "最小 Web 合约测试快照未包含其他地标。" },
+      ],
+    },
+    verifiedAt: "2026-07-12T00:00:00.000Z",
+  },
+  meta: {
+    quality: "partial",
+    sources: ["curated_map"],
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  },
+} as const;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -95,30 +153,42 @@ describe("server API client", () => {
   });
 
   it("does not cache the current map availability response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: {
-        id: "map-7.41d",
-        patch: "7.41d",
-        coordinateSystem: "source2-world",
-        bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
-        features: [],
-        sourceSnapshot: "curated-map@test",
-        verifiedAt: "2026-07-12T00:00:00.000Z",
-      },
-      meta: {
-        quality: "complete",
-        sources: ["curated_map"],
-        updatedAt: "2026-07-12T00:00:00.000Z",
-      },
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(validMapResponse), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.map();
+    const map = await api.map();
+
+    expect(map.data.quality).toBe("partial");
+    expect(new Set([
+      ...map.data.coverage.includedTypes,
+      ...map.data.coverage.exclusions.map((exclusion) => exclusion.type),
+    ])).toEqual(new Set(mapFeatureTypeSchema.options));
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/v1\/maps\/current$/),
       expect.objectContaining({ cache: "no-store" }),
     );
+  });
+
+  it("rejects a legacy complete map response with no features", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ...validMapResponse,
+      data: {
+        ...validMapResponse.data,
+        quality: "complete",
+        features: [],
+        coverage: { includedTypes: [], exclusions: [] },
+      },
+      meta: { ...validMapResponse.meta, quality: "complete" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(api.map()).rejects.toMatchObject({
+      kind: "invalid-response",
+      message: "数据格式与当前客户端契约不一致",
+    });
   });
 
   it("validates official update lists and details without caching them", async () => {

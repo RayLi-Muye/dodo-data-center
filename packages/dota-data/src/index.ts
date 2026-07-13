@@ -1,4 +1,5 @@
 export * from "./account-reference.js";
+export * from "./audited-map-snapshot.js";
 export * from "./dota2-official-errors.js";
 export * from "./dota2-official-provider.js";
 export * from "./errors.js";

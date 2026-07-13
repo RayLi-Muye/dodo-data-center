@@ -1,8 +1,11 @@
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { MapVersion } from "@dodo/contracts";
 
 import {
+  calculateMapContentHash,
   createSeedRepository,
+  MapAuditError,
   PostgresDodoRepository,
   SEED_ACCOUNT_ID,
   SEED_PARTIAL_ACCOUNT_ID,
@@ -10,6 +13,34 @@ import {
   SEED_UPDATED_AT,
   type DodoRepository,
 } from "../src/index.js";
+
+const mapRevision = (
+  base: MapVersion,
+  changes: Partial<Omit<MapVersion, "sourceRevision">> = {},
+): MapVersion => {
+  const draft: MapVersion = {
+    ...base,
+    ...changes,
+    sourceRevision: { ...base.sourceRevision, snapshotSha256: "0".repeat(64) },
+  };
+  return {
+    ...draft,
+    sourceRevision: {
+      ...draft.sourceRevision,
+      snapshotSha256: calculateMapContentHash(draft),
+    },
+  };
+};
+
+const mapSnapshot = (map: MapVersion, checkedAt = map.verifiedAt) => ({
+  source: "seed" as const,
+  quality: map.quality,
+  fetchedAt: checkedAt,
+  checkedAt,
+  changedAt: map.verifiedAt,
+  contentHash: calculateMapContentHash(map),
+  officialVersion: map.patch,
+});
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -81,6 +112,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     const patch = await fixtures.getPatch(SEED_PATCH);
     const update = await fixtures.getUpdateRelease("7.41");
     const map = await fixtures.getCurrentMap();
+    const mapSnapshot = await fixtures.getMapSnapshot();
     const primaryPlayer = await fixtures.getPlayer(SEED_ACCOUNT_ID);
     const sharedPlayer = await fixtures.getPlayer(SEED_PARTIAL_ACCOUNT_ID);
     const matches = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID)).slice(0, 2);
@@ -90,6 +122,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
       !patch ||
       !update ||
       !map ||
+      !mapSnapshot ||
       !primaryPlayer ||
       !sharedPlayer ||
       matches.length !== 2
@@ -110,7 +143,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     await repository.replaceItems([item], snapshot, [item.id]);
     await repository.replacePatches([patch], snapshot);
     await repository.replaceUpdateReleases([update], snapshot);
-    await repository.upsertMap(map);
+    await repository.replaceMap(map, mapSnapshot);
     await repository.upsertPlayer(primaryPlayer);
     await repository.upsertPlayer(sharedPlayer);
 
@@ -197,6 +230,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(await repository.getUpdateRelease(update.version)).toEqual(update);
     expect(await repository.getUpdateSnapshot()).toEqual(snapshot);
     expect(await repository.getCurrentMap()).toEqual(map);
+    expect(await repository.getMapSnapshot()).toEqual(mapSnapshot);
     expect(await repository.getPlayerSyncBatch(SEED_ACCOUNT_ID)).toMatchObject({ sampleSize: 1 });
     expect(await repository.getPlayerSyncFailure(SEED_ACCOUNT_ID)).toMatchObject({ source: "seed" });
     expect(await repository.getPlayerHistorySync(SEED_ACCOUNT_ID)).toMatchObject({
@@ -211,6 +245,76 @@ describeWithDatabase("PostgresDodoRepository", () => {
     await repository.clearPlayerSyncFailure(SEED_ACCOUNT_ID);
     expect(await repository.getPlayerSyncFailure(SEED_ACCOUNT_ID)).toBeUndefined();
     expect(await repository.getLatestMatchAt()).toBe(matches[0]!.detail.startTime);
+  });
+
+  it("atomically versions audited maps without rewriting an unchanged current row", async () => {
+    const fixtures = await createSeedRepository();
+    const first = await fixtures.getCurrentMap();
+    const firstSnapshot = await fixtures.getMapSnapshot();
+    if (!first || !firstSnapshot) throw new Error("Seed map missing");
+    await repository.replaceMap(first, firstSnapshot);
+    const [before] = await admin<{ updated_at: Date }[]>`
+      select updated_at from dodo.maps where id = ${first.id}
+    `;
+
+    const touched = mapSnapshot(first, "2026-07-13T01:00:00.000Z");
+    await repository.replaceMap(first, touched);
+    const [after] = await admin<{ updated_at: Date }[]>`
+      select updated_at from dodo.maps where id = ${first.id}
+    `;
+    expect(after?.updated_at.toISOString()).toBe(before?.updated_at.toISOString());
+    expect(await repository.getMapSnapshot()).toEqual(touched);
+
+    const conflicting = mapRevision(first, {
+      features: first.features.map((feature, index) =>
+        index === 0 ? { ...feature, description: "Changed without a revision ID." } : feature,
+      ),
+    });
+    await expect(repository.replaceMap(conflicting, mapSnapshot(conflicting))).rejects.toThrow(
+      "already exists with different content",
+    );
+    expect(await repository.getCurrentMap()).toEqual(first);
+    expect(await repository.getMapSnapshot()).toEqual(touched);
+
+    const second = mapRevision(first, {
+      id: "seed-map-r2",
+      verifiedAt: "2026-07-13T02:00:00.000Z",
+    });
+    const secondSnapshot = mapSnapshot(second);
+    await repository.replaceMap(second, secondSnapshot);
+    expect(await repository.getCurrentMap()).toEqual(second);
+    expect(await repository.getMap(first.id)).toEqual(first);
+    expect(await repository.getMapSnapshot()).toEqual(secondSnapshot);
+    const currentRows = await admin<{ id: string }[]>`
+      select id from dodo.maps where is_current order by id
+    `;
+    expect(currentRows).toEqual([{ id: second.id }]);
+  });
+
+  it("enforces map payload identity at the database boundary", async () => {
+    await expect(admin`
+      insert into dodo.maps (id, payload, is_current)
+      values ('row-id', ${admin.json({ id: "payload-id" })}, false)
+    `).rejects.toThrow();
+  });
+
+  it("classifies a current row with an invalid embedded map hash as an audit error", async () => {
+    const fixtures = await createSeedRepository();
+    const map = await fixtures.getCurrentMap();
+    const snapshot = await fixtures.getMapSnapshot();
+    if (!map || !snapshot) throw new Error("Seed map missing");
+    await repository.replaceMap(map, snapshot);
+    await admin`
+      update dodo.maps
+      set payload = jsonb_set(
+        payload,
+        '{sourceRevision,snapshotSha256}',
+        to_jsonb(${"0".repeat(64)}::text)
+      )
+      where id = ${map.id}
+    `;
+
+    await expect(repository.getCurrentMap()).rejects.toBeInstanceOf(MapAuditError);
   });
 
   it("prunes legacy catalog rows but keeps current failed entries transactionally", async () => {
