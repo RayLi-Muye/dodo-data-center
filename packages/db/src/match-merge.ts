@@ -102,6 +102,10 @@ export const mergeMatchDetails = (
     enrichmentSources: [
       ...new Set([...(existing?.enrichmentSources ?? []), ...incoming.enrichmentSources]),
     ],
+    stratzEnrichment:
+      existing && incoming.stratzEnrichment.status === "not_requested"
+        ? existing.stratzEnrichment
+        : incoming.stratzEnrichment,
     players: [...playersBySlot.values()],
   };
 };

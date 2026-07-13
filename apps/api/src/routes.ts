@@ -9,6 +9,7 @@ import {
   matchIdParamsSchema,
   paginationQuerySchema,
   playerHeroesQuerySchema,
+  playerEnrichmentQuerySchema,
   playerMatchesQuerySchema,
   playerSyncRequestSchema,
   playerWindowQuerySchema,
@@ -22,6 +23,7 @@ import type {
   MapFeature,
   OperationMeta,
   PlayerHeroStats,
+  MatchEnrichmentScope,
   PlayerHistorySync,
   PlayerProfile,
   SyncJob,
@@ -33,6 +35,7 @@ import {
   type StaticDataSnapshot,
   type StoredMatch,
 } from "@dodo/db";
+import { OpenDotaProviderError } from "@dodo/dota-data";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -58,6 +61,7 @@ import {
 } from "./meta.js";
 import type { PlayerSyncService } from "./player-sync-service.js";
 import type { PlayerHistorySyncService } from "./player-history-sync-service.js";
+import type { MatchEnrichmentOrchestrator } from "./match-enrichment-orchestrator.js";
 
 const detailQuerySchema = z.object({ patch: z.string().trim().max(32).optional() });
 const mapVersionParamsSchema = z.object({ mapVersionId: identifierSchema });
@@ -310,6 +314,7 @@ type RegisterRoutesOptions = {
   dataMode: DataMode;
   syncService?: PlayerSyncService;
   historySyncService?: PlayerHistorySyncService;
+  matchEnrichmentOrchestrator?: MatchEnrichmentOrchestrator;
 };
 
 const qualityForProviderStatus = (
@@ -427,7 +432,12 @@ const selectionQuality = (
 export const registerRoutes = async (
   app: FastifyInstance,
   repository: DodoRepository,
-  { dataMode, syncService, historySyncService }: RegisterRoutesOptions,
+  {
+    dataMode,
+    syncService,
+    historySyncService,
+    matchEnrichmentOrchestrator,
+  }: RegisterRoutesOptions,
 ): Promise<void> => {
   const listVersionedMatches = async (accountId: string): Promise<StoredMatch[]> => {
     const [matches, patches] = await Promise.all([
@@ -537,6 +547,38 @@ export const registerRoutes = async (
     if (profile?.status === "syncing" && profile.importedMatchCount > 0) return profile;
     return accessiblePlayer(accountId);
   };
+  const requireMatchEnrichment = async (): Promise<MatchEnrichmentOrchestrator> => {
+    if (matchEnrichmentOrchestrator) return matchEnrichmentOrchestrator;
+    throw new ApiHttpError(
+      503,
+      "SOURCE_UNAVAILABLE",
+      "Match enrichment is unavailable in this data mode.",
+      true,
+      await defaultErrorMeta("source_unavailable"),
+    );
+  };
+  const enrichmentResponse = async (
+    accountId: string,
+    scope: MatchEnrichmentScope,
+    snapshot: Awaited<ReturnType<MatchEnrichmentOrchestrator["getProgress"]>>,
+  ) => {
+    const total = snapshot.progress.totalMatches;
+    const descriptor = await playerDescriptor(accountId);
+    return {
+      data: snapshot.progress,
+      meta: createMetricMeta({
+        sampleSize: total,
+        eligibleCount: total,
+        coverageRate: total === 0 ? 1 : snapshot.progress.completeCount / total,
+        filtersApplied: { scope },
+        inputWatermark: null,
+        quality: total === snapshot.progress.completeCount ? "complete" : "partial",
+        updatedAt: snapshot.progress.updatedAt ?? descriptor.updatedAt,
+        sources: snapshot.sources,
+        metricVersion: "match-enrichment-v1",
+      }),
+    };
+  };
 
   app.post("/v1/account-resolutions", async (request) => {
     const errorMeta = await defaultErrorMeta();
@@ -632,6 +674,29 @@ export const registerRoutes = async (
         quality: "partial",
       }),
     });
+  });
+
+  app.get("/v1/players/:accountId/enrichment", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const accountId = parseAccountId(request.params, errorMeta);
+    await accessiblePlayer(accountId);
+    const { scope } = parse(playerEnrichmentQuerySchema, request.query, errorMeta);
+    const service = await requireMatchEnrichment();
+    return enrichmentResponse(accountId, scope, await service.getProgress(accountId, scope));
+  });
+
+  app.post("/v1/players/:accountId/enrichment", async (request, reply) => {
+    const errorMeta = await defaultErrorMeta();
+    const accountId = parseAccountId(request.params, errorMeta);
+    await accessiblePlayer(accountId);
+    const { scope } = parse(playerEnrichmentQuerySchema, request.query, errorMeta);
+    const service = await requireMatchEnrichment();
+    const response = await enrichmentResponse(
+      accountId,
+      scope,
+      await service.requestPlayerEnrichment(accountId, scope),
+    );
+    return reply.code(202).send(response);
   });
 
   app.get("/v1/sync-jobs/:jobId", async (request) => {
@@ -869,6 +934,55 @@ export const registerRoutes = async (
       : undefined;
     if (!match) {
       throw new ApiHttpError(404, "NOT_FOUND", "Match was not found.", false, errorMeta);
+    }
+    return { data: match.detail, meta: createOperationMeta(descriptorFromMatch(match)) };
+  });
+
+  app.post("/v1/matches/:matchId/enrichment", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const { matchId } = parse(matchIdParamsSchema, request.params, errorMeta);
+    const existing = await repository.getMatch(matchId);
+    if (!existing) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Match was not found.", false, errorMeta);
+    }
+    const service = await requireMatchEnrichment();
+    let match: StoredMatch;
+    try {
+      const enriched = await service.enrichMatch(matchId);
+      if (!enriched) throw new Error("Stored match disappeared during enrichment");
+      match = enriched;
+    } catch (error) {
+      if (!(error instanceof OpenDotaProviderError)) throw error;
+      const statusCode = error.code === "SOURCE_RATE_LIMITED"
+        ? 429
+        : error.code === "SOURCE_UNAVAILABLE"
+          ? 503
+          : error.code === "PROFILE_PRIVATE" || error.code === "HISTORY_PRIVATE"
+            ? 403
+            : error.code === "PARSE_PENDING"
+              ? 409
+              : 404;
+      throw new ApiHttpError(
+        statusCode,
+        error.code,
+        "OpenDota match detail enrichment failed.",
+        error.retryable,
+        createErrorMeta(
+          error.code === "SOURCE_RATE_LIMITED"
+            ? "source_rate_limited"
+            : error.code === "SOURCE_UNAVAILABLE"
+              ? "source_unavailable"
+              : error.code === "PARSE_PENDING"
+                ? "parse_pending"
+                : error.code === "PROFILE_PRIVATE"
+                  ? "profile_private"
+                  : error.code === "HISTORY_PRIVATE"
+                    ? "history_private"
+                    : "not_found",
+          error.retryAfterSeconds,
+          { updatedAt: existing.importedAt, sources: ["opendota"], quality: "partial" },
+        ),
+      );
     }
     return { data: match.detail, meta: createOperationMeta(descriptorFromMatch(match)) };
   });

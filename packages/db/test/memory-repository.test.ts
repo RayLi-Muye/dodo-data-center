@@ -257,6 +257,28 @@ describe("MemoryDodoRepository", () => {
     expect((await repository.getMatch(match.detail.id))?.detail.players).toHaveLength(10);
   });
 
+  it("defaults missing legacy STRATZ enrichment state in memory", async () => {
+    const fixtures = await createSeedRepository();
+    const match = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    const { stratzEnrichment: _stratzEnrichment, ...legacyDetail } = match.detail;
+    const repository = await createLiveRepository();
+
+    await repository.upsertMatch({
+      ...match,
+      detail: legacyDetail as typeof match.detail,
+    });
+
+    expect((await repository.getMatch(match.detail.id))?.detail.stratzEnrichment).toEqual({
+      status: "not_requested",
+      resultQuality: null,
+      attemptCount: 0,
+      lastAttemptAt: null,
+      nextAttemptAt: null,
+      reasonCode: null,
+      providerRevision: "stratz-graphql-v1",
+    });
+  });
+
   it("does not replace an unchanged match only to advance its import timestamp", async () => {
     const repository = await createSeedRepository();
     const match = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;

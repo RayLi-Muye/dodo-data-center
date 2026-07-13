@@ -11,6 +11,7 @@ import Fastify, { LogController } from "fastify";
 
 import { parseDataMode, type DataMode } from "./data-mode.js";
 import { ApiHttpError } from "./errors.js";
+import { MatchEnrichmentOrchestrator } from "./match-enrichment-orchestrator.js";
 import { createErrorMeta } from "./meta.js";
 import type { PlayerDataProvider } from "./player-data-provider.js";
 import { PlayerHistorySyncService } from "./player-history-sync-service.js";
@@ -33,6 +34,7 @@ export type BuildAppOptions = {
   staticCatalogService?: StaticCatalogService;
   stratzProvider?: Pick<StratzProvider, "getMatchDetail">;
   stratzMatchEnrichmentService?: StratzMatchEnrichmentService;
+  matchEnrichmentOrchestrator?: MatchEnrichmentOrchestrator;
   clock?: () => Date;
 };
 
@@ -58,6 +60,9 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
   let historySyncService = options.historySyncService;
   let staticCatalogService = options.staticCatalogService;
   let stratzMatchEnrichmentService = options.stratzMatchEnrichmentService;
+  let matchEnrichmentOrchestrator = options.matchEnrichmentOrchestrator;
+  let providerForEnrichment = options.playerDataProvider;
+  let reportMatchEnrichmentError = (_error: unknown): void => undefined;
   if (dataMode === "live" && (!syncService || !historySyncService)) {
     const provider = options.playerDataProvider ?? (() => {
       const openDotaProvider = new OpenDotaProvider({
@@ -76,6 +81,7 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
           officialProvider.getRecentUpdateReleases(limit),
       });
     })();
+    providerForEnrichment = provider;
     if (!syncService && !stratzMatchEnrichmentService) {
       const stratzToken = process.env.STRATZ_TOKEN?.trim();
       const stratzProvider = options.stratzProvider ?? (
@@ -109,6 +115,15 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
       staticCatalogService ??= new StaticCatalogService({ repository, provider, clock });
     }
   }
+  if (dataMode === "live" && !matchEnrichmentOrchestrator && providerForEnrichment) {
+    matchEnrichmentOrchestrator = new MatchEnrichmentOrchestrator({
+      repository,
+      provider: providerForEnrichment,
+      ...(stratzMatchEnrichmentService ? { stratzService: stratzMatchEnrichmentService } : {}),
+      clock,
+      onError: (error) => reportMatchEnrichmentError(error),
+    });
+  }
   try {
     if (dataMode === "live" && !(await repository.getProviderHealth("opendota"))) {
       await repository.upsertProviderHealth({
@@ -127,6 +142,12 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
     logger,
     logController: new LogController({ disableRequestLogging: true }),
   });
+  reportMatchEnrichmentError = (error) => {
+    app.log.error(
+      { err: error },
+      "Background match enrichment failed.",
+    );
+  };
 
   if (environment === "development") {
     await app.register(cors, {
@@ -181,6 +202,7 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
     dataMode,
     ...(syncService ? { syncService } : {}),
     ...(historySyncService ? { historySyncService } : {}),
+    ...(matchEnrichmentOrchestrator ? { matchEnrichmentOrchestrator } : {}),
   });
   staticCatalogService?.start();
   app.addHook("onClose", async () => {
@@ -188,6 +210,7 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
       await staticCatalogService?.close();
       await syncService?.close();
       await historySyncService?.close();
+      await matchEnrichmentOrchestrator?.close();
     } finally {
       await repository.close();
     }

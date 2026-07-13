@@ -196,4 +196,26 @@ describe("Web UI copy and touch contract", () => {
     expect(css).toContain(".hero-primary-stats");
     expect(css).toMatch(/@media \(min-width: 40rem\)[\s\S]*?\.hero-reference-grid[^}]+grid-template-columns:/);
   });
+
+  it("runs bounded player and match enrichment without automatically scanning history", () => {
+    const playerPage = source("../app/players/[accountId]/page.tsx");
+    const matchPage = source("../app/matches/[matchId]/page.tsx");
+    const playerControl = source("../components/enrichment-control.tsx");
+    const matchControl = source("../components/match-enrichment-control.tsx");
+    const workflow = source("../lib/enrichment.ts");
+
+    expect(playerPage).toContain("<EnrichmentControl");
+    expect(matchPage).toContain("<MatchEnrichmentControl");
+    for (const label of ["范围比赛", "详情就绪", "完整增强", "等待重试", "终止部分", "终止失败", "提供方阻断", "尚未请求"]) {
+      expect(playerControl).toContain(label);
+    }
+    expect(playerControl).toContain("最近 20 场");
+    expect(playerControl).toContain("全部已导入");
+    expect(playerControl).toContain("继续下一批");
+    expect(playerControl).toContain("不会自动连续扫描全历史");
+    expect(matchControl).toContain("router.refresh()");
+    expect(matchControl).toContain("当前比赛数据仍会保留");
+    expect(workflow).toContain('requestProgress(accountId, scope, "POST"');
+    expect(workflow).toContain('requestProgress(accountId, scope, "GET"');
+  });
 });

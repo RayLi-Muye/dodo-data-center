@@ -1730,6 +1730,96 @@ describe("live player synchronization", () => {
     await service.close();
   });
 
+  it("selects STRATZ candidates only from state, due time, and provider revision", async () => {
+    const { repository, openDotaProvider, matches } = await createStratzBatchFixture();
+    const initialSync = new PlayerSyncService({
+      repository,
+      provider: openDotaProvider,
+      clock: () => new Date(CLOCK_AT),
+    });
+    const initialJob = await initialSync.requestSync(ACCOUNT_ID);
+    await initialSync.waitForJob(initialJob.jobId);
+    await initialSync.close();
+
+    const future = new Date(Date.parse(CLOCK_AT) + 60_000).toISOString();
+    const currentRevision = "stratz-graphql-v1";
+    for (const [index, match] of matches.entries()) {
+      if (index === 4) continue;
+      const stored = await repository.getMatch(match.id);
+      if (!stored) throw new Error(`Missing prepared match ${match.id}`);
+      await repository.upsertMatch({
+        ...stored,
+        detail: {
+          ...stored.detail,
+          stratzEnrichment: index === 0
+            ? {
+                status: "retry_scheduled",
+                resultQuality: null,
+                attemptCount: 1,
+                lastAttemptAt: FETCHED_AT,
+                nextAttemptAt: future,
+                reasonCode: "not_found",
+                providerRevision: currentRevision,
+              }
+            : index === 1
+              ? {
+                  status: "retry_scheduled",
+                  resultQuality: null,
+                  attemptCount: 1,
+                  lastAttemptAt: FETCHED_AT,
+                  nextAttemptAt: CLOCK_AT,
+                  reasonCode: "not_found",
+                  providerRevision: currentRevision,
+                }
+              : index === 2
+                ? {
+                    status: "terminal_failed",
+                    resultQuality: null,
+                    attemptCount: 4,
+                    lastAttemptAt: FETCHED_AT,
+                    nextAttemptAt: null,
+                    reasonCode: "invalid_response",
+                    providerRevision: "stratz-graphql-v0",
+                  }
+                : {
+                    status: "complete",
+                    resultQuality: "complete",
+                    attemptCount: 1,
+                    lastAttemptAt: FETCHED_AT,
+                    nextAttemptAt: null,
+                    reasonCode: null,
+                    providerRevision: currentRevision,
+                  },
+        },
+      });
+    }
+    const getMatchDetail = vi.fn(async (_matchId: string) => {
+      throw { code: "NOT_FOUND", reason: "not_found" };
+    });
+    const matchEnrichmentService = new StratzMatchEnrichmentService({
+      repository,
+      provider: { getMatchDetail } as unknown as Pick<StratzProvider, "getMatchDetail">,
+      clock: () => new Date(CLOCK_AT),
+    });
+    const service = new PlayerSyncService({
+      repository,
+      provider: openDotaProvider,
+      matchEnrichmentService,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const job = await service.requestSync(ACCOUNT_ID);
+    await service.waitForJob(job.jobId);
+
+    expect(getMatchDetail).toHaveBeenCalledTimes(3);
+    expect(getMatchDetail.mock.calls.map(([matchId]) => matchId).sort()).toEqual(
+      [matches[1]!.id, matches[2]!.id, matches[4]!.id].sort(),
+    );
+    expect((await repository.getMatch(matches[0]!.id))?.detail.stratzEnrichment.nextAttemptAt)
+      .toBe(future);
+    await service.close();
+  });
+
   it.each([
     ["AUTHENTICATION", "invalid_token", false, "unavailable"],
     ["RATE_LIMITED", "rate_limited", true, "degraded"],

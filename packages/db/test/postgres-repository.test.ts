@@ -388,6 +388,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
       officialVersion: _officialVersion,
       openDotaPatchId: _openDotaPatchId,
       officialVersionSource: _officialVersionSource,
+      stratzEnrichment: _stratzEnrichment,
       ...legacyDetail
     } = stored.detail;
     const legacyPlayers = legacyDetail.players.map((player) => {
@@ -409,6 +410,15 @@ describeWithDatabase("PostgresDodoRepository", () => {
       officialVersion: null,
       openDotaPatchId: "60",
       officialVersionSource: "unavailable",
+      stratzEnrichment: {
+        status: "not_requested",
+        resultQuality: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        nextAttemptAt: null,
+        reasonCode: null,
+        providerRevision: "stratz-graphql-v1",
+      },
     });
     expect(restored?.detail.players[0]?.neutralItemEnhancementId).toBeNull();
 

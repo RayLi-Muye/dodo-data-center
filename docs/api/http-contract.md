@@ -10,11 +10,14 @@ POST /v1/players/{accountId}/sync
 GET  /v1/sync-jobs/{jobId}
 POST /v1/players/{accountId}/history-sync
 GET  /v1/players/{accountId}/history-sync
+GET  /v1/players/{accountId}/enrichment?scope=recent|all_imported
+POST /v1/players/{accountId}/enrichment?scope=recent|all_imported
 GET  /v1/players/{accountId}
 GET  /v1/players/{accountId}/matches?cursor=&limit=&heroId=&patch=&outcome=&gameMode=&dateFrom=&dateTo=
 GET  /v1/players/{accountId}/heroes?window=last_20|last_50|last_100|all_imported
 GET  /v1/players/{accountId}/heroes/{heroId}?window=last_100
 GET  /v1/matches/{matchId}
+POST /v1/matches/{matchId}/enrichment
 GET  /v1/patches?cursor=&limit=
 GET  /v1/updates?cursor=&limit=
 GET  /v1/updates/{version}
@@ -34,7 +37,9 @@ GET  /v1/updates/{version}
 
 `GET /v1/matches/{matchId}` 使用 `detailStatus=summary|enriched` 区分玩家比赛摘要与完整十人详情。`officialVersion` 由官方发布时间与比赛开始时间推定，`openDotaPatchId` 保留上游大版本 ID，`officialVersionSource` 必须标明推定或不可用。完整详情可以返回最终装备、背包、中立物品本体、中立强化项、技能升级序列和物品交易时间线。技能只有顺序而没有可靠等级/时间时使用 `abilityBuildStatus=ordered`；只有上游提供真实时间时使用 `timed`。物品购买或出售日志缺失时必须使用 `itemTimelineStatus=unavailable|partial`，不得从最终背包反推交易事件。
 
-比赛详情的基础事实仍以 OpenDota 为主；STRATZ 只可增强加点时间与购买时间。使用 STRATZ 增强时，`enrichmentSources` 包含 `stratz`，响应 `meta.sources` 同时包含 `opendota` 与 `stratz`。STRATZ 缺失、限流或不可用时保留已有 OpenDota 数据，不得把现有时间线覆盖为空。STRATZ 的 `gameVersionId` 不得作为当前官方版本：当前英雄、物品与更新日志继续以 Dota 2 official current-data 为准。
+比赛详情的基础事实仍以 OpenDota 为主；STRATZ 只可增强加点时间与购买时间。使用 STRATZ 增强时，`enrichmentSources` 包含 `stratz`，响应 `meta.sources` 同时包含 `opendota` 与 `stratz`。`stratzEnrichment` 独立表达未请求、完成、计划重试、终止 partial/failed 与 provider blocked；来源归属不得再作为完成状态。STRATZ 只提供购买事件时，合法成功仍可为 match-level complete，而玩家 `itemTimelineStatus` 保持 partial，明确不含完整出售账本。STRATZ 缺失、限流或不可用时保留已有 OpenDota 数据，不得把现有时间线覆盖为空。STRATZ 的 `gameVersionId` 不得作为当前官方版本：当前英雄、物品与更新日志继续以 Dota 2 official current-data 为准。
+
+批量增强进度必须返回 total、detail ready、complete、retry scheduled、terminal partial/failed、provider blocked、not requested 与当前 retry eligible 数量。统计 meta 的 `sampleSize`/`eligibleCount` 等于 scope 内比赛数，`coverageRate=completeCount/totalMatches`，`metricVersion=match-enrichment-v1`。每次 POST 最多处理 20 场，不得一次性扫描上游全历史。
 
 ## Outcome rules
 

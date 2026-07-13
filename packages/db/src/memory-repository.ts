@@ -10,7 +10,7 @@ import type {
   UpdateReleaseDetail,
   UpdateReleaseSummary,
 } from "@dodo/contracts";
-import { heroDetailSchema } from "@dodo/contracts";
+import { heroDetailSchema, stratzEnrichmentStateSchema } from "@dodo/contracts";
 
 import type { DodoRepository, StoredMatch } from "./types.js";
 import type {
@@ -88,9 +88,15 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     const existing = this.#matches.get(match.detail.id);
+    const incomingDetail = {
+      ...match.detail,
+      stratzEnrichment: stratzEnrichmentStateSchema.parse(
+        (match.detail as MatchDetail & { stratzEnrichment?: unknown }).stratzEnrichment,
+      ),
+    };
     const stored = clone({
       ...match,
-      detail: mergeMatchDetails(existing?.detail, match.detail),
+      detail: mergeMatchDetails(existing?.detail, incomingDetail),
     });
     const contentChanged =
       !existing ||
