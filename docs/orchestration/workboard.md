@@ -29,7 +29,9 @@
 - 更新目录 partial 时不得把空结果描述为“没有改动”；字段缺失不得从比赛数据推断。
 - 390px 竖屏无横向溢出，完整/空/partial/unavailable 都有明确状态。
 
-本地证据：官方 `special_values` 及魔法/生命/金币消耗、冷却、施法距离、前摇、持续施法、持续时间、伤害数组已结构化；全零占位不展示。英雄/物品实体更新只从持久化 release 过滤，不运行时直查上游。一次性迁移只将既有 official hero/item snapshot 的 `checkedAt` 标为过期，保留旧行直至刷新事务原子替换。全仓 typecheck、350 项常规测试、生产 build、43 项 schema 检查与真实 PostgreSQL 37/37 通过；QA P0/P1/P2 均为 0。当前浏览器运行时不可用，390px 已完成 CSS/源码审计但仍需在可用浏览器中补实际视觉 smoke。
+本地证据：官方 `special_values` 及魔法/生命/金币消耗、冷却、施法距离、前摇、持续施法、持续时间、伤害数组已结构化；全零占位不展示。英雄/物品实体更新只从持久化 release 过滤，不运行时直查上游。一次性迁移只将既有 official hero/item snapshot 的 `checkedAt` 标为过期，保留旧行直至刷新事务原子替换。全仓 typecheck、371 项常规测试、生产 build、43 项 schema 检查与真实 PostgreSQL 37/37 通过；QA P0/P1/P2 均为 0。当前浏览器运行时不可用，390px 已完成 CSS/源码审计但仍需在可用浏览器中补实际视觉 smoke。
+
+生产首次刷新发现 official item `heading_loc` 中仍有 `+$all` 等客户端 UI token，数值正确但标签不可直接展示。后续修复只允许显式简中 token 映射、正确格式化百分比，并对未知 token 保持 partial；第二条一次性迁移只重新验证 item snapshot。
 
 ### Wave 12: Five-stage MVP hardening
 

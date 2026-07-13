@@ -18,6 +18,23 @@
               "name": "blink_range",
               "values_float": [1200],
               "heading_loc": "施法距离："
+            },
+            {
+              "name": "all_attributes",
+              "values_float": [0, 10, -5],
+              "heading_loc": "+$all"
+            },
+            {
+              "name": "evasion",
+              "values_float": [15, 25],
+              "heading_loc": "+$evasion",
+              "is_percentage": true
+            },
+            {
+              "name": "slow",
+              "values_float": [10, 20],
+              "heading_loc": "减速：",
+              "is_percentage": true
             }
           ]
         }

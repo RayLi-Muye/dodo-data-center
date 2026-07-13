@@ -210,6 +210,42 @@ const OFFICIAL_NUMERIC_ATTRIBUTE_FIELDS = [
   ["damages", "伤害："],
 ] as const;
 
+const OFFICIAL_ATTRIBUTE_TOKEN_LABELS: Readonly<Record<string, string>> = {
+  agi: "敏捷：",
+  all: "全属性：",
+  aoe_bonus: "作用范围：",
+  armor: "护甲：",
+  attack: "攻击速度：",
+  attack_pct: "基础攻击速度：",
+  attack_range: "攻击距离：",
+  attack_range_all: "攻击距离：",
+  attack_range_melee: "近战攻击距离：",
+  cast_range: "施法距离：",
+  cooldown_reduction: "冷却时间减少：",
+  damage: "伤害：",
+  debuff_amp: "负面效果增强：",
+  evasion: "闪避：",
+  healing_amp: "治疗增强：",
+  health: "生命值：",
+  hp_regen: "生命恢复：",
+  int: "智力：",
+  lifesteal: "吸血：",
+  mana: "魔法值：",
+  mana_regen: "魔法恢复：",
+  manacost_reduction: "魔法消耗降低：",
+  max_mana_percentage: "最大魔法值：",
+  move_speed: "移动速度：",
+  primary_attribute: "主属性：",
+  projectile_speed: "弹道速度：",
+  restoration_amp: "恢复增强：",
+  selected_attrib: "选定属性：",
+  slow_resistance: "减速抗性：",
+  spell_lifesteal: "技能吸血：",
+  spell_resist: "魔法抗性：",
+  status_resist: "状态抗性：",
+  str: "力量：",
+};
+
 function specialValueTextByName(rawAbility: JsonRecord): Map<string, string> {
   const values = new Map<string, string>();
   const rawSpecialValues = rawAbility.special_values;
@@ -265,7 +301,10 @@ function officialGameplayText(
   };
 }
 
-function officialAttributes(rawAbility: JsonRecord): Array<{ label: string; value: string }> {
+function officialAttributes(rawAbility: JsonRecord): {
+  attributes: Array<{ label: string; value: string }>;
+  hasUnknownHeadingToken: boolean;
+} {
   const knownAttributes = OFFICIAL_NUMERIC_ATTRIBUTE_FIELDS.flatMap(([field, label]) => {
     const values = rawAbility[field];
     if (
@@ -276,6 +315,7 @@ function officialAttributes(rawAbility: JsonRecord): Array<{ label: string; valu
     ) return [];
     return [{ label, value: values.map(formatOfficialNumber).join(" / ") }];
   });
+  let hasUnknownHeadingToken = false;
   const specialAttributes = !Array.isArray(rawAbility.special_values)
     ? []
     : rawAbility.special_values.flatMap((rawSpecialValue) => {
@@ -283,7 +323,14 @@ function officialAttributes(rawAbility: JsonRecord): Array<{ label: string; valu
         return [];
       }
       const specialValue = rawSpecialValue as JsonRecord;
-      const label = officialNoteText(specialValue.heading_loc);
+      const rawLabel = officialNoteText(specialValue.heading_loc);
+      const tokenMatch = /^\+\$([a-z_]+)$/.exec(rawLabel);
+      const tokenLabel = tokenMatch === null ? undefined : OFFICIAL_ATTRIBUTE_TOKEN_LABELS[tokenMatch[1]!];
+      if (rawLabel.includes("$") && tokenLabel === undefined) {
+        hasUnknownHeadingToken = true;
+        return [];
+      }
+      const label = tokenLabel ?? rawLabel;
       const values = specialValue.values_float;
       if (
         label.length === 0 ||
@@ -292,13 +339,24 @@ function officialAttributes(rawAbility: JsonRecord): Array<{ label: string; valu
         !values.every((value): value is number => typeof value === "number" && Number.isFinite(value)) ||
         values.every((value) => value === 0)
       ) return [];
-      return [{ label, value: values.map(formatOfficialNumber).join(" / ") }];
+      const suffix = specialValue.is_percentage === true ? "%" : "";
+      return [{
+        label,
+        value: values.map((value) => {
+          const formatted = formatOfficialNumber(value);
+          const signed = tokenLabel === undefined || value < 0 ? formatted : `+${formatted}`;
+          return `${signed}${suffix}`;
+        }).join(" / "),
+      }];
     });
-  return [...knownAttributes, ...specialAttributes].filter((attribute, index, attributes) =>
-    attributes.findIndex((candidate) =>
-      candidate.label === attribute.label && candidate.value === attribute.value
-    ) === index
-  );
+  return {
+    attributes: [...knownAttributes, ...specialAttributes].filter((attribute, index, attributes) =>
+      attributes.findIndex((candidate) =>
+        candidate.label === attribute.label && candidate.value === attribute.value
+      ) === index
+    ),
+    hasUnknownHeadingToken,
+  };
 }
 
 function normalizePrimaryAttribute(value: unknown): CanonicalHeroConstant["primaryAttribute"] {
@@ -346,8 +404,13 @@ function normalizeAbility(
     };
   }
   const description = officialGameplayText(rawAbility.desc_loc, rawAbility);
-  const unresolvedDescriptionReason = description.unresolvedTokens.length > 0
-    ? `unresolved_template:${description.unresolvedTokens.join(",")}`
+  const attributes = officialAttributes(rawAbility);
+  const exclusionTokens = [
+    ...description.unresolvedTokens,
+    ...(attributes.hasUnknownHeadingToken ? ["unknown_attribute_heading"] : []),
+  ];
+  const exclusionReason = exclusionTokens.length > 0
+    ? `unresolved_template:${exclusionTokens.join(",")}`
     : null;
   const type = forcedType ?? (
     rawAbility.ability_is_innate === true
@@ -361,12 +424,12 @@ function normalizeAbility(
       id,
       name,
       localizedName: localizedName.text,
-      description: unresolvedDescriptionReason === null ? description.text : "",
-      attributes: officialAttributes(rawAbility),
+      description: description.unresolvedTokens.length === 0 ? description.text : "",
+      attributes: attributes.attributes,
       slot,
       type,
     },
-    reason: unresolvedDescriptionReason,
+    reason: exclusionReason,
     name,
   };
 }
@@ -784,8 +847,13 @@ function normalizeItemDetail(
   const name = readString(rawItem.name, `item ${listEntry.id}.name`).replace(/^item_/, "");
   const localizedName = readString(rawItem.name_loc, `item ${listEntry.id}.name_loc`);
   const description = officialGameplayText(rawItem.desc_loc, rawItem);
-  const unresolvedDescriptionReason = description.unresolvedTokens.length > 0
-    ? `unresolved_template:${description.unresolvedTokens.join(",")}`
+  const attributes = officialAttributes(rawItem);
+  const exclusionTokens = [
+    ...description.unresolvedTokens,
+    ...(attributes.hasUnknownHeadingToken ? ["unknown_attribute_heading"] : []),
+  ];
+  const exclusionReason = exclusionTokens.length > 0
+    ? `unresolved_template:${exclusionTokens.join(",")}`
     : null;
   const itemQuality = readInteger(rawItem.item_quality, `item ${listEntry.id}.item_quality`);
   const itemCost = readInteger(rawItem.item_cost, `item ${listEntry.id}.item_cost`);
@@ -799,8 +867,8 @@ function normalizeItemDetail(
       category: listEntry.neutralItemTier === null
         ? `official_quality_${itemQuality}`
         : `neutral_tier_${listEntry.neutralItemTier}`,
-      description: unresolvedDescriptionReason === null ? description.text : "",
-      attributes: officialAttributes(rawItem),
+      description: description.unresolvedTokens.length === 0 ? description.text : "",
+      attributes: attributes.attributes,
       componentNames: listEntry.recipes[0]?.componentNames ?? [],
       kind: normalizeOfficialItemKind(listEntry.name, listEntry.neutralItemTier),
       availabilityStatus: "unverified",
@@ -814,7 +882,7 @@ function normalizeItemDetail(
       },
       officialRecipes: listEntry.recipes,
     },
-    reason: unresolvedDescriptionReason,
+    reason: exclusionReason,
   };
 }
 

@@ -404,6 +404,9 @@ describe("Dota2OfficialProvider", () => {
       attributes: [
         { label: "冷却时间（秒）：", value: "15" },
         { label: "施法距离：", value: "1200" },
+        { label: "全属性：", value: "+0 / +10 / -5" },
+        { label: "闪避：", value: "+15% / +25%" },
+        { label: "减速：", value: "10% / 20%" },
       ],
       officialVersion: "7.41d",
       officialRecipes: [{
@@ -415,6 +418,47 @@ describe("Dota2OfficialProvider", () => {
       expect.objectContaining({ entityId: "1001", kind: "filtered" }),
       expect.objectContaining({ entityId: "182", kind: "failed", reason: "upstream_5xx" }),
     ]));
+  });
+
+  it("keeps an item partial without exposing an unknown official attribute token", async () => {
+    const listItem = {
+      ...officialItemList.result.data.itemabilities[0]!,
+      id: 6,
+      name: "item_unknown_token_fixture",
+      name_loc: "未知令牌测试物品",
+      recipes: [],
+    };
+    const detail = structuredClone(officialItemData);
+    detail.result.data.items[0]!.id = 6;
+    detail.result.data.items[0]!.name = "item_unknown_token_fixture";
+    detail.result.data.items[0]!.name_loc = "未知令牌测试物品";
+    detail.result.data.items[0]!.special_values.push({
+      name: "unknown",
+      values_float: [42],
+      heading_loc: "+$unknown_fixture",
+    });
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("patchnoteslist")) return response(patchNotesList);
+      if (path.endsWith("itemlist")) {
+        return response({ result: { status: 1, data: { itemabilities: [listItem] } } });
+      }
+      if (path.endsWith("itemdata")) return response(detail);
+      return response({}, 404);
+    });
+    const result = await new Dota2OfficialProvider({ fetchImpl, clock: () => NOW })
+      .getItemConstants();
+
+    expect(result.quality).toBe("partial");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.description).toBe("主动：闪烁 最远传送 1200 距离。");
+    expect(JSON.stringify(result)).not.toContain("$unknown_fixture");
+    expect(result.exclusions).toContainEqual(expect.objectContaining({
+      entityType: "item",
+      entityId: "6",
+      kind: "filtered",
+      reason: "unresolved_template:unknown_attribute_heading",
+    }));
   });
 
   it("classifies official item definitions without claiming current availability", async () => {
