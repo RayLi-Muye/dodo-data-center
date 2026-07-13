@@ -12,14 +12,24 @@
 
 | Task | Owner | Scope | Depends on | State |
 |---|---|---|---|---|
-| DATA-012 OpenDota bounded retry | Data Source Agent | `packages/dota-data/**` | Wave 11 | RUNNING |
-| API-012 sync coalescing and idempotency audit | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-012 | RUNNING |
-| QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | RUNNING |
-| ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | RUNNING |
+| DATA-012 OpenDota bounded retry | Data Source Agent | `packages/dota-data/**` | Wave 11 | ACCEPTED |
+| API-012 sync coalescing and idempotency audit | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-012 | ACCEPTED |
+| QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | ACCEPTED |
+| ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
 | DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | READY |
 | DATA-014 encyclopedia correctness | Data Source Agent | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | READY |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
 | MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
+
+### Wave 12 phase 1 evidence
+
+- OpenDota network、timeout、429 与 5xx 只执行一次有界重试；404、隐私与无效 payload 不重试，`Retry-After` 等待最多 10 秒。
+- automatic/manual 请求语义从 Web、BFF 到 API 全链路传递；30 分钟内 automatic 返回既有终态，manual 仍启动强制刷新。
+- 已有成功快照后的瞬时失败继续返回旧 overview/matches，并以 partial/stale、job、failure 与 provider health 表达；Private、History Private 与 Not Found 立即阻断旧数据。
+- 同账号单进程请求合并；相同比赛内容不推进 `dodo.matches.imported_at/updated_at`。多实例 lease 留待扩容前实现，当前生产继续固定单实例。
+- 全仓 typecheck、248 项常规测试、生产 build、41 项 schema 检查和专用 PostgreSQL 27/27 通过；QA P0/P1 为 0。
+- GitHub Actions `verify` 与 Vercel Preview 首次真实运行成功；Railway deployment `5c44d337-d1e9-4b8a-a58f-2eb60b56eb75` ready。
+- 真实账号 `224328273` 验证：瞬时失败后旧 20 场仍返回 200/stale；随后 manual 恢复 `public_complete`；fresh automatic 不调用上游并返回既有完成时间，manual 再次强制同步成功。
 
 | Task | Owner | Paths | Depends on | State |
 |---|---|---|---|---|
