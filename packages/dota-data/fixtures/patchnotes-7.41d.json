@@ -26,6 +26,11 @@
       "ability_id": -1,
       "is_general_note": true,
       "title": "宝物"
+    },
+    {
+      "ability_id": 301,
+      "title": "中立物品测试",
+      "ability_notes": [{ "indent_level": 1, "note": "冷却时间降低" }]
     }
   ],
   "heroes": [

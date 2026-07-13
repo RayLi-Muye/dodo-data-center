@@ -2268,6 +2268,8 @@ button.text-action {
   object-fit: cover;
 }
 
+.ability-list__body { min-width: 0; }
+
 .ability-list h3,
 .ability-list p,
 .ability-list small,
@@ -2295,6 +2297,26 @@ button.text-action {
   color: var(--text);
   line-height: 1.7;
 }
+
+.ability-attribute-list {
+  display: grid;
+  margin: var(--space-md) 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.ability-attribute-list > div {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.45fr) minmax(0, 1fr);
+  gap: var(--space-sm);
+  padding-block: var(--space-xs);
+  border-bottom: 1px solid var(--line);
+}
+
+.ability-attribute-list > div:last-child { border-bottom: 0; }
+.ability-attribute-list dt,
+.ability-attribute-list dd { min-width: 0; overflow-wrap: anywhere; }
+.ability-attribute-list dt { color: var(--text-muted); font-size: var(--text-xs); }
+.ability-attribute-list dd { margin: 0; color: var(--text-strong); font-weight: 600; }
 
 .facet-list li {
   padding: var(--space-lg);
@@ -2340,6 +2362,45 @@ button.text-action {
 .component-list a > span { display: grid; color: var(--text-strong); font-weight: 600; }
 .component-list a small,
 .component-list__missing { color: var(--text-muted); font-size: var(--text-xs); }
+
+.entity-update-list { display: grid; }
+
+.entity-update-release {
+  min-width: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.entity-update-release__header {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--surface-low);
+}
+
+.entity-update-release__header h3,
+.entity-update-release__header small { margin: 0; }
+.entity-update-release__header small { color: var(--text-muted); font-size: var(--text-xs); letter-spacing: 0.08em; }
+.entity-update-release__header h3 { color: var(--text-strong); font-family: var(--font-display); font-size: var(--text-xl); line-height: 1; }
+
+.entity-update-release__header dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.entity-update-release__header dl > div { min-width: 0; }
+.entity-update-release__header dt { color: var(--text-muted); font-size: var(--text-xs); }
+.entity-update-release__header dd { margin: var(--space-2xs) 0 0; overflow-wrap: anywhere; color: var(--text-strong); }
+.entity-update-release__header a { align-self: center; width: fit-content; color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+
+.entity-update-release__partial {
+  margin: 0;
+  padding: var(--space-sm) var(--space-lg);
+  border-top: 1px solid var(--line);
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
 
 /* Map */
 .map-layout {
@@ -2638,6 +2699,8 @@ circle.map-feature,
   .patch-timeline code { grid-column: auto; }
   .update-release-meta { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .update-group { padding: var(--space-lg); }
+  .entity-update-release__header { grid-template-columns: auto minmax(16rem, 1fr) auto; align-items: center; }
+  .entity-update-release__header dl { justify-self: end; min-width: 16rem; }
   .page-shell { padding-inline: var(--space-lg); }
   .site-header__inner { grid-template-columns: auto minmax(0, 1fr) auto; padding-inline: var(--space-lg); }
   .site-header nav { grid-column: auto; justify-content: center; overflow: visible; }

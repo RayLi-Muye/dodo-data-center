@@ -1,6 +1,7 @@
 import {
   dataQualitySchema,
   dataSourceSchema,
+  type EntityUpdateRelease,
   heroDetailSchema,
   itemDetailSchema,
   matchDetailSchema,
@@ -623,6 +624,42 @@ export class PostgresDodoRepository implements DodoRepository {
       select payload from dodo.update_releases where version = ${version}
     `;
     return row ? updateReleaseDetailSchema.parse(row.payload) : undefined;
+  }
+
+  async listEntityUpdateReleases(
+    kinds: Array<UpdateReleaseDetail["groups"][number]["kind"]>,
+    entityId: string,
+  ): Promise<EntityUpdateRelease[]> {
+    const rows = await this.#sql<JsonRow[]>`
+      select payload
+      from dodo.update_releases
+      where exists (
+        select 1
+        from jsonb_array_elements(payload -> 'groups') as change_group
+        where change_group ->> 'kind' = any(${kinds}::text[])
+          and change_group ->> 'entityId' = ${entityId}
+      )
+      order by released_at desc, version desc
+    `;
+    const allowedKinds = new Set(kinds);
+    return rows.map((row) => {
+      const release = updateReleaseDetailSchema.parse(row.payload);
+      const groups = release.groups.filter(
+        (group) => allowedKinds.has(group.kind) && group.entityId === entityId,
+      );
+      if (groups.length === 0) {
+        throw new Error("Stored update release query returned no matching groups");
+      }
+      return {
+        version: release.version,
+        releasedAt: release.releasedAt,
+        sourceUrl: release.sourceUrl,
+        contentStatus: release.contentStatus,
+        excludedNoteCount: release.excludedNoteCount,
+        matchedGroupCount: groups.length,
+        groups,
+      };
+    });
   }
 
   async getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined> {

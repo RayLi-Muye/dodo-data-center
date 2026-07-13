@@ -8,6 +8,29 @@
 
 ## Active wave
 
+### Wave 13: Hero and item encyclopedia foundation
+
+地图真实快照 `MAP-016B` 按产品决定暂缓；生产继续返回 `MAP_UNAVAILABLE`，不得用 seed、推断坐标或旧版数据替代。当前波只交付英雄/物品静态百科第一阶段，动态比赛聚合另开后续波次。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-017 static encyclopedia contracts | Root | `packages/contracts/**`、PRD、API 与编排文档 | Wave 12 | ACCEPTED |
+| DATA-017 official effect fields | Data Source Agent | `packages/dota-data/**`；技能结构化数值、实体 ID 与黄金 fixtures | ROOT-017 | ACCEPTED |
+| API-017 entity update history | Backend/API Agent | `apps/api/**`、`packages/db/**`；最近更新筛选与状态语义 | ROOT-017 | ACCEPTED |
+| WEB-017 hero/item reference pages | Web Agent | `apps/web/**`、`packages/ui/**`；基础资料、效果、最近更新、390px | ROOT-017, DATA-017, API-017 | ACCEPTED |
+| QA-017 static encyclopedia acceptance | QA Agent | 只读；当前版本、字段完整度、partial/unavailable 与视觉回归 | DATA-017, API-017, WEB-017 | ACCEPTED |
+| DEPLOY-017 overseas rollout | Root | 全仓门禁、真实数据、Railway/Vercel、生产 smoke | QA-017 | RUNNING |
+
+验收目标：
+
+- 英雄页展示当前官方版本、基础属性、定位、技能文本与官方结构化技能数值。
+- 物品页展示当前官方版本、价格、类别、主动/被动效果数值和合成组件。
+- 两类详情页展示最近 5 个已同步官方版本内的直接实体变更，保留版本、日期与官方链接。
+- 更新目录 partial 时不得把空结果描述为“没有改动”；字段缺失不得从比赛数据推断。
+- 390px 竖屏无横向溢出，完整/空/partial/unavailable 都有明确状态。
+
+本地证据：官方 `special_values` 及魔法/生命/金币消耗、冷却、施法距离、前摇、持续施法、持续时间、伤害数组已结构化；全零占位不展示。英雄/物品实体更新只从持久化 release 过滤，不运行时直查上游。一次性迁移只将既有 official hero/item snapshot 的 `checkedAt` 标为过期，保留旧行直至刷新事务原子替换。全仓 typecheck、350 项常规测试、生产 build、43 项 schema 检查与真实 PostgreSQL 37/37 通过；QA P0/P1/P2 均为 0。当前浏览器运行时不可用，390px 已完成 CSS/源码审计但仍需在可用浏览器中补实际视觉 smoke。
+
 ### Wave 12: Five-stage MVP hardening
 
 | Task | Owner | Scope | Depends on | State |

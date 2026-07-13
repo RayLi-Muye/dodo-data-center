@@ -55,6 +55,7 @@ describe("match detail presentation", () => {
   it("resolves ability IDs only inside the selected player's hero", () => {
     const abilitiesByHeroId = {
       axe: [{
+        attributes: [],
         description: "",
         id: "shared-id",
         localizedName: "战斗饥渴",
@@ -63,6 +64,7 @@ describe("match detail presentation", () => {
         type: "basic",
       }],
       bane: [{
+        attributes: [],
         description: "",
         id: "shared-id",
         localizedName: "虚弱",

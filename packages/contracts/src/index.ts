@@ -124,6 +124,10 @@ export const encyclopediaListQuerySchema = paginationQuerySchema.extend({
   patch: z.string().trim().max(32).optional(),
 });
 
+export const entityUpdatesQuerySchema = paginationQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(10).default(5),
+});
+
 export const mapFeatureTypeSchema = z.enum([
   "lane",
   "tower",
@@ -189,6 +193,16 @@ export const updateReleaseDetailSchema = updateReleaseSummarySchema.extend({
   groups: z.array(updateChangeGroupSchema),
 });
 
+export const entityUpdateReleaseSchema = z.object({
+  version: z.string().min(1).max(32),
+  releasedAt: timestampSchema,
+  sourceUrl: z.string().url().max(256),
+  contentStatus: z.enum(["complete", "partial"]),
+  excludedNoteCount: z.number().int().nonnegative(),
+  matchedGroupCount: z.number().int().positive(),
+  groups: z.array(updateChangeGroupSchema).min(1),
+});
+
 export const mapFeaturesQuerySchema = paginationQuerySchema.extend({
   type: mapFeatureTypeSchema.optional(),
 });
@@ -208,6 +222,7 @@ export const abilitySchema = z.object({
   name: z.string().min(1),
   localizedName: z.string().min(1),
   description: z.string(),
+  attributes: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
   slot: z.number().int().nonnegative(),
   type: z.enum(["innate", "basic", "ultimate", "talent"]),
 });
@@ -708,6 +723,9 @@ export const updatesResponseSchema = createOperationResponseSchema(
   createPaginatedDataSchema(updateReleaseSummarySchema),
 );
 export const updateDetailResponseSchema = createOperationResponseSchema(updateReleaseDetailSchema);
+export const entityUpdatesResponseSchema = createOperationResponseSchema(
+  createPaginatedDataSchema(entityUpdateReleaseSchema),
+);
 
 export const dataStatusSchema = z.object({
   status: z.enum(["ready", "degraded", "unavailable"]),
@@ -751,6 +769,7 @@ export type MapVersion = z.infer<typeof mapVersionSchema>;
 export type PatchSummary = z.infer<typeof patchSummarySchema>;
 export type UpdateReleaseSummary = z.infer<typeof updateReleaseSummarySchema>;
 export type UpdateReleaseDetail = z.infer<typeof updateReleaseDetailSchema>;
+export type EntityUpdateRelease = z.infer<typeof entityUpdateReleaseSchema>;
 export type SyncJob = z.infer<typeof syncJobSchema>;
 export type PlayerHistorySync = z.infer<typeof playerHistorySyncSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;

@@ -201,6 +201,7 @@ export type CanonicalHeroAbilityConstant = {
   name: string;
   localizedName: string;
   description: string;
+  attributes: Array<{ label: string; value: string }>;
   slot: number;
   type: "innate" | "basic" | "ultimate" | "talent";
 };

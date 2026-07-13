@@ -198,6 +198,18 @@ function formatOfficialNumber(value: number): string {
   return value.toString();
 }
 
+const OFFICIAL_NUMERIC_ATTRIBUTE_FIELDS = [
+  ["mana_costs", "魔法消耗："],
+  ["health_costs", "生命消耗："],
+  ["gold_costs", "金币消耗："],
+  ["cooldowns", "冷却时间（秒）："],
+  ["cast_ranges", "施法距离："],
+  ["cast_points", "施法前摇（秒）："],
+  ["channel_times", "持续施法时间（秒）："],
+  ["durations", "持续时间（秒）："],
+  ["damages", "伤害："],
+] as const;
+
 function specialValueTextByName(rawAbility: JsonRecord): Map<string, string> {
   const values = new Map<string, string>();
   const rawSpecialValues = rawAbility.special_values;
@@ -254,18 +266,39 @@ function officialGameplayText(
 }
 
 function officialAttributes(rawAbility: JsonRecord): Array<{ label: string; value: string }> {
-  if (!Array.isArray(rawAbility.special_values)) return [];
-  return rawAbility.special_values.flatMap((rawSpecialValue) => {
-    if (typeof rawSpecialValue !== "object" || rawSpecialValue === null || Array.isArray(rawSpecialValue)) {
-      return [];
-    }
-    const specialValue = rawSpecialValue as JsonRecord;
-    const label = officialNoteText(specialValue.heading_loc);
-    const name = readOptionalString(specialValue.name);
-    if (label.length === 0 || name === null) return [];
-    const value = specialValueTextByName(rawAbility).get(name);
-    return value === undefined ? [] : [{ label, value }];
+  const knownAttributes = OFFICIAL_NUMERIC_ATTRIBUTE_FIELDS.flatMap(([field, label]) => {
+    const values = rawAbility[field];
+    if (
+      !Array.isArray(values) ||
+      values.length === 0 ||
+      !values.every((value): value is number => typeof value === "number" && Number.isFinite(value)) ||
+      values.every((value) => value === 0)
+    ) return [];
+    return [{ label, value: values.map(formatOfficialNumber).join(" / ") }];
   });
+  const specialAttributes = !Array.isArray(rawAbility.special_values)
+    ? []
+    : rawAbility.special_values.flatMap((rawSpecialValue) => {
+      if (typeof rawSpecialValue !== "object" || rawSpecialValue === null || Array.isArray(rawSpecialValue)) {
+        return [];
+      }
+      const specialValue = rawSpecialValue as JsonRecord;
+      const label = officialNoteText(specialValue.heading_loc);
+      const values = specialValue.values_float;
+      if (
+        label.length === 0 ||
+        !Array.isArray(values) ||
+        values.length === 0 ||
+        !values.every((value): value is number => typeof value === "number" && Number.isFinite(value)) ||
+        values.every((value) => value === 0)
+      ) return [];
+      return [{ label, value: values.map(formatOfficialNumber).join(" / ") }];
+    });
+  return [...knownAttributes, ...specialAttributes].filter((attribute, index, attributes) =>
+    attributes.findIndex((candidate) =>
+      candidate.label === attribute.label && candidate.value === attribute.value
+    ) === index
+  );
 }
 
 function normalizePrimaryAttribute(value: unknown): CanonicalHeroConstant["primaryAttribute"] {
@@ -329,6 +362,7 @@ function normalizeAbility(
       name,
       localizedName: localizedName.text,
       description: unresolvedDescriptionReason === null ? description.text : "",
+      attributes: officialAttributes(rawAbility),
       slot,
       type,
     },

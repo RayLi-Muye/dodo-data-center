@@ -231,6 +231,55 @@ describe("server API client", () => {
     );
   });
 
+  it("requests five recent entity updates without coupling them to detail caching", async () => {
+    const response = {
+      data: {
+        items: [{
+          contentStatus: "complete",
+          excludedNoteCount: 0,
+          groups: [{
+            entityId: "107",
+            entityName: "Earth Spirit",
+            kind: "hero",
+            notes: [{ indentLevel: 1, info: null, text: "基础力量增加。" }],
+            relatedAbilityId: null,
+            subsection: "overview",
+            title: null,
+          }],
+          matchedGroupCount: 1,
+          releasedAt: "2026-07-11T00:00:00.000Z",
+          sourceUrl: "https://www.dota2.com/patches/7.41d",
+          version: "7.41d",
+        }],
+        nextCursor: null,
+      },
+      meta: {
+        quality: "complete",
+        sources: ["dota2_official"],
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    };
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.heroUpdates("107");
+    await api.itemUpdates("1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/\/v1\/heroes\/107\/updates\?limit=5$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/\/v1\/items\/1\/updates\?limit=5$/),
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
   it("forwards lobby and game-mode filters independently for player matches", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: { items: [], nextCursor: null },

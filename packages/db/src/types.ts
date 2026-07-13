@@ -1,5 +1,6 @@
 import type {
   DataStatus,
+  EntityUpdateRelease,
   HeroDetail,
   ItemDetail,
   MapVersion,
@@ -120,6 +121,10 @@ export interface DodoRepository {
   getPatchSnapshot(): Promise<StaticDataSnapshot | undefined>;
   listUpdateReleases(): Promise<UpdateReleaseSummary[]>;
   getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined>;
+  listEntityUpdateReleases(
+    kinds: Array<UpdateReleaseDetail["groups"][number]["kind"]>,
+    entityId: string,
+  ): Promise<EntityUpdateRelease[]>;
   getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined>;
   getMapSnapshot(): Promise<StaticDataSnapshot | undefined>;
   getCurrentMap(): Promise<MapVersion | undefined>;

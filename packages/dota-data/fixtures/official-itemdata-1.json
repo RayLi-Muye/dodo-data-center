@@ -10,6 +10,9 @@
           "desc_loc": "<h1>主动：闪烁</h1> 最远传送 %blink_range% 距离。",
           "item_cost": 2250,
           "item_quality": 1,
+          "mana_costs": [0],
+          "cooldowns": [15],
+          "cast_ranges": [1200],
           "special_values": [
             {
               "name": "blink_range",

@@ -1,6 +1,7 @@
 import {
   apiErrorSchema,
   dataStatusResponseSchema,
+  entityUpdatesResponseSchema,
   heroDetailResponseSchema,
   itemDetailResponseSchema,
   mapFeatureTypeSchema,
@@ -244,6 +245,7 @@ const heroAbilities: CanonicalOfficialHeroAbilityConstants = {
           name: "earth_spirit_boulder_smash",
           localizedName: "Boulder Smash",
           description: "Smashes a target in the direction Earth Spirit is facing.",
+          attributes: [{ label: "Damage", value: "120 / 180 / 240 / 300" }],
           slot: 0,
           type: "basic",
         },
@@ -252,6 +254,7 @@ const heroAbilities: CanonicalOfficialHeroAbilityConstants = {
           name: "earth_spirit_magnetize",
           localizedName: "Magnetize",
           description: "Magnetizes nearby enemy units.",
+          attributes: [{ label: "Duration", value: "6" }],
           slot: 1,
           type: "ultimate",
         },
@@ -260,6 +263,7 @@ const heroAbilities: CanonicalOfficialHeroAbilityConstants = {
           name: "special_bonus_unique_earth_spirit_4",
           localizedName: "+150 Rolling Boulder Distance",
           description: "",
+          attributes: [],
           slot: 2,
           type: "talent",
         },
@@ -555,8 +559,10 @@ describe("live player synchronization", () => {
     for (const url of [
       "/v1/heroes",
       "/v1/heroes/999",
+      "/v1/heroes/999/updates",
       "/v1/items",
       "/v1/items/999",
+      "/v1/items/999/updates",
       "/v1/patches",
       "/v1/updates",
       "/v1/updates/7.41b",
@@ -575,7 +581,13 @@ describe("live player synchronization", () => {
     });
     await catalogs.refresh();
 
-    for (const url of ["/v1/heroes/999", "/v1/items/999", "/v1/updates/7.40z"]) {
+    for (const url of [
+      "/v1/heroes/999",
+      "/v1/heroes/999/updates",
+      "/v1/items/999",
+      "/v1/items/999/updates",
+      "/v1/updates/7.40z",
+    ]) {
       const response = await app.inject({ method: "GET", url });
       const error = apiErrorSchema.parse(json(response));
       expect(response.statusCode).toBe(404);
@@ -608,8 +620,19 @@ describe("live player synchronization", () => {
     expect((await app.inject({ method: "GET", url: "/v1/heroes" })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/v1/items" })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/v1/updates" })).statusCode).toBe(200);
+    const partialEntityUpdates = entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/items/1/updates" })),
+    );
+    expect(partialEntityUpdates.data.items).toEqual([]);
+    expect(partialEntityUpdates.meta.quality).toBe("partial");
 
-    for (const url of ["/v1/heroes/999", "/v1/items/999", "/v1/updates/7.40z"]) {
+    for (const url of [
+      "/v1/heroes/999",
+      "/v1/heroes/999/updates",
+      "/v1/items/999",
+      "/v1/items/999/updates",
+      "/v1/updates/7.40z",
+    ]) {
       const response = await app.inject({ method: "GET", url });
       const error = apiErrorSchema.parse(json(response));
       expect(response.statusCode).toBe(503);
