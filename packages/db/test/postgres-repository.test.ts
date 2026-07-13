@@ -303,7 +303,7 @@ describeWithDatabase("PostgresDodoRepository", () => {
     const map = await fixtures.getCurrentMap();
     const snapshot = await fixtures.getMapSnapshot();
     if (!map || !snapshot) throw new Error("Seed map missing");
-    await repository.replaceMap(map, snapshot);
+    await repository.replaceMap(map, { ...snapshot, source: "curated_map" });
     await admin`
       update dodo.maps
       set payload = jsonb_set(
@@ -315,6 +315,36 @@ describeWithDatabase("PostgresDodoRepository", () => {
     `;
 
     await expect(repository.getCurrentMap()).rejects.toBeInstanceOf(MapAuditError);
+    expect(await repository.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(true);
+    const [row] = await admin<{ is_current: boolean }[]>`
+      select is_current from dodo.maps where id = ${map.id}
+    `;
+    expect(row?.is_current).toBe(false);
+    await expect(repository.getMap(map.id)).rejects.toBeInstanceOf(MapAuditError);
+  });
+
+  it("atomically invalidates only a curated map whose official patch differs", async () => {
+    const fixtures = await createSeedRepository();
+    const map = await fixtures.getCurrentMap();
+    const seedSnapshot = await fixtures.getMapSnapshot();
+    if (!map || !seedSnapshot) throw new Error("Seed map missing");
+    await repository.replaceMap(map, seedSnapshot);
+    expect(await repository.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(false);
+    expect(await repository.getCurrentMap()).toEqual(map);
+
+    const curatedSnapshot = { ...seedSnapshot, source: "curated_map" as const };
+    await repository.replaceMap(map, curatedSnapshot);
+    expect(await repository.invalidateCurrentMapForOfficialPatch(map.patch)).toBe(false);
+    expect(await repository.getCurrentMap()).toEqual(map);
+    expect(await repository.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(true);
+    expect(await repository.getCurrentMap()).toBeUndefined();
+    expect(await repository.getMap(map.id)).toEqual(map);
+    expect(await repository.getMapSnapshot()).toEqual(curatedSnapshot);
+    expect(await repository.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(false);
+    const rows = await admin<{ id: string; is_current: boolean }[]>`
+      select id, is_current from dodo.maps where id = ${map.id}
+    `;
+    expect(rows).toEqual([{ id: map.id, is_current: false }]);
   });
 
   it("prunes legacy catalog rows but keeps current failed entries transactionally", async () => {

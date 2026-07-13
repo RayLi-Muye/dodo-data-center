@@ -20,7 +20,8 @@
 | DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | ACCEPTED |
 | MAP-016A audited static map foundation | Root / Data / API / Web Agents | 严格 geometry、审计哈希、原子存储与 honest UI | DATA-014 | ACCEPTED |
-| MAP-016B lawful current map snapshot | Root / Data Agents | 当前 App 570 版本化地图静态百科 | MAP-016A、合法来源与下载授权 | BLOCKED |
+| MAP-016C conservative official-version invalidation | Root / Data / API Agents | latest raw Patch 与 current map 复核门禁 | MAP-016A | REVIEW |
+| MAP-016B lawful current map snapshot | Root / Data Agents | 当前 App 570 地图快照与 manifest/resource 监测 | MAP-016A、MAP-016C、合法来源与下载授权 | BLOCKED |
 
 ### Wave 12 phase 2 checkpoint
 
@@ -70,7 +71,9 @@
 - 本机 Steam library 没有 App 570 安装或 manifest。未获用户授权前不下载大体积 depot；未完成用途许可审查前不复制 minimap 或游戏资源。生产继续正确返回 `MAP_UNAVAILABLE`。
 - Phase 5 先交付严格 geometry、来源 revision/hash、coverage/exclusion、幂等原子存储和 honest API/Web 状态。真实 current snapshot 只有在合法 App 570 build/depot/resource 提取与双重审计后才可设为 current。
 - Coverage 契约要求全部 13 种已知地点类型恰好归入 included 或 exclusions；`complete` 必须全部纳入，`partial` 必须逐项说明遗漏，测试 fixture 不得伪装为完整地图。
-- 真实快照激活前还必须实现地图变更补丁对 current pointer 的自动失效。当前生产没有 curated map snapshot，因此该 P2 门禁不会造成线上陈旧地图，但不得在缺少失效机制时发布真实 current。
+- 官方 patch 索引刷新成功后，只要最新 raw 官方版本与 curated map 的已验证 `patch` 不同就原子撤销 current；历史行与审计 snapshot 保留，seed 豁免，重复执行幂等，官方请求失败不作为失效证据。该保守策略表示“需要重新验证”，不声称地图确实改变。
+- 不受展示格式支持的新 hotfix 仍从公开 Patch 列表排除并将目录标为 partial，但会作为 `officialVersion` 触发上述失效。无 patch note 的 build-only hotfix 仍需未来 App 570 manifest/resource hash 监测；该能力与真实快照使用同一外部来源门禁。
+- MAP-016C 本地门禁通过：全仓 typecheck、366 项常规测试、生产 build、43 项 schema 检查与真实 PostgreSQL 37/37；最终 QA P0/P1/P2 代码问题均为 0。剩余激活阻塞只有合法 App 570 快照与 build/depot manifest/resource-hash 监测。
 - MAP-016A 最终本地门禁通过：全仓 typecheck、358 项常规测试、生产 build、43 项 schema 检查及真实 PostgreSQL 35/35；修复后 QA P0/P1 均为 0。浏览器确认 seed 页面明确显示 `PARTIAL`、11 类逐项排除与 test-only 来源，console 无 error/warning。
 - PR #8 的 GitHub verify 与 Vercel Preview 均通过后合并。Railway deployment `df59f6fa-270f-4d8c-829b-4ea331dcd023` success；Vercel production `web-n3mqu73ov-rays-projects-f956e95b.vercel.app` ready。
 - 生产 API readiness 为 200，`/v1/maps/current` 明确返回 503 `MAP_UNAVAILABLE`；生产地图页显示“当前地图资料不可用”且说明不会用示例数据冒充。账号 `224328273` 仍可读取已导入比赛、100 场统计与英雄分布，地图页和账号页浏览器 console 均无 error/warning。MAP-016A 接受，MAP-016B 保持外部来源阻塞。

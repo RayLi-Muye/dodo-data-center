@@ -96,6 +96,26 @@ describe("MemoryDodoRepository", () => {
     expect(await repository.getMapSnapshot()).toEqual(snapshot);
   });
 
+  it("invalidates only curated current maps when the official patch differs", async () => {
+    const fixtures = await createSeedRepository();
+    const map = await fixtures.getCurrentMap();
+    const seedSnapshot = await fixtures.getMapSnapshot();
+    if (!map || !seedSnapshot) throw new Error("Seed map missing");
+    expect(await fixtures.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(false);
+    expect(await fixtures.getCurrentMap()).toEqual(map);
+
+    const repository = await createLiveRepository();
+    const curatedSnapshot = { ...seedSnapshot, source: "curated_map" as const };
+    await repository.replaceMap(map, curatedSnapshot);
+    expect(await repository.invalidateCurrentMapForOfficialPatch(map.patch)).toBe(false);
+    expect(await repository.getCurrentMap()).toEqual(map);
+    expect(await repository.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(true);
+    expect(await repository.getCurrentMap()).toBeUndefined();
+    expect(await repository.getMap(map.id)).toEqual(map);
+    expect(await repository.getMapSnapshot()).toEqual(curatedSnapshot);
+    expect(await repository.invalidateCurrentMapForOfficialPatch("different-patch")).toBe(false);
+  });
+
   it("upserts the deterministic seed without duplicating matches", async () => {
     const repository = await createSeedRepository();
 

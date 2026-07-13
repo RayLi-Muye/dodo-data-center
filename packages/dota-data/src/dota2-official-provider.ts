@@ -35,6 +35,7 @@ type JsonRecord = Record<string, unknown>;
 type OfficialPatchIndex = {
   items: Array<CanonicalPatchSummary & { timestamp: number }>;
   excludedVersions: string[];
+  latestRaw: { version: string; timestamp: number; releasedAt: string };
 };
 
 export type Dota2OfficialProviderConfig = {
@@ -121,34 +122,45 @@ function normalizePatchIndex(payload: unknown): OfficialPatchIndex {
   const rawPatches = readArray(root.patches, "patch notes list.patches");
   if (rawPatches.length === 0) providerError("patch notes list.patches must not be empty");
 
-  const excludedVersions: string[] = [];
-  const items = rawPatches.flatMap((rawPatch, index) => {
+  const rawEntries = rawPatches.map((rawPatch, index) => {
     const patch = readRecord(rawPatch, `patch notes list.patches[${index}]`);
     const version = readString(
       patch.patch_number,
       `patch notes list.patches[${index}].patch_number`,
     );
-    if (!VERSION_PATTERN.test(version)) {
-      excludedVersions.push(version);
-      return [];
-    }
     const timestamp = readInteger(
       patch.patch_timestamp,
       `patch notes list.patches[${index}].patch_timestamp`,
     );
     if (timestamp <= 0) providerError(`patch ${version} timestamp must be positive`);
-    return [{
-      id: version,
-      name: version,
+    return {
+      version,
       releasedAt: new Date(timestamp * 1_000).toISOString(),
       timestamp,
+    };
+  });
+  const sortedRawEntries = [...rawEntries].sort((left, right) => {
+    if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
+    return left.version.localeCompare(right.version);
+  });
+  const latestRaw = sortedRawEntries.at(-1)!;
+  const excludedVersions = rawEntries
+    .filter((entry) => !VERSION_PATTERN.test(entry.version))
+    .map((entry) => entry.version);
+  const items = rawEntries.flatMap((entry) => {
+    if (!VERSION_PATTERN.test(entry.version)) return [];
+    return [{
+      id: entry.version,
+      name: entry.version,
+      releasedAt: entry.releasedAt,
+      timestamp: entry.timestamp,
     }];
   }).sort((left, right) => {
     if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
     return left.name.localeCompare(right.name);
   });
   if (items.length === 0) providerError("patch notes list contains no supported versions");
-  return { items, excludedVersions };
+  return { items, excludedVersions, latestRaw };
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -791,10 +803,9 @@ export class Dota2OfficialProvider {
 
   async getPatchConstants(): Promise<CanonicalOfficialConstantsSnapshot<CanonicalPatchSummary>> {
     const response = await this.requestPatchIndex();
-    const latest = response.index.items.at(-1)!;
     return {
       items: response.index.items.map(({ timestamp: _timestamp, ...patch }) => patch),
-      officialVersion: latest.name,
+      officialVersion: response.index.latestRaw.version,
       quality: response.index.excludedVersions.length === 0 ? "complete" : "partial",
       exclusions: response.index.excludedVersions.map((version) =>
         filteredExclusion("patch", null, version, "unsupported_version_format")
@@ -823,7 +834,7 @@ export class Dota2OfficialProvider {
 
   async getItemConstants(): Promise<CanonicalOfficialConstantsSnapshot<CanonicalItemConstant>> {
     const patchResponse = await this.requestPatchIndex();
-    const officialVersion = patchResponse.index.items.at(-1)!.name;
+    const officialVersion = patchResponse.index.latestRaw.version;
     const listUrl = new URL("datafeed/itemlist", this.baseUrl);
     listUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
     const listResponse = await this.requestJson(listUrl);
@@ -1034,7 +1045,7 @@ export class Dota2OfficialProvider {
 
   private async loadCurrentHeroCatalog(): Promise<CanonicalOfficialHeroCatalog> {
     const patchResponse = await this.requestPatchIndex();
-    const officialVersion = patchResponse.index.items.at(-1)!.name;
+    const officialVersion = patchResponse.index.latestRaw.version;
     const listUrl = new URL("datafeed/herolist", this.baseUrl);
     listUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
     const listResponse = await this.requestJson(listUrl);
