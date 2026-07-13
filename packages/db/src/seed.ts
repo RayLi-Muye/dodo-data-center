@@ -27,6 +27,29 @@ const heroSeed: HeroDetail[] = [
     attackType: "melee",
     roles: ["Carry", "Escape"],
     officialVersion: SEED_PATCH,
+    hype: "Seed Anti-Mage hype.",
+    biography: "Deterministic test-only Anti-Mage biography.",
+    complexity: 1,
+    baseStats: {
+      maxHealth: 538,
+      healthRegen: 2.4,
+      maxMana: 219,
+      manaRegen: 0.9,
+      armor: 4.8,
+      magicResistance: 25,
+      damageMin: 53,
+      damageMax: 57,
+      strength: { base: 19, gain: 1.6 },
+      agility: { base: 24, gain: 2.8 },
+      intelligence: { base: 12, gain: 1.8 },
+      movementSpeed: 310,
+      attackRange: 150,
+      attackRate: 1.4,
+      projectileSpeed: 0,
+      turnRate: 0.6,
+      sightRangeDay: 1800,
+      sightRangeNight: 800,
+    },
     facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
@@ -49,6 +72,10 @@ const heroSeed: HeroDetail[] = [
     attackType: "melee",
     roles: ["Initiator", "Durable"],
     officialVersion: SEED_PATCH,
+    hype: "Seed Axe hype.",
+    biography: "Deterministic test-only Axe biography.",
+    complexity: 1,
+    baseStats: null,
     facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
@@ -71,6 +98,10 @@ const heroSeed: HeroDetail[] = [
     attackType: "ranged",
     roles: ["Support", "Disabler"],
     officialVersion: SEED_PATCH,
+    hype: "Seed Bane hype.",
+    biography: "Deterministic test-only Bane biography.",
+    complexity: 2,
+    baseStats: null,
     facetsStatus: "active",
     facets: [{ name: "Seed Facet", description: "Deterministic test-only facet." }],
     abilities: [
@@ -310,8 +341,8 @@ export const seedRepository = async (repository: DodoRepository): Promise<DodoRe
     contentHash: null,
     officialVersion: SEED_PATCH,
   };
-  await repository.replaceHeroes(heroSeed, staticSnapshot);
-  await repository.replaceItems(itemSeed, staticSnapshot);
+  await repository.replaceHeroes(heroSeed, staticSnapshot, heroSeed.map((hero) => hero.id));
+  await repository.replaceItems(itemSeed, staticSnapshot, itemSeed.map((item) => item.id));
   await repository.replacePatches(patchSeed, {
     source: "seed",
     quality: "complete",

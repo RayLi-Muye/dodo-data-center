@@ -6,7 +6,13 @@ import { DataState, EmptyState } from "../../../components/data-state";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
 import { api, settle } from "../../../lib/api";
-import { encyclopediaVersionLabel } from "../../../lib/format";
+import {
+  encyclopediaVersionLabel,
+  formatStatGain,
+  formatStatValue,
+  heroRoleLabel,
+  officialDescription,
+} from "../../../lib/format";
 
 const attributeLabel = {
   agility: "敏捷",
@@ -35,6 +41,46 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
   }
   const hero = result.value;
   const versionLabel = encyclopediaVersionLabel(hero.data.officialVersion);
+  const hype = hero.data.hype.trim() || "当前官方快照玩法简介不可用";
+  const biography = hero.data.biography.trim() || "当前官方快照背景说明不可用";
+  const complexity = hero.data.complexity;
+  const stats = hero.data.baseStats;
+  const primaryStats = stats ? [
+    { key: "strength", label: "力量", value: stats.strength },
+    { key: "agility", label: "敏捷", value: stats.agility },
+    { key: "intelligence", label: "智力", value: stats.intelligence },
+  ] : [];
+  const statGroups = stats ? [
+    {
+      key: "resources",
+      label: "生命 / 魔法",
+      entries: [
+        { label: "生命", value: formatStatValue(stats.maxHealth), note: `${formatStatGain(stats.healthRegen)} / 秒` },
+        { label: "魔法", value: formatStatValue(stats.maxMana), note: `${formatStatGain(stats.manaRegen)} / 秒` },
+      ],
+    },
+    {
+      key: "combat",
+      label: "攻防",
+      entries: [
+        { label: "攻击力", value: `${formatStatValue(stats.damageMin)}–${formatStatValue(stats.damageMax)}`, note: null },
+        { label: "护甲", value: formatStatValue(stats.armor), note: null },
+        { label: "魔法抗性", value: `${formatStatValue(stats.magicResistance)}%`, note: null },
+      ],
+    },
+    {
+      key: "mechanics",
+      label: "机动 / 攻击 / 视野",
+      entries: [
+        { label: "移动速度", value: formatStatValue(stats.movementSpeed), note: null },
+        { label: "攻击距离", value: formatStatValue(stats.attackRange), note: null },
+        { label: "攻击间隔", value: `${formatStatValue(stats.attackRate)} 秒`, note: null },
+        { label: "弹道速度", value: formatStatValue(stats.projectileSpeed), note: null },
+        { label: "转身速率", value: formatStatValue(stats.turnRate), note: null },
+        { label: "视野（昼 / 夜）", value: `${formatStatValue(stats.sightRangeDay)} / ${formatStatValue(stats.sightRangeNight)}`, note: null },
+      ],
+    },
+  ] : [];
   return (
     <div className="page-shell hero-detail-page">
       <Link className="back-link" href="/heroes">← 返回英雄百科</Link>
@@ -47,7 +93,7 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
           <div className="tag-row">
             <span>{attributeLabel[hero.data.primaryAttribute]}</span>
             <span>{hero.data.attackType === "melee" ? "近战" : "远程"}</span>
-            {hero.data.roles.map((role) => <span key={role}>{role}</span>)}
+            {hero.data.roles.map((role) => <span key={role}>{heroRoleLabel(role)}</span>)}
           </div>
         </div>
         <div className="hero-profile__index">
@@ -58,6 +104,76 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
       </section>
 
       <QualityNotice label="英雄详情" quality={hero.meta.quality} showComplete />
+
+      <div className="hero-reference-grid">
+        <DataSection className="hero-lore" eyebrow="PLAYSTYLE / LORE" title="玩法与背景">
+          <article>
+            <small>玩法简介</small>
+            <p>{hype}</p>
+          </article>
+          <article>
+            <small>英雄背景</small>
+            <p>{biography}</p>
+          </article>
+        </DataSection>
+
+        <DataSection
+          className="hero-facts"
+          eyebrow="BASE PROFILE"
+          title="基础数据"
+          trailing={(
+            <div className="hero-complexity">
+              <span>复杂度</span>
+              {complexity === null ? (
+                <small>当前官方快照复杂度不可用</small>
+              ) : (
+                <>
+                  <span aria-hidden="true" className="hero-complexity__scale">
+                    {[1, 2, 3].map((level) => <i className={level <= complexity ? "is-active" : undefined} key={level} />)}
+                  </span>
+                  <strong>{complexity} / 3</strong>
+                </>
+              )}
+            </div>
+          )}
+        >
+          {!stats ? (
+            <p className="detail-empty">当前官方快照基础属性不可用</p>
+          ) : (
+            <>
+              <dl className="hero-primary-stats">
+                {primaryStats.map((stat) => (
+                  <div key={stat.key}>
+                    <dt>{stat.label}</dt>
+                    <dd>
+                      <strong>{formatStatValue(stat.value.base)}</strong>
+                      <small>{formatStatGain(stat.value.gain)} / 级</small>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="hero-stat-groups">
+                {statGroups.map((group) => (
+                  <section className="hero-stat-group" key={group.key}>
+                    <h3>{group.label}</h3>
+                    <dl className="hero-stat-list">
+                      {group.entries.map((entry) => (
+                        <div key={entry.label}>
+                          <dt>{entry.label}</dt>
+                          <dd>
+                            <strong>{entry.value}</strong>
+                            {entry.note ? <small>{entry.note}</small> : null}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
+            </>
+          )}
+        </DataSection>
+      </div>
 
       <div className="detail-grid">
         <DataSection className="detail-grid__main" eyebrow="ABILITY KIT" title="技能组">
@@ -72,7 +188,7 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
                   <div>
                     <small>{abilityTypeLabel[ability.type]}</small>
                     <h3>{ability.localizedName}</h3>
-                    <p>{ability.description || "当前快照没有技能说明。"}</p>
+                    <p>{officialDescription(ability.description)}</p>
                   </div>
                 </li>
               ))}
@@ -84,7 +200,7 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
           {hero.data.facetsStatus === "active" && hero.data.facets.length > 0 ? (
             <ul className="facet-list">
               {hero.data.facets.map((facet) => (
-                <li key={facet.name}><strong>{facet.name}</strong><p>{facet.description || "当前快照没有命石说明。"}</p></li>
+                <li key={facet.name}><strong>{facet.name}</strong><p>{officialDescription(facet.description)}</p></li>
               ))}
             </ul>
           ) : hero.data.facetsStatus === "removed" ? (

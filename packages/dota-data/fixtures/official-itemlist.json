@@ -5,7 +5,7 @@
         {
           "id": 1,
           "name": "item_blink",
-          "name_loc": "Blink Dagger",
+          "name_loc": "闪烁匕首",
           "neutral_item_tier": -1,
           "is_pregame_suggested": false,
           "is_earlygame_suggested": false,
@@ -49,7 +49,7 @@
         {
           "id": 182,
           "name": "item_stout_shield",
-          "name_loc": "Stout Shield",
+          "name_loc": "圆盾",
           "neutral_item_tier": -1,
           "is_pregame_suggested": false,
           "is_earlygame_suggested": false,

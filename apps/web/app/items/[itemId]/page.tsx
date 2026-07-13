@@ -6,7 +6,7 @@ import { DataState } from "../../../components/data-state";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
 import { api, settle } from "../../../lib/api";
-import { encyclopediaVersionLabel } from "../../../lib/format";
+import { encyclopediaVersionLabel, officialDescription } from "../../../lib/format";
 
 const itemKindLabel = {
   item: "普通物品定义",
@@ -39,7 +39,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
         <div>
           <p className="page-heading__eyebrow">ITEM / {item.data.id} / {item.data.category}</p>
           <h1>{item.data.localizedName}</h1>
-          <p>{item.data.description || "当前快照没有物品说明。"}</p>
+          <p>{officialDescription(item.data.description)}</p>
           <div className="tag-row"><span>{item.data.category}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span></div>
         </div>
         <div className="item-profile__cost"><span>COST</span><strong>{item.data.cost.toLocaleString("zh-CN")}</strong><small>金币</small></div>

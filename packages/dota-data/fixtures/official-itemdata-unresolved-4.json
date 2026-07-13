@@ -1,0 +1,18 @@
+{
+  "result": {
+    "status": 1,
+    "data": {
+      "items": [
+        {
+          "id": 4,
+          "name": "item_claymore",
+          "name_loc": "大剑",
+          "desc_loc": "增加 {s:missing_damage} 点攻击力。",
+          "item_cost": 1350,
+          "item_quality": 1,
+          "special_values": []
+        }
+      ]
+    }
+  }
+}

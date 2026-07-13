@@ -87,8 +87,16 @@ export interface DodoRepository {
   upsertPlayerSyncBatch(batch: PlayerSyncBatch): Promise<void>;
   upsertPlayerSyncFailure(failure: PlayerSyncFailure): Promise<void>;
   clearPlayerSyncFailure(accountId: string): Promise<void>;
-  replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void>;
-  replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void>;
+  replaceHeroes(
+    heroes: HeroDetail[],
+    snapshot: StaticDataSnapshot,
+    universeIds: string[],
+  ): Promise<void>;
+  replaceItems(
+    items: ItemDetail[],
+    snapshot: StaticDataSnapshot,
+    universeIds: string[],
+  ): Promise<void>;
   replacePatches(patches: PatchSummary[], snapshot: StaticDataSnapshot): Promise<void>;
   replaceUpdateReleases(
     releases: UpdateReleaseDetail[],

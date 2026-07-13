@@ -401,12 +401,17 @@ export class PostgresDodoRepository implements DodoRepository {
     await this.#sql`delete from dodo.player_sync_failures where account_id = ${accountId}`;
   }
 
-  async replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void> {
+  async replaceHeroes(
+    heroes: HeroDetail[],
+    snapshot: StaticDataSnapshot,
+    universeIds: string[],
+  ): Promise<void> {
     await this.#sql.begin(async (sql) => {
       await sql`
         select pg_advisory_xact_lock(hashtextextended('catalog:heroes', 0))
       `;
-      if (snapshot.quality === "complete") await sql`delete from dodo.heroes`;
+      if (universeIds.length === 0) await sql`delete from dodo.heroes`;
+      else await sql`delete from dodo.heroes where id not in ${sql(universeIds)}`;
       await sql`
         insert into dodo.heroes (id, payload, updated_at)
         select id, payload, now()
@@ -418,12 +423,17 @@ export class PostgresDodoRepository implements DodoRepository {
     });
   }
 
-  async replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void> {
+  async replaceItems(
+    items: ItemDetail[],
+    snapshot: StaticDataSnapshot,
+    universeIds: string[],
+  ): Promise<void> {
     await this.#sql.begin(async (sql) => {
       await sql`
         select pg_advisory_xact_lock(hashtextextended('catalog:items', 0))
       `;
-      if (snapshot.quality === "complete") await sql`delete from dodo.items`;
+      if (universeIds.length === 0) await sql`delete from dodo.items`;
+      else await sql`delete from dodo.items where id not in ${sql(universeIds)}`;
       await sql`
         insert into dodo.items (id, payload, updated_at)
         select id, payload, now()

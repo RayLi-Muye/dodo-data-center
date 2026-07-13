@@ -208,7 +208,32 @@ export const abilitySchema = z.object({
   type: z.enum(["innate", "basic", "ultimate", "talent"]),
 });
 
+export const heroBaseStatsSchema = z.object({
+  maxHealth: z.number().nonnegative(),
+  healthRegen: z.number(),
+  maxMana: z.number().nonnegative(),
+  manaRegen: z.number(),
+  armor: z.number(),
+  magicResistance: z.number(),
+  damageMin: z.number(),
+  damageMax: z.number(),
+  strength: z.object({ base: z.number(), gain: z.number() }),
+  agility: z.object({ base: z.number(), gain: z.number() }),
+  intelligence: z.object({ base: z.number(), gain: z.number() }),
+  movementSpeed: z.number().nonnegative(),
+  attackRange: z.number().nonnegative(),
+  attackRate: z.number().nonnegative(),
+  projectileSpeed: z.number().nonnegative(),
+  turnRate: z.number(),
+  sightRangeDay: z.number().nonnegative(),
+  sightRangeNight: z.number().nonnegative(),
+});
+
 export const heroDetailSchema = heroSummarySchema.extend({
+  hype: z.string().default(""),
+  biography: z.string().default(""),
+  complexity: z.number().int().min(1).max(3).nullable().default(null),
+  baseStats: heroBaseStatsSchema.nullable().default(null),
   facetsStatus: z.enum(["active", "removed", "unavailable"]),
   facets: z.array(z.object({ name: z.string(), description: z.string() })),
   abilities: z.array(abilitySchema),
@@ -486,6 +511,7 @@ export type ErrorMeta = z.infer<typeof errorMetaSchema>;
 export type AccountReference = z.infer<typeof accountReferenceSchema>;
 export type AccountResolution = z.infer<typeof accountResolutionSchema>;
 export type HeroSummary = z.infer<typeof heroSummarySchema>;
+export type HeroBaseStats = z.infer<typeof heroBaseStatsSchema>;
 export type HeroDetail = z.infer<typeof heroDetailSchema>;
 export type ItemSummary = z.infer<typeof itemSummarySchema>;
 export type ItemDetail = z.infer<typeof itemDetailSchema>;

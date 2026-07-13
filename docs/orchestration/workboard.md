@@ -17,7 +17,7 @@
 | QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | ACCEPTED |
 | ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
 | DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | RUNNING |
-| DATA-014 encyclopedia correctness | Data Source Agent | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | READY |
+| DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | REVIEW |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
 | MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
 
@@ -28,6 +28,25 @@
 - 等待外部授权期间，OpenDota 继续作为完整 MVP 基线；STRATZ 只负责可选的带时间加点与购买事件增强。
 - 第 2 阶段的内部门禁是错误分类、无损降级、来源归属、密钥边界和测试；真实 Railway 增强是外部授权门禁，不阻断 DATA-014。
 - 第 2 阶段只承诺 opportunistic secondary enrichment；已落库但 partial 的 STRATZ 结果如何再次回填，归入 API-WEB-015，不以 `enrichmentSources` 误称完整。
+
+### Wave 12 phase 3 baseline
+
+- 生产目录当前有 127 个英雄，全部为 7.41d；物品共有 518 行，其中 501 行为 7.41d、17 行 `officialVersion=null`。这 17 行不能整体盲删：仍在官方 index 但详情暂时失败的条目要保留，已移除或被官方标为无本地化名的 legacy 行应清理。
+- 英雄、技能、物品与更新正文改用 Dota 2 official `schinese`；内部 ID、name、版本与数值字段不随语言改变。
+- 有合法 ID 与本地化名称但说明模板未解析的技能、天赋或物品保留实体，说明保持空缺并把 snapshot 标为 partial；不得把原始模板或猜测数值直接展示给用户。
+- 英雄详情扩展官方简中 `hype`、`biography`、`complexity` 与 `baseStats`；旧 JSONB 读取使用空值兼容，不从比赛或第三方推断规则数值。
+- partial refresh 的 repository merge 必须基于本轮官方 universe 剪枝，而不是永久保留所有历史行；当前详情请求失败但仍在 universe 的旧记录继续保留。
+
+### Wave 12 phase 3 local evidence
+
+- 真实 Dota 2 official 冒烟：当前版本 7.41d、127 个英雄、507 个可展示物品；敌法师与闪烁匕首返回简中名称，7.41d/7.41c 更新正文返回简中。
+- 6 个物品说明与 876 个英雄技能/天赋说明仍含上游模板缺口；实体被保留、说明置空、snapshot 明确为 partial，原始模板不会进入公开字段。
+- 以生产基线 518 个物品计算，下一次对账会保留 507 个当前可展示实体并清理 11 个 removed/无本地化 legacy 行；该删除仍需部署后的只读计数复核。
+- hero/item universe 由成功实体与当前 detail-failed ID 构成；filtered 与官方 index 外 ID 被剪枝，Memory/PostgreSQL 在同一替换操作中保持一致，重复 partial 刷新幂等。
+- 官方 7.41d 全量英雄冒烟严格解析 127/127；敌法师返回简中玩法简介、398 字背景、复杂度 1 和完整基础属性，没有使用回退推断。
+- 全仓 typecheck、生产 build、302 项常规测试、41 项 schema 检查与真实 PostgreSQL 29/29 通过；最终 QA 和海外部署待完成。
+- 390×844 本地真实页面验证英雄资料默认为单列，页面与 body `scrollWidth=390`；英雄头图、玩法/背景、基础属性、技能与命石均可访问，无浏览器 console error/warning。
+- 最终窄 QA 对新字段默认值、数值单位、API/Web 空值处理与 failed-universe 剪枝复核 PASS，P0/P1/P2 均为 0；海外预览与生产目录计数仍待部署后验收。
 
 ### Wave 12 phase 1 evidence
 

@@ -46,6 +46,29 @@ describe("MemoryDodoRepository", () => {
     expect((await repository.getPlayer(SEED_ACCOUNT_ID))?.personaName).toBe("Seed Public Player");
   });
 
+  it("applies conservative defaults to legacy heroes missing encyclopedia fields", async () => {
+    const fixtures = await createSeedRepository();
+    const hero = await fixtures.getHero("1");
+    if (!hero) throw new Error("Hero fixture missing");
+    const {
+      hype: _hype,
+      biography: _biography,
+      complexity: _complexity,
+      baseStats: _baseStats,
+      ...legacyHero
+    } = hero;
+    const repository = await createLiveRepository();
+
+    await repository.upsertHero(legacyHero as typeof hero);
+
+    expect(await repository.getHero(hero.id)).toMatchObject({
+      hype: "",
+      biography: "",
+      complexity: null,
+      baseStats: null,
+    });
+  });
+
   it("atomically replaces the patch catalog with its snapshot", async () => {
     const repository = await createSeedRepository();
     const snapshot = {
@@ -350,7 +373,7 @@ describe("MemoryDodoRepository", () => {
     expect(await repository.getCurrentMap()).toBeUndefined();
   });
 
-  it("keeps failed hero and item entries during a partial official refresh", async () => {
+  it("prunes legacy catalog rows but keeps current failed entries during partial refresh", async () => {
     const repository = await createSeedRepository();
     const heroes = await repository.listHeroes();
     const items = await repository.listItems();
@@ -367,17 +390,38 @@ describe("MemoryDodoRepository", () => {
     await repository.replaceHeroes(
       [{ ...heroes[0]!, officialVersion: "7.41d" }],
       snapshot,
+      [heroes[0]!.id, heroes[1]!.id],
     );
     await repository.replaceItems(
       [{ ...items[0]!, officialVersion: "7.41d" }],
       snapshot,
+      [items[0]!.id, items[1]!.id],
+    );
+    await repository.replaceHeroes(
+      [{ ...heroes[0]!, officialVersion: "7.41d" }],
+      snapshot,
+      [heroes[0]!.id, heroes[1]!.id],
+    );
+    await repository.replaceItems(
+      [{ ...items[0]!, officialVersion: "7.41d" }],
+      snapshot,
+      [items[0]!.id, items[1]!.id],
     );
 
-    expect(await repository.listHeroes()).toHaveLength(heroes.length);
+    expect((await repository.listHeroes()).map((hero) => hero.id).sort()).toEqual(
+      [heroes[0]!.id, heroes[1]!.id].sort(),
+    );
     expect((await repository.getHero(heroes[0]!.id))?.officialVersion).toBe("7.41d");
     expect((await repository.getHero(heroes[1]!.id))?.officialVersion).toBe(SEED_PATCH);
-    expect(await repository.listItems()).toHaveLength(items.length);
+    expect((await repository.listItems()).map((item) => item.id).sort()).toEqual(
+      [items[0]!.id, items[1]!.id].sort(),
+    );
     expect((await repository.getItem(items[0]!.id))?.officialVersion).toBe("7.41d");
     expect((await repository.getItem(items[1]!.id))?.officialVersion).toBe(SEED_PATCH);
+
+    await repository.replaceHeroes([], snapshot, []);
+    await repository.replaceItems([], snapshot, []);
+    expect(await repository.listHeroes()).toEqual([]);
+    expect(await repository.listItems()).toEqual([]);
   });
 });

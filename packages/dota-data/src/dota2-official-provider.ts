@@ -14,6 +14,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://www.dota2.com/";
+const OFFICIAL_LANGUAGE = "schinese";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_DETAIL_CONCURRENCY = 3;
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+[a-z]?$/;
@@ -73,6 +74,17 @@ function readInteger(value: unknown, field: string): number {
   return typeof value === "number" && Number.isSafeInteger(value)
     ? value
     : providerError(`${field} must be an integer`);
+}
+
+function readNumber(value: unknown, field: string): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : providerError(`${field} must be a finite number`);
+}
+
+function readNonNegativeNumber(value: unknown, field: string): number {
+  const number = readNumber(value, field);
+  return number >= 0 ? number : providerError(`${field} must be non-negative`);
 }
 
 function readBoolean(value: unknown, field: string): boolean {
@@ -281,15 +293,17 @@ function normalizeAbility(
   const id = readPositiveId(rawAbility.id, "hero ability.id");
   const localizedName = officialGameplayText(rawAbility.name_loc, rawAbility);
   if (localizedName.text.length === 0) return { ability: null, reason: "localized_name_unavailable", name };
-  const description = officialGameplayText(rawAbility.desc_loc, rawAbility);
-  const unresolvedTokens = [...localizedName.unresolvedTokens, ...description.unresolvedTokens];
-  if (unresolvedTokens.length > 0) {
+  if (localizedName.unresolvedTokens.length > 0) {
     return {
       ability: null,
-      reason: `unresolved_template:${[...new Set(unresolvedTokens)].sort().join(",")}`,
+      reason: `unresolved_template:${localizedName.unresolvedTokens.join(",")}`,
       name,
     };
   }
+  const description = officialGameplayText(rawAbility.desc_loc, rawAbility);
+  const unresolvedDescriptionReason = description.unresolvedTokens.length > 0
+    ? `unresolved_template:${description.unresolvedTokens.join(",")}`
+    : null;
   const type = forcedType ?? (
     rawAbility.ability_is_innate === true
       ? "innate"
@@ -302,11 +316,11 @@ function normalizeAbility(
       id,
       name,
       localizedName: localizedName.text,
-      description: description.text,
+      description: unresolvedDescriptionReason === null ? description.text : "",
       slot,
       type,
     },
-    reason: null,
+    reason: unresolvedDescriptionReason,
     name,
   };
 }
@@ -341,6 +355,11 @@ function normalizeNotes(rawValue: unknown, collector: NoteCollector) {
 function cleanOptional(value: unknown, maxLength = 160): string | null {
   const cleaned = officialNoteText(value);
   return cleaned.length > 0 ? cleaned.slice(0, maxLength) : null;
+}
+
+function readOfficialText(value: unknown, field: string): string {
+  const text = officialNoteText(readString(value, field));
+  return text.length > 0 ? text : providerError(`${field} must contain text`);
 }
 
 type ChangeGroup = UpdateReleaseDetail["groups"][number];
@@ -457,7 +476,7 @@ function normalizeUpdateDetail(
   return {
     version: expectedVersion,
     releasedAt,
-    sourceUrl: `https://www.dota2.com/patches/${expectedVersion}?l=english`,
+    sourceUrl: `https://www.dota2.com/patches/${expectedVersion}?l=${OFFICIAL_LANGUAGE}`,
     changeGroupCount: groups.length,
     contentStatus: collector.excludedNoteCount > 0 ? "partial" : "complete",
     excludedNoteCount: collector.excludedNoteCount,
@@ -549,6 +568,10 @@ function normalizeHeroDetail(
   if (id !== expectedId) providerError(`hero ${expectedId} returned a different ID`);
   const internalName = readString(rawHero.name, `hero ${expectedId}.name`);
   const localizedName = readString(rawHero.name_loc, `hero ${expectedId}.name_loc`);
+  const complexity = readInteger(rawHero.complexity, `hero ${expectedId}.complexity`);
+  if (complexity < 1 || complexity > 3) {
+    providerError(`hero ${expectedId}.complexity must be between 1 and 3`);
+  }
   const rawAbilities = readArray(rawHero.abilities, `hero ${expectedId}.abilities`);
   const rawTalents = readArray(rawHero.talents ?? [], `hero ${expectedId}.talents`);
   const exclusions: CanonicalOfficialCatalogExclusion[] = [];
@@ -557,7 +580,17 @@ function normalizeHeroDetail(
 
   for (const [slot, rawAbility] of rawAbilities.entries()) {
     const normalized = normalizeAbility(rawAbility, slot, null);
-    if (normalized.ability !== null) abilities.push(normalized.ability);
+    if (normalized.ability !== null) {
+      abilities.push(normalized.ability);
+      if (normalized.reason !== null) {
+        exclusions.push(filteredExclusion(
+          "ability",
+          normalized.ability.id,
+          normalized.name,
+          normalized.reason,
+        ));
+      }
+    }
     else {
       if (normalized.name !== null) excludedAbilityNames.push(normalized.name);
       exclusions.push(filteredExclusion(
@@ -570,7 +603,17 @@ function normalizeHeroDetail(
   }
   for (const [index, rawTalent] of rawTalents.entries()) {
     const normalized = normalizeAbility(rawTalent, rawAbilities.length + index, "talent");
-    if (normalized.ability !== null) abilities.push(normalized.ability);
+    if (normalized.ability !== null) {
+      abilities.push(normalized.ability);
+      if (normalized.reason !== null) {
+        exclusions.push(filteredExclusion(
+          "ability",
+          normalized.ability.id,
+          normalized.name,
+          normalized.reason,
+        ));
+      }
+    }
     else {
       if (normalized.name !== null) excludedAbilityNames.push(normalized.name);
       exclusions.push(filteredExclusion(
@@ -598,6 +641,56 @@ function normalizeHeroDetail(
       attackType: normalizeAttackCapability(rawHero.attack_capability),
       roles: normalizeRoleLevels(rawHero.role_levels),
       officialVersion,
+      hype: readOfficialText(rawHero.hype_loc, `hero ${expectedId}.hype_loc`),
+      biography: readOfficialText(rawHero.bio_loc, `hero ${expectedId}.bio_loc`),
+      complexity,
+      baseStats: {
+        maxHealth: readNonNegativeNumber(rawHero.max_health, `hero ${expectedId}.max_health`),
+        healthRegen: readNumber(rawHero.health_regen, `hero ${expectedId}.health_regen`),
+        maxMana: readNonNegativeNumber(rawHero.max_mana, `hero ${expectedId}.max_mana`),
+        manaRegen: readNumber(rawHero.mana_regen, `hero ${expectedId}.mana_regen`),
+        armor: readNumber(rawHero.armor, `hero ${expectedId}.armor`),
+        magicResistance: readNumber(
+          rawHero.magic_resistance,
+          `hero ${expectedId}.magic_resistance`,
+        ),
+        damageMin: readNumber(rawHero.damage_min, `hero ${expectedId}.damage_min`),
+        damageMax: readNumber(rawHero.damage_max, `hero ${expectedId}.damage_max`),
+        strength: {
+          base: readNumber(rawHero.str_base, `hero ${expectedId}.str_base`),
+          gain: readNumber(rawHero.str_gain, `hero ${expectedId}.str_gain`),
+        },
+        agility: {
+          base: readNumber(rawHero.agi_base, `hero ${expectedId}.agi_base`),
+          gain: readNumber(rawHero.agi_gain, `hero ${expectedId}.agi_gain`),
+        },
+        intelligence: {
+          base: readNumber(rawHero.int_base, `hero ${expectedId}.int_base`),
+          gain: readNumber(rawHero.int_gain, `hero ${expectedId}.int_gain`),
+        },
+        movementSpeed: readNonNegativeNumber(
+          rawHero.movement_speed,
+          `hero ${expectedId}.movement_speed`,
+        ),
+        attackRange: readNonNegativeNumber(
+          rawHero.attack_range,
+          `hero ${expectedId}.attack_range`,
+        ),
+        attackRate: readNonNegativeNumber(rawHero.attack_rate, `hero ${expectedId}.attack_rate`),
+        projectileSpeed: readNonNegativeNumber(
+          rawHero.projectile_speed,
+          `hero ${expectedId}.projectile_speed`,
+        ),
+        turnRate: readNumber(rawHero.turn_rate, `hero ${expectedId}.turn_rate`),
+        sightRangeDay: readNonNegativeNumber(
+          rawHero.sight_range_day,
+          `hero ${expectedId}.sight_range_day`,
+        ),
+        sightRangeNight: readNonNegativeNumber(
+          rawHero.sight_range_night,
+          `hero ${expectedId}.sight_range_night`,
+        ),
+      },
     },
     abilitySet: {
       heroName: internalName,
@@ -635,7 +728,7 @@ function normalizeItemDetail(
   payload: unknown,
   listEntry: OfficialItemListEntry,
   officialVersion: string,
-): CanonicalItemConstant {
+): { item: CanonicalItemConstant; reason: string | null } {
   const data = normalizeOfficialEnvelope(payload, `item ${listEntry.id}`);
   const items = readArray(data.items, `item ${listEntry.id}.items`);
   if (items.length !== 1) providerError(`item ${listEntry.id}.items must contain exactly one entry`);
@@ -645,36 +738,37 @@ function normalizeItemDetail(
   const name = readString(rawItem.name, `item ${listEntry.id}.name`).replace(/^item_/, "");
   const localizedName = readString(rawItem.name_loc, `item ${listEntry.id}.name_loc`);
   const description = officialGameplayText(rawItem.desc_loc, rawItem);
-  if (description.unresolvedTokens.length > 0) {
-    providerError(
-      `item ${listEntry.id} contains unresolved templates: ${description.unresolvedTokens.join(",")}`,
-    );
-  }
+  const unresolvedDescriptionReason = description.unresolvedTokens.length > 0
+    ? `unresolved_template:${description.unresolvedTokens.join(",")}`
+    : null;
   const itemQuality = readInteger(rawItem.item_quality, `item ${listEntry.id}.item_quality`);
   const itemCost = readInteger(rawItem.item_cost, `item ${listEntry.id}.item_cost`);
   if (itemCost < 0) providerError(`item ${listEntry.id}.item_cost must be non-negative`);
   return {
-    id,
-    name,
-    localizedName,
-    cost: itemCost,
-    category: listEntry.neutralItemTier === null
-      ? `official_quality_${itemQuality}`
-      : `neutral_tier_${listEntry.neutralItemTier}`,
-    description: description.text,
-    attributes: officialAttributes(rawItem),
-    componentNames: listEntry.recipes[0]?.componentNames ?? [],
-    kind: normalizeOfficialItemKind(listEntry.name, listEntry.neutralItemTier),
-    availabilityStatus: "unverified",
-    officialVersion,
-    officialClassification: {
-      itemQuality,
-      neutralItemTier: listEntry.neutralItemTier,
-      isPregameSuggested: listEntry.isPregameSuggested,
-      isEarlygameSuggested: listEntry.isEarlygameSuggested,
-      isLategameSuggested: listEntry.isLategameSuggested,
+    item: {
+      id,
+      name,
+      localizedName,
+      cost: itemCost,
+      category: listEntry.neutralItemTier === null
+        ? `official_quality_${itemQuality}`
+        : `neutral_tier_${listEntry.neutralItemTier}`,
+      description: unresolvedDescriptionReason === null ? description.text : "",
+      attributes: officialAttributes(rawItem),
+      componentNames: listEntry.recipes[0]?.componentNames ?? [],
+      kind: normalizeOfficialItemKind(listEntry.name, listEntry.neutralItemTier),
+      availabilityStatus: "unverified",
+      officialVersion,
+      officialClassification: {
+        itemQuality,
+        neutralItemTier: listEntry.neutralItemTier,
+        isPregameSuggested: listEntry.isPregameSuggested,
+        isEarlygameSuggested: listEntry.isEarlygameSuggested,
+        isLategameSuggested: listEntry.isLategameSuggested,
+      },
+      officialRecipes: listEntry.recipes,
     },
-    officialRecipes: listEntry.recipes,
+    reason: unresolvedDescriptionReason,
   };
 }
 
@@ -731,7 +825,7 @@ export class Dota2OfficialProvider {
     const patchResponse = await this.requestPatchIndex();
     const officialVersion = patchResponse.index.items.at(-1)!.name;
     const listUrl = new URL("datafeed/itemlist", this.baseUrl);
-    listUrl.searchParams.set("language", "english");
+    listUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
     const listResponse = await this.requestJson(listUrl);
     const data = normalizeOfficialEnvelope(listResponse.payload, "item list");
     const rawItems = readArray(data.itemabilities, "item list.itemabilities");
@@ -808,17 +902,19 @@ export class Dota2OfficialProvider {
     const results = await mapWithConcurrency(candidates, MAX_DETAIL_CONCURRENCY, async (candidate) => {
       const detailUrl = new URL("datafeed/itemdata", this.baseUrl);
       detailUrl.searchParams.set("item_id", candidate.id);
-      detailUrl.searchParams.set("language", "english");
+      detailUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
       try {
         const response = await this.requestJson(detailUrl);
+        const normalized = normalizeItemDetail(response.payload, candidate, officialVersion);
         return {
-          item: normalizeItemDetail(response.payload, candidate, officialVersion),
+          item: normalized.item,
+          exclusionReason: normalized.reason,
           fetchedAt: response.fetchedAt,
           error: null,
           candidate,
         };
       } catch (error) {
-        return { item: null, fetchedAt: null, error, candidate };
+        return { item: null, exclusionReason: null, fetchedAt: null, error, candidate };
       }
     });
     const items: CanonicalItemConstant[] = [];
@@ -835,16 +931,28 @@ export class Dota2OfficialProvider {
         ));
       } else {
         items.push(result.item);
+        if (result.exclusionReason !== null) {
+          exclusions.push(filteredExclusion(
+            "item",
+            result.item.id,
+            result.candidate.name,
+            result.exclusionReason,
+          ));
+        }
         fetchedAtValues.push(result.fetchedAt!);
       }
     }
     if (items.length === 0) throw firstFailure;
     items.sort((left, right) => Number(left.id) - Number(right.id));
-    const failed = exclusions.some((exclusion) => exclusion.kind === "failed");
+    const incomplete = exclusions.some((exclusion) =>
+      exclusion.kind === "failed" || (
+        exclusion.entityType === "item" && exclusion.reason.startsWith("unresolved_template:")
+      )
+    );
     return {
       items,
       officialVersion,
-      quality: failed ? "partial" : "complete",
+      quality: incomplete ? "partial" : "complete",
       exclusions,
       source: {
         source: "dota2_official",
@@ -877,7 +985,7 @@ export class Dota2OfficialProvider {
       const results = await Promise.all(chunk.map(async (candidate) => {
         const detailUrl = new URL("datafeed/patchnotes", this.baseUrl);
         detailUrl.searchParams.set("version", candidate.version);
-        detailUrl.searchParams.set("language", "english");
+        detailUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
         try {
           const response = await this.requestJson(detailUrl);
           return {
@@ -928,7 +1036,7 @@ export class Dota2OfficialProvider {
     const patchResponse = await this.requestPatchIndex();
     const officialVersion = patchResponse.index.items.at(-1)!.name;
     const listUrl = new URL("datafeed/herolist", this.baseUrl);
-    listUrl.searchParams.set("language", "english");
+    listUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
     const listResponse = await this.requestJson(listUrl);
     const data = normalizeOfficialEnvelope(listResponse.payload, "hero list");
     const rawHeroes = readArray(data.heroes, "hero list.heroes");
@@ -949,7 +1057,7 @@ export class Dota2OfficialProvider {
     const results = await mapWithConcurrency(candidates, MAX_DETAIL_CONCURRENCY, async (candidate) => {
       const detailUrl = new URL("datafeed/herodata", this.baseUrl);
       detailUrl.searchParams.set("hero_id", candidate.id);
-      detailUrl.searchParams.set("language", "english");
+      detailUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
       try {
         const response = await this.requestJson(detailUrl);
         return {
@@ -1021,7 +1129,7 @@ export class Dota2OfficialProvider {
     fetchedAt: Date;
   }> {
     const listUrl = new URL("datafeed/patchnoteslist", this.baseUrl);
-    listUrl.searchParams.set("language", "english");
+    listUrl.searchParams.set("language", OFFICIAL_LANGUAGE);
     const response = await this.requestJson(listUrl);
     return { index: normalizePatchIndex(response.payload), fetchedAt: response.fetchedAt };
   }

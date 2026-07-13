@@ -5,7 +5,7 @@
         {
           "id": 1,
           "name": "npc_dota_hero_antimage",
-          "name_loc": "Anti-Mage",
+          "name_loc": "敌法师",
           "primary_attr": 1,
           "complexity": 1
         }

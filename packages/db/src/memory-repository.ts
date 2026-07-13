@@ -10,6 +10,7 @@ import type {
   UpdateReleaseDetail,
   UpdateReleaseSummary,
 } from "@dodo/contracts";
+import { heroDetailSchema } from "@dodo/contracts";
 
 import type { DodoRepository, StoredMatch } from "./types.js";
 import type {
@@ -68,7 +69,8 @@ export class MemoryDodoRepository implements DodoRepository {
   #currentMapId: string | undefined;
 
   async upsertHero(hero: HeroDetail): Promise<void> {
-    this.#heroes.set(hero.id, clone(hero));
+    const parsed = heroDetailSchema.parse(hero);
+    this.#heroes.set(parsed.id, clone(parsed));
   }
 
   async upsertItem(item: ItemDetail): Promise<void> {
@@ -172,14 +174,28 @@ export class MemoryDodoRepository implements DodoRepository {
     this.#syncFailures.delete(accountId);
   }
 
-  async replaceHeroes(heroes: HeroDetail[], snapshot: StaticDataSnapshot): Promise<void> {
-    if (snapshot.quality === "complete") this.#heroes.clear();
+  async replaceHeroes(
+    heroes: HeroDetail[],
+    snapshot: StaticDataSnapshot,
+    universeIds: string[],
+  ): Promise<void> {
+    const universe = new Set(universeIds);
+    for (const id of this.#heroes.keys()) {
+      if (!universe.has(id)) this.#heroes.delete(id);
+    }
     for (const hero of heroes) await this.upsertHero(hero);
     this.#heroSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
-  async replaceItems(items: ItemDetail[], snapshot: StaticDataSnapshot): Promise<void> {
-    if (snapshot.quality === "complete") this.#items.clear();
+  async replaceItems(
+    items: ItemDetail[],
+    snapshot: StaticDataSnapshot,
+    universeIds: string[],
+  ): Promise<void> {
+    const universe = new Set(universeIds);
+    for (const id of this.#items.keys()) {
+      if (!universe.has(id)) this.#items.delete(id);
+    }
     for (const item of items) await this.upsertItem(item);
     this.#itemSnapshot = clone(normalizeSnapshot(snapshot));
   }

@@ -140,6 +140,29 @@ export type CanonicalHeroConstant = {
   attackType: "melee" | "ranged";
   roles: string[];
   officialVersion: string | null;
+  hype?: string;
+  biography?: string;
+  complexity?: number;
+  baseStats?: {
+    maxHealth: number;
+    healthRegen: number;
+    maxMana: number;
+    manaRegen: number;
+    armor: number;
+    magicResistance: number;
+    damageMin: number;
+    damageMax: number;
+    strength: { base: number; gain: number };
+    agility: { base: number; gain: number };
+    intelligence: { base: number; gain: number };
+    movementSpeed: number;
+    attackRange: number;
+    attackRate: number;
+    projectileSpeed: number;
+    turnRate: number;
+    sightRangeDay: number;
+    sightRangeNight: number;
+  };
 };
 
 export type CanonicalItemConstant = {

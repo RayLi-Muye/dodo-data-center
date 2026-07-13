@@ -6,7 +6,7 @@ import { DataState, EmptyState } from "../../components/data-state";
 import { PageHeading } from "../../components/page-heading";
 import { QualityNotice } from "../../components/quality-notice";
 import { api, settle } from "../../lib/api";
-import { encyclopediaVersionLabel } from "../../lib/format";
+import { encyclopediaVersionLabel, heroRoleLabel } from "../../lib/format";
 
 const attributeLabel = {
   agility: "敏捷",
@@ -52,7 +52,7 @@ export default async function HeroesPage({ searchParams }: { searchParams: Promi
                   <div className="hero-catalog__body">
                     <span>{attributeLabel[hero.primaryAttribute]} · {hero.attackType === "melee" ? "近战" : "远程"}</span>
                     <h2>{hero.localizedName}</h2>
-                    <p>{hero.roles.join(" / ") || "定位未标注"}</p>
+                    <p>{hero.roles.map(heroRoleLabel).join(" / ") || "定位未标注"}</p>
                   </div>
                   <small>{encyclopediaVersionLabel(hero.officialVersion)}</small>
                 </Link>
