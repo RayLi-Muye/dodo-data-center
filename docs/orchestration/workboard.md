@@ -19,7 +19,7 @@
 | DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | ACCEPTED |
 | DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | ACCEPTED |
-| MAP-016A audited static map foundation | Root / Data / API / Web Agents | 严格 geometry、审计哈希、原子存储与 honest UI | DATA-014 | REVIEW |
+| MAP-016A audited static map foundation | Root / Data / API / Web Agents | 严格 geometry、审计哈希、原子存储与 honest UI | DATA-014 | ACCEPTED |
 | MAP-016B lawful current map snapshot | Root / Data Agents | 当前 App 570 版本化地图静态百科 | MAP-016A、合法来源与下载授权 | BLOCKED |
 
 ### Wave 12 phase 2 checkpoint
@@ -72,6 +72,8 @@
 - Coverage 契约要求全部 13 种已知地点类型恰好归入 included 或 exclusions；`complete` 必须全部纳入，`partial` 必须逐项说明遗漏，测试 fixture 不得伪装为完整地图。
 - 真实快照激活前还必须实现地图变更补丁对 current pointer 的自动失效。当前生产没有 curated map snapshot，因此该 P2 门禁不会造成线上陈旧地图，但不得在缺少失效机制时发布真实 current。
 - MAP-016A 最终本地门禁通过：全仓 typecheck、358 项常规测试、生产 build、43 项 schema 检查及真实 PostgreSQL 35/35；修复后 QA P0/P1 均为 0。浏览器确认 seed 页面明确显示 `PARTIAL`、11 类逐项排除与 test-only 来源，console 无 error/warning。
+- PR #8 的 GitHub verify 与 Vercel Preview 均通过后合并。Railway deployment `df59f6fa-270f-4d8c-829b-4ea331dcd023` success；Vercel production `web-n3mqu73ov-rays-projects-f956e95b.vercel.app` ready。
+- 生产 API readiness 为 200，`/v1/maps/current` 明确返回 503 `MAP_UNAVAILABLE`；生产地图页显示“当前地图资料不可用”且说明不会用示例数据冒充。账号 `224328273` 仍可读取已导入比赛、100 场统计与英雄分布，地图页和账号页浏览器 console 均无 error/warning。MAP-016A 接受，MAP-016B 保持外部来源阻塞。
 
 ### Wave 12 phase 1 evidence
 
