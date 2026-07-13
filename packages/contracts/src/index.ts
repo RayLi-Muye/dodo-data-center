@@ -272,6 +272,44 @@ export const itemTransactionSchema = z.object({
   charges: z.number().int().nonnegative().nullable(),
 });
 
+export const stratzEnrichmentStatusSchema = z.enum([
+  "not_requested",
+  "complete",
+  "retry_scheduled",
+  "terminal_partial",
+  "terminal_failed",
+  "provider_blocked",
+]);
+
+export const stratzEnrichmentReasonSchema = z.enum([
+  "partial_response",
+  "not_found",
+  "core_conflict",
+  "player_conflict",
+  "rate_limited",
+  "authentication",
+  "unavailable",
+  "invalid_response",
+]);
+
+export const stratzEnrichmentStateSchema = z.object({
+  status: stratzEnrichmentStatusSchema,
+  resultQuality: z.enum(["complete", "partial"]).nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  lastAttemptAt: timestampSchema.nullable(),
+  nextAttemptAt: timestampSchema.nullable(),
+  reasonCode: stratzEnrichmentReasonSchema.nullable(),
+  providerRevision: z.string().min(1).max(64),
+}).default({
+  status: "not_requested",
+  resultQuality: null,
+  attemptCount: 0,
+  lastAttemptAt: null,
+  nextAttemptAt: null,
+  reasonCode: null,
+  providerRevision: "stratz-graphql-v1",
+});
+
 export const matchPlayerSchema = z.object({
   accountId: identifierSchema.nullable(),
   playerSlot: z.number().int().min(0).max(255),
@@ -318,10 +356,34 @@ export const matchDetailSchema = matchSummarySchema.omit({ player: true }).exten
   players: z.array(matchPlayerSchema).min(1).max(10),
   detailStatus: z.enum(["summary", "enriched"]),
   enrichmentSources: z.array(z.enum(["stratz"])).default([]),
+  stratzEnrichment: stratzEnrichmentStateSchema,
   parseStatus: z.enum(["unparsed", "parsed", "pending"]),
   cluster: z.string().nullable(),
   radiantScore: z.number().int().nonnegative().nullable(),
   direScore: z.number().int().nonnegative().nullable(),
+});
+
+export const matchEnrichmentScopeSchema = z.enum(["recent", "all_imported"]);
+
+export const playerEnrichmentQuerySchema = z.object({
+  scope: matchEnrichmentScopeSchema.default("recent"),
+});
+
+export const playerEnrichmentProgressSchema = z.object({
+  accountId: identifierSchema,
+  scope: matchEnrichmentScopeSchema,
+  running: z.boolean(),
+  batchSize: z.number().int().min(1).max(20),
+  totalMatches: z.number().int().nonnegative(),
+  detailReadyCount: z.number().int().nonnegative(),
+  completeCount: z.number().int().nonnegative(),
+  retryScheduledCount: z.number().int().nonnegative(),
+  terminalPartialCount: z.number().int().nonnegative(),
+  terminalFailedCount: z.number().int().nonnegative(),
+  providerBlockedCount: z.number().int().nonnegative(),
+  notRequestedCount: z.number().int().nonnegative(),
+  retryEligibleCount: z.number().int().nonnegative(),
+  updatedAt: timestampSchema.nullable(),
 });
 
 export const playerProfileSchema = z.object({
@@ -476,6 +538,9 @@ export const playerMatchesResponseSchema = z.object({
 export const playerHeroesResponseSchema = createMetricResponseSchema(createPaginatedDataSchema(playerHeroStatsSchema));
 export const playerHeroResponseSchema = createMetricResponseSchema(playerHeroStatsSchema);
 export const matchDetailResponseSchema = createOperationResponseSchema(matchDetailSchema);
+export const playerEnrichmentProgressResponseSchema = createMetricResponseSchema(
+  playerEnrichmentProgressSchema,
+);
 export const heroesResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(heroSummarySchema));
 export const heroDetailResponseSchema = createOperationResponseSchema(heroDetailSchema);
 export const itemsResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(itemSummarySchema));
@@ -517,6 +582,9 @@ export type ItemSummary = z.infer<typeof itemSummarySchema>;
 export type ItemDetail = z.infer<typeof itemDetailSchema>;
 export type MatchSummary = z.infer<typeof matchSummarySchema>;
 export type MatchDetail = z.infer<typeof matchDetailSchema>;
+export type StratzEnrichmentState = z.infer<typeof stratzEnrichmentStateSchema>;
+export type MatchEnrichmentScope = z.infer<typeof matchEnrichmentScopeSchema>;
+export type PlayerEnrichmentProgress = z.infer<typeof playerEnrichmentProgressSchema>;
 export type PlayerProfile = z.infer<typeof playerProfileSchema>;
 export type PlayerHeroStats = z.infer<typeof playerHeroStatsSchema>;
 export type PlayerOverview = z.infer<typeof playerOverviewSchema>;

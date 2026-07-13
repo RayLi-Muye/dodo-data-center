@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import {
+  abilityBuildNotice,
   abilityUpgradeContext,
   itemTimelineNotice,
   resolveHeroAbility,
@@ -45,6 +46,7 @@ export function MatchAnalyzer({
 
   const hero = heroById.get(player.heroId);
   const abilityBuild = [...player.abilityBuild].sort((left, right) => left.sequence - right.sequence);
+  const abilityNotice = abilityBuildNotice(player.abilityBuildStatus, abilityBuild.length);
   const itemTimeline = player.itemTimelineStatus === "unavailable"
     ? []
     : [...player.itemTimeline].sort((left, right) => left.gameTimeSeconds - right.gameTimeSeconds);
@@ -121,31 +123,30 @@ export function MatchAnalyzer({
         role="tabpanel"
       >
         {view === "abilities" ? (
-          player.abilityBuildStatus === "unavailable" ? (
-            <p className="match-analyzer__notice">上游未提供技能加点顺序。</p>
-          ) : abilityBuild.length === 0 ? (
-            <p className="match-analyzer__notice">没有可展示的真实技能加点记录。</p>
-          ) : (
-            <ol className="match-analyzer__ability-list">
-              {abilityBuild.map((event) => {
-                const ability = resolveHeroAbility(abilitiesByHeroId, player.heroId, event.abilityId);
-                return (
-                  <li key={`${event.sequence}-${event.abilityId}`}>
-                    <span aria-label={`第 ${event.sequence} 次加点`}>{String(event.sequence).padStart(2, "0")}</span>
-                    {ability ? (
-                      <AssetImage alt={`${ability.localizedName} 技能图标`} className="ability-thumb" kind="ability" name={ability.name} />
-                    ) : (
-                      <span aria-label={`技能 ${event.abilityId} 图标不可用`} className="asset-fallback asset-fallback--ability ability-thumb" role="img">?</span>
-                    )}
-                    <span>
-                      <strong>{ability?.localizedName ?? `技能 #${event.abilityId}`}</strong>
-                      <small>{abilityUpgradeContext(event, player.abilityBuildStatus)}</small>
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          )
+          <>
+            {abilityNotice ? <p className="match-analyzer__notice">{abilityNotice}</p> : null}
+            {abilityBuild.length > 0 ? (
+              <ol className="match-analyzer__ability-list">
+                {abilityBuild.map((event) => {
+                  const ability = resolveHeroAbility(abilitiesByHeroId, player.heroId, event.abilityId);
+                  return (
+                    <li key={`${event.sequence}-${event.abilityId}`}>
+                      <span aria-label={`第 ${event.sequence} 次加点`}>{String(event.sequence).padStart(2, "0")}</span>
+                      {ability ? (
+                        <AssetImage alt={`${ability.localizedName} 技能图标`} className="ability-thumb" kind="ability" name={ability.name} />
+                      ) : (
+                        <span aria-label={`技能 ${event.abilityId} 图标不可用`} className="asset-fallback asset-fallback--ability ability-thumb" role="img">?</span>
+                      )}
+                      <span>
+                        <strong>{ability?.localizedName ?? `技能 #${event.abilityId}`}</strong>
+                        <small>{abilityUpgradeContext(event, player.abilityBuildStatus)}</small>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : null}
+          </>
         ) : (
           <>
             {timelineNotice ? <p className="match-analyzer__notice">{timelineNotice}</p> : null}

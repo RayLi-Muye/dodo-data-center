@@ -1,17 +1,13 @@
+import type { StratzEnrichmentState } from "@dodo/contracts";
 import type { StratzMatchDetail, StratzProvider } from "@dodo/dota-data";
 import type { DodoRepository, StoredMatch } from "@dodo/db";
 
 type MatchPlayer = StoredMatch["detail"]["players"][number];
 type StratzMatchPlayer = StratzMatchDetail["players"][number];
 
-export type StratzEnrichmentStatus =
-  | "complete"
-  | "partial"
-  | "private"
-  | "rate_limited"
-  | "unavailable"
-  | "failed"
-  | "skipped";
+export const STRATZ_PROVIDER_REVISION = "stratz-graphql-v1";
+
+export type StratzEnrichmentStatus = StratzEnrichmentState["status"] | "skipped";
 
 export type StratzEnrichmentOutcome = {
   changed: boolean;
@@ -165,27 +161,104 @@ const mergePlayers = (
   return { changed, conflict: false, players };
 };
 
-const errorStatus = (error: unknown): Exclude<StratzEnrichmentStatus, "complete" | "partial" | "skipped"> => {
-  if (!error || typeof error !== "object") return "failed";
-  const record = error as { code?: unknown; reason?: unknown };
-  const code = typeof record.code === "string" ? record.code.toLowerCase() : "";
-  const reason = typeof record.reason === "string" ? record.reason.toLowerCase() : "";
-  if (code.includes("rate") || reason.includes("rate")) return "rate_limited";
-  if (reason.includes("private") || reason.includes("anonymous")) return "private";
-  if (
-    code.includes("authentication") ||
-    code.includes("unavailable") ||
-    reason.includes("network") ||
-    reason.includes("timeout") ||
-    reason.includes("upstream")
-  ) return "unavailable";
-  return "failed";
+const RETRY_DELAYS_MS = [15 * 60_000, 2 * 60 * 60_000, 24 * 60 * 60_000] as const;
+const MIN_PROVIDER_RETRY_MS = 60_000;
+const MAX_PROVIDER_RETRY_MS = 24 * 60 * 60_000;
+
+const stateForRevision = (state: StratzEnrichmentState): StratzEnrichmentState =>
+  state.providerRevision === STRATZ_PROVIDER_REVISION
+    ? state
+    : {
+        status: "not_requested",
+        resultQuality: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        nextAttemptAt: null,
+        reasonCode: null,
+        providerRevision: STRATZ_PROVIDER_REVISION,
+      };
+
+export const stratzEnrichmentIsEligible = (
+  state: StratzEnrichmentState,
+  now: Date,
+): boolean => {
+  if (state.providerRevision !== STRATZ_PROVIDER_REVISION) return true;
+  if (state.status === "not_requested") return true;
+  if (state.status !== "retry_scheduled" && state.status !== "provider_blocked") return false;
+  return state.nextAttemptAt !== null && Date.parse(state.nextAttemptAt) <= now.getTime();
 };
 
-const isProviderWideFailure = (error: unknown): boolean => {
-  if (!error || typeof error !== "object") return false;
-  const code = (error as { code?: unknown }).code;
-  return code === "AUTHENTICATION" || code === "RATE_LIMITED" || code === "UNAVAILABLE";
+const retryState = (
+  previous: StratzEnrichmentState,
+  now: Date,
+  reasonCode: "partial_response" | "not_found" | "invalid_response",
+  resultQuality: StratzEnrichmentState["resultQuality"],
+  hasContribution: boolean,
+): StratzEnrichmentState => {
+  const attemptCount = previous.attemptCount + 1;
+  const delay = RETRY_DELAYS_MS[attemptCount - 1];
+  return {
+    status: delay === undefined
+      ? hasContribution ? "terminal_partial" : "terminal_failed"
+      : "retry_scheduled",
+    resultQuality: hasContribution ? "partial" : resultQuality,
+    attemptCount,
+    lastAttemptAt: now.toISOString(),
+    nextAttemptAt: delay === undefined ? null : new Date(now.getTime() + delay).toISOString(),
+    reasonCode,
+    providerRevision: STRATZ_PROVIDER_REVISION,
+  };
+};
+
+const providerBlockedState = (
+  previous: StratzEnrichmentState,
+  now: Date,
+  reasonCode: "rate_limited" | "authentication" | "unavailable",
+  retryAfterSeconds: number | null,
+): StratzEnrichmentState => {
+  const defaultDelay = reasonCode === "authentication" ? MAX_PROVIDER_RETRY_MS : RETRY_DELAYS_MS[0];
+  const requestedDelay = retryAfterSeconds === null ? defaultDelay : retryAfterSeconds * 1_000;
+  const delay = Math.min(MAX_PROVIDER_RETRY_MS, Math.max(MIN_PROVIDER_RETRY_MS, requestedDelay));
+  return {
+    ...previous,
+    status: "provider_blocked",
+    lastAttemptAt: now.toISOString(),
+    nextAttemptAt: new Date(now.getTime() + delay).toISOString(),
+    reasonCode,
+    providerRevision: STRATZ_PROVIDER_REVISION,
+  };
+};
+
+const providerFailure = (error: unknown): {
+  reasonCode: "rate_limited" | "authentication" | "unavailable";
+  retryAfterSeconds: number | null;
+} | null => {
+  if (!error || typeof error !== "object") return null;
+  const record = error as { code?: unknown; retryAfterSeconds?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const reasonCode = code === "AUTHENTICATION"
+    ? "authentication"
+    : code === "RATE_LIMITED"
+      ? "rate_limited"
+      : code === "UNAVAILABLE"
+        ? "unavailable"
+        : null;
+  if (reasonCode === null) return null;
+  return {
+    reasonCode,
+    retryAfterSeconds:
+      typeof record.retryAfterSeconds === "number" && Number.isFinite(record.retryAfterSeconds)
+        ? Math.max(0, record.retryAfterSeconds)
+        : null,
+  };
+};
+
+const attemptFailureReason = (error: unknown): "not_found" | "invalid_response" => {
+  if (!error || typeof error !== "object") return "invalid_response";
+  const record = error as { code?: unknown; reason?: unknown };
+  return record.code === "NOT_FOUND" || record.reason === "not_found"
+    ? "not_found"
+    : "invalid_response";
 };
 
 const safeErrorReason = (error: unknown): string | null => {
@@ -204,6 +277,7 @@ export class StratzMatchEnrichmentService {
   readonly #repository: DodoRepository;
   readonly #provider: StratzMatchProvider;
   readonly #clock: () => Date;
+  #providerBlockedUntil = 0;
 
   constructor({ repository, provider, clock = () => new Date() }: StratzMatchEnrichmentServiceOptions) {
     this.#repository = repository;
@@ -216,67 +290,159 @@ export class StratzMatchEnrichmentService {
     if (!stored || stored.detail.detailStatus !== "enriched") {
       return { changed: false, status: "skipped" };
     }
+    const now = this.#clock();
+    if (this.#providerBlockedUntil > now.getTime()) {
+      return { changed: false, status: "skipped", stopBatch: true };
+    }
+    const previousState = stateForRevision(stored.detail.stratzEnrichment);
+    if (!stratzEnrichmentIsEligible(stored.detail.stratzEnrichment, now)) {
+      return { changed: false, status: "skipped" };
+    }
+    let incoming: StratzMatchDetail;
     try {
-      const incoming = await this.#provider.getMatchDetail(matchId);
+      incoming = await this.#provider.getMatchDetail(matchId);
+    } catch (error) {
+      return this.#handleProviderFailure(stored, previousState, now, error);
+    }
       if (coreMatchConflict(stored, incoming)) {
+        const state: StratzEnrichmentState = {
+          ...previousState,
+          status: "terminal_failed",
+          attemptCount: previousState.attemptCount + 1,
+          lastAttemptAt: now.toISOString(),
+          nextAttemptAt: null,
+          reasonCode: "core_conflict",
+          providerRevision: STRATZ_PROVIDER_REVISION,
+        };
+        await this.#repository.upsertMatch({
+          ...stored,
+          detail: { ...stored.detail, stratzEnrichment: state },
+        });
         await this.#recordHealth("degraded", "STRATZ match core fields conflicted with OpenDota.");
-        return { changed: false, status: "failed" };
+        return { changed: false, status: state.status };
       }
       const merged = mergePlayers(stored, incoming);
       if (merged.conflict) {
-        await this.#recordHealth("degraded", "STRATZ player identity conflicted with OpenDota.");
-        return { changed: false, status: "failed" };
-      }
-      if (merged.changed) {
+        const state: StratzEnrichmentState = {
+          ...previousState,
+          status: "terminal_failed",
+          attemptCount: previousState.attemptCount + 1,
+          lastAttemptAt: now.toISOString(),
+          nextAttemptAt: null,
+          reasonCode: "player_conflict",
+          providerRevision: STRATZ_PROVIDER_REVISION,
+        };
         await this.#repository.upsertMatch({
           ...stored,
-          detail: {
-            ...stored.detail,
-            enrichmentSources: [...new Set([...stored.detail.enrichmentSources, "stratz" as const])],
-            players: merged.players,
-          },
-          importedAt:
-            incoming.source.fetchedAt > stored.importedAt
-              ? incoming.source.fetchedAt
-              : stored.importedAt,
+          detail: { ...stored.detail, stratzEnrichment: state },
         });
+        await this.#recordHealth("degraded", "STRATZ player identity conflicted with OpenDota.");
+        return { changed: false, status: state.status };
       }
-      const status = incoming.quality === "complete" ? "complete" : "partial";
+      const hasContribution = stored.detail.enrichmentSources.includes("stratz") || merged.changed;
+      const state: StratzEnrichmentState = incoming.quality === "complete"
+        ? {
+            status: "complete",
+            resultQuality: "complete",
+            attemptCount: previousState.attemptCount + 1,
+            lastAttemptAt: now.toISOString(),
+            nextAttemptAt: null,
+            reasonCode: null,
+            providerRevision: STRATZ_PROVIDER_REVISION,
+          }
+        : retryState(
+            previousState,
+            now,
+            "partial_response",
+            "partial",
+            hasContribution,
+          );
+      await this.#repository.upsertMatch({
+        ...stored,
+        detail: {
+          ...stored.detail,
+          enrichmentSources: merged.changed
+            ? [...new Set([...stored.detail.enrichmentSources, "stratz" as const])]
+            : stored.detail.enrichmentSources,
+          stratzEnrichment: state,
+          players: merged.players,
+        },
+        importedAt:
+          merged.changed && incoming.source.fetchedAt > stored.importedAt
+            ? incoming.source.fetchedAt
+            : stored.importedAt,
+      });
       await this.#recordHealth(
-        status === "complete" ? "ready" : "degraded",
-        status === "complete" ? null : "STRATZ returned partial match enrichment.",
+        incoming.quality === "complete" ? "ready" : "degraded",
+        incoming.quality === "complete" ? null : "STRATZ returned partial match enrichment.",
       );
-      return { changed: merged.changed, status };
-    } catch (error) {
-      const status = errorStatus(error);
-      if (status !== "private") {
-        const reason = safeErrorReason(error);
-        await this.#recordHealth(
-          status === "unavailable" ? "unavailable" : "degraded",
-          status === "rate_limited"
-            ? `STRATZ rate limit was reached${reason ? ` (${reason})` : ""}.`
-            : status === "unavailable"
-              ? `STRATZ is unavailable${reason ? ` (${reason})` : ""}.`
-              : `STRATZ match enrichment failed${reason ? ` (${reason})` : ""}.`,
+      return { changed: merged.changed, status: state.status };
+  }
+
+  async #handleProviderFailure(
+    stored: StoredMatch,
+    previousState: StratzEnrichmentState,
+    now: Date,
+    error: unknown,
+  ): Promise<StratzEnrichmentOutcome> {
+    const providerBlock = providerFailure(error);
+    const reason = safeErrorReason(error);
+    const hasContribution = stored.detail.enrichmentSources.includes("stratz");
+    const state = providerBlock
+      ? providerBlockedState(
+          previousState,
+          now,
+          providerBlock.reasonCode,
+          providerBlock.retryAfterSeconds,
+        )
+      : retryState(
+          previousState,
+          now,
+          attemptFailureReason(error),
+          previousState.resultQuality,
+          hasContribution,
         );
-      }
-      return {
-        changed: false,
-        status,
-        ...(isProviderWideFailure(error) ? { stopBatch: true } : {}),
-      };
+    if (providerBlock && state.nextAttemptAt !== null) {
+      this.#providerBlockedUntil = Math.max(
+        this.#providerBlockedUntil,
+        Date.parse(state.nextAttemptAt),
+      );
     }
+    await this.#repository.upsertMatch({
+      ...stored,
+      detail: { ...stored.detail, stratzEnrichment: state },
+    });
+    await this.#recordHealth(
+      providerBlock?.reasonCode === "unavailable" ||
+        providerBlock?.reasonCode === "authentication"
+        ? "unavailable"
+        : "degraded",
+      providerBlock?.reasonCode === "rate_limited"
+        ? `STRATZ rate limit was reached${reason ? ` (${reason})` : ""}.`
+        : providerBlock
+          ? `STRATZ is unavailable${reason ? ` (${reason})` : ""}.`
+          : `STRATZ match enrichment failed${reason ? ` (${reason})` : ""}.`,
+    );
+    return {
+      changed: false,
+      status: state.status,
+      ...(providerBlock ? { stopBatch: true } : {}),
+    };
   }
 
   async #recordHealth(
     status: "ready" | "degraded" | "unavailable",
     message: string | null,
   ): Promise<void> {
-    await this.#repository.upsertProviderHealth({
-      source: "stratz",
-      status,
-      checkedAt: this.#clock().toISOString(),
-      message,
-    });
+    try {
+      await this.#repository.upsertProviderHealth({
+        source: "stratz",
+        status,
+        checkedAt: this.#clock().toISOString(),
+        message,
+      });
+    } catch {
+      // Match enrichment is durable even when optional provider health reporting fails.
+    }
   }
 }

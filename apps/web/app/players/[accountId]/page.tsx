@@ -3,6 +3,7 @@ import { DataSection, MetaLine, StatusNotice } from "@dodo/ui";
 
 import { AccountSearch } from "../../../components/account-search";
 import { DataState, EmptyState } from "../../../components/data-state";
+import { EnrichmentControl } from "../../../components/enrichment-control";
 import { HeroDistribution } from "../../../components/hero-distribution";
 import { MatchExplorer, type MatchFilters } from "../../../components/match-explorer";
 import { PageHeading } from "../../../components/page-heading";
@@ -138,6 +139,8 @@ export default async function PlayerPage({
       ) : null}
 
       <QualityNotice label="账号概览" quality={overview.meta.quality} />
+
+      <EnrichmentControl accountId={accountId} />
 
       <nav className="window-switcher" aria-label="统计时间窗口">
         {windows.map((item) => (

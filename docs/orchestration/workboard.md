@@ -18,7 +18,7 @@
 | ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
 | DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | ACCEPTED |
 | DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
-| API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
+| API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | REVIEW |
 | MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
 
 ### Wave 12 phase 2 checkpoint
@@ -51,6 +51,13 @@
 - Vercel main 部署 `web-g5pdrty2a-rays-projects-f956e95b.vercel.app` ready；Railway deployment `2d8a6994-c96f-4c0a-8bcd-a22b3268e686` success。
 - 生产对账为 127 个 7.41d 英雄、507 个 7.41d 物品、0 个 stale item；敌法师简中简介/背景/复杂度/基础属性与 7.41d 简中更新正文可读。账号 `224328273` 最近 20 场仍返回 200、`sampleSize=20`、quality complete。
 - 已知运维缺口：本次 main merge 未自动创建 Railway deployment，使用已合并同内容的受控 CLI deployment 完成发布；GitHub→Railway webhook/branch trigger 必须在下一运维切片修复，不能把手动发布当长期机制。
+
+### Wave 12 phase 4 local evidence
+
+- `stratzEnrichment` 持久状态与 `enrichmentSources` 来源归属分离；完整、计划重试、终止部分/失败和 provider blocked 均可区分，partial/empty 上游响应不会删除已有事件。
+- 玩家页可选择最近 20 场或全部已导入比赛；每次 POST 只处理下一批最多 20 场，前端只轮询当前批次，绝不自动扫描上游全历史。单场比赛另有手动增强入口。
+- OpenDota summary 先补成十人详情，再按状态尝试 STRATZ；同场和同账号 scope 在单实例内合并。OpenDota 限流或不可用立即停止当前批次，单场错误跳过，数据库/合并异常进入实际错误日志且不伪装为空数据。
+- 本地玩家与单场交互验证通过：scope 切换有效、桌面无横向溢出；增强服务不可用时明确保留已有数据。全仓 typecheck、336 项常规测试、生产 build、41 项 schema 检查和真实 PostgreSQL 30/30 通过；最终 QA P0/P1 为 0，部署验收待完成。
 
 ### Wave 12 phase 1 evidence
 

@@ -738,6 +738,54 @@ button.text-action {
 .history-sync-control--warning p { color: var(--warning); }
 .history-sync-control--danger p { color: var(--negative); }
 
+.enrichment-control {
+  display: grid;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-low);
+}
+
+.enrichment-control > header {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.enrichment-control > header small { color: var(--text-muted); font-family: var(--font-display); font-size: var(--text-xs); letter-spacing: 0.1em; }
+.enrichment-control h2 { margin: var(--space-2xs) 0 0; color: var(--text-strong); font-family: var(--font-display); font-size: var(--text-lg); line-height: 1; }
+.enrichment-control__scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.enrichment-control__scope button {
+  min-height: 2.75rem;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.enrichment-control__scope button[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-active); color: var(--text-strong); }
+.enrichment-control__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.enrichment-control__metrics > div { padding: var(--space-sm) var(--space-md); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.enrichment-control__metrics > div:nth-child(even) { border-right: 0; }
+.enrichment-control__metrics dt { color: var(--text-muted); font-size: var(--text-xs); }
+.enrichment-control__metrics dd { margin: var(--space-2xs) 0 0; color: var(--text-strong); font-family: var(--font-display); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.enrichment-control__footer { display: grid; gap: var(--space-sm); padding: var(--space-md); }
+.enrichment-control__footer span { color: var(--text-muted); font-size: var(--text-sm); }
+.enrichment-control__footer button,
+.match-enrichment-control button {
+  width: 100%;
+  min-height: 3rem;
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+  cursor: pointer;
+}
+.enrichment-control > p,
+.enrichment-control__note { margin: 0; padding: 0 var(--space-md) var(--space-sm); color: var(--text-muted); font-size: var(--text-xs); }
+.enrichment-control--positive > p { color: var(--positive); }
+.enrichment-control--warning > p { color: var(--warning); }
+.enrichment-control--danger > p { color: var(--negative); }
+
 /* Homepage */
 .home-intro {
   display: grid;
@@ -1697,6 +1745,67 @@ button.text-action {
   font-size: var(--text-sm);
 }
 
+.match-enrichment-status {
+  display: grid;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-low);
+}
+
+.match-enrichment-status > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.match-enrichment-status__signal {
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: 0.3rem;
+  background: var(--text-muted);
+}
+
+.match-enrichment-status--positive .match-enrichment-status__signal { background: var(--positive); }
+.match-enrichment-status--warning .match-enrichment-status__signal { background: var(--warning); }
+.match-enrichment-status header div { display: grid; gap: var(--space-2xs); }
+.match-enrichment-status header small { color: var(--text-muted); font-family: var(--font-display); font-size: var(--text-xs); letter-spacing: 0.1em; }
+.match-enrichment-status h2,
+.match-enrichment-status header p,
+.match-enrichment-status__note { margin: 0; }
+.match-enrichment-status h2 { color: var(--text-strong); font-family: var(--font-display); font-size: var(--text-lg); line-height: 1; }
+.match-enrichment-status header p { max-width: 76ch; color: var(--text); font-size: var(--text-sm); }
+
+.match-enrichment-status dl {
+  display: grid;
+  margin: 0;
+}
+
+.match-enrichment-status dl > div {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.7fr) minmax(0, 1.3fr);
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.match-enrichment-status dt { color: var(--text-muted); font-size: var(--text-xs); }
+.match-enrichment-status dd { margin: 0; overflow-wrap: anywhere; color: var(--text-strong); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.match-enrichment-status__note { padding: var(--space-sm) var(--space-md); color: var(--text-muted); font-size: var(--text-xs); }
+
+.match-enrichment-control {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-low);
+}
+.match-enrichment-control p { min-height: 1.25rem; margin: 0; color: var(--text-muted); font-size: var(--text-xs); }
+.match-enrichment-control--positive p { color: var(--positive); }
+.match-enrichment-control--warning p { color: var(--warning); }
+.match-enrichment-control--danger p { color: var(--negative); }
+
 .match-analyzer {
   display: grid;
   gap: var(--space-md);
@@ -2365,6 +2474,17 @@ circle.map-feature,
   .patch-filter { grid-template-columns: auto minmax(12rem, 1fr) auto auto; align-items: end; }
   .patch-filter label { grid-column: 1 / -1; }
   .match-explorer__filters form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .match-enrichment-status dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .match-enrichment-status dl > div { grid-template-columns: 1fr; gap: var(--space-2xs); border-right: 1px solid var(--line); }
+  .match-enrichment-status dl > div:nth-child(3n) { border-right: 0; }
+  .enrichment-control > header { grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.7fr); align-items: center; }
+  .enrichment-control__metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .enrichment-control__metrics > div:nth-child(even) { border-right: 1px solid var(--line); }
+  .enrichment-control__metrics > div:nth-child(4n) { border-right: 0; }
+  .enrichment-control__footer { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .enrichment-control__footer button,
+  .match-enrichment-control button { width: auto; }
+  .match-enrichment-control { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
   .match-explorer__filter-actions { grid-column: 1 / -1; }
   .patch-timeline li { grid-template-columns: 2.5rem minmax(5rem, 0.5fr) minmax(9rem, 1fr) auto; }
   .patch-timeline time,

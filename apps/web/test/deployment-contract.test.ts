@@ -27,6 +27,8 @@ describe("Web deployment contract", () => {
     expect(source("../app/api/account-resolutions/route.ts")).toContain(regionDeclaration);
     expect(source("../app/api/players/[accountId]/sync/route.ts")).toContain(regionDeclaration);
     expect(source("../app/api/players/[accountId]/history-sync/route.ts")).toContain(regionDeclaration);
+    expect(source("../app/api/players/[accountId]/enrichment/route.ts")).toContain(regionDeclaration);
+    expect(source("../app/api/matches/[matchId]/enrichment/route.ts")).toContain(regionDeclaration);
     expect(source("../app/api/sync-jobs/[jobId]/route.ts")).toContain(regionDeclaration);
   });
 });

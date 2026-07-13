@@ -1,6 +1,8 @@
 import { DataSection, MetaLine, StatusNotice } from "@dodo/ui";
 
 import { DataState } from "../../../components/data-state";
+import { MatchEnrichmentStatus } from "../../../components/match-enrichment-status";
+import { MatchEnrichmentControl } from "../../../components/match-enrichment-control";
 import { MatchAnalyzer } from "../../../components/match-analyzer";
 import { MatchPlayerRow } from "../../../components/match-player-row";
 import { PageHeading } from "../../../components/page-heading";
@@ -70,6 +72,9 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
         />
       )}
 
+      <MatchEnrichmentStatus match={match.data} />
+      <MatchEnrichmentControl matchId={match.data.id} />
+
       <section className="match-scoreboard" aria-label="比赛结果概览">
         <div className={match.data.radiantWin ? "match-side match-side--winner" : "match-side"}>
           <span>RADIANT</span>
@@ -79,7 +84,7 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
         <div className="match-clock">
           <span>比赛时长</span>
           <strong>{formatDuration(match.data.durationSeconds)}</strong>
-          <small>{match.data.parseStatus === "parsed" ? "已解析" : match.data.parseStatus === "pending" ? "回放解析中" : "基础数据 · 未解析回放"}</small>
+          <small>{match.data.parseStatus === "parsed" ? "上游解析记录可用，不代表完整回放事件" : match.data.parseStatus === "pending" ? "上游解析处理中" : "仅基础比赛数据，未提供回放解析记录"}</small>
         </div>
         <div className={!match.data.radiantWin ? "match-side match-side--winner" : "match-side"}>
           <span>DIRE</span>

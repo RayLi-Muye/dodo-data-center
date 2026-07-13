@@ -27,11 +27,25 @@ import type {
 import { createHash } from "node:crypto";
 
 import type { PlayerDataProvider } from "./player-data-provider.js";
-import type { StratzMatchEnrichmentService } from "./stratz-match-enrichment-service.js";
+import {
+  STRATZ_PROVIDER_REVISION,
+  stratzEnrichmentIsEligible,
+  type StratzMatchEnrichmentService,
+} from "./stratz-match-enrichment-service.js";
 
 export const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const UPDATE_TTL_MS = 2 * 60 * 60 * 1_000;
 export const PLAYER_SYNC_TTL_MS = 30 * 60 * 1_000;
+
+const defaultStratzEnrichment = (): MatchDetail["stratzEnrichment"] => ({
+  status: "not_requested",
+  resultQuality: null,
+  attemptCount: 0,
+  lastAttemptAt: null,
+  nextAttemptAt: null,
+  reasonCode: null,
+  providerRevision: STRATZ_PROVIDER_REVISION,
+});
 
 const stableValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -183,6 +197,7 @@ export const toMatchSummaryDetail = (
     players: [toMatchPlayer(match.player, itemIdByName)],
     detailStatus: "summary",
     enrichmentSources: [],
+    stratzEnrichment: defaultStratzEnrichment(),
     parseStatus: "unparsed",
     cluster: null,
     radiantScore: null,
@@ -190,7 +205,7 @@ export const toMatchSummaryDetail = (
   };
 };
 
-const toEnrichedMatchDetail = (
+export const toEnrichedMatchDetail = (
   match: CanonicalMatchDetail,
   itemIdByName: ReadonlyMap<string, string>,
   officialVersion: string | null,
@@ -207,6 +222,7 @@ const toEnrichedMatchDetail = (
   players: match.players.map((player) => toMatchPlayer(player, itemIdByName)),
   detailStatus: "enriched",
   enrichmentSources: [],
+  stratzEnrichment: defaultStratzEnrichment(),
   parseStatus: match.parseStatus,
   lobbyType: match.lobbyType,
   cluster: match.cluster,
@@ -548,12 +564,7 @@ export class PlayerSyncService {
         );
         const stratzCandidates = refreshedLatest.flatMap((match) =>
           match?.detail.detailStatus === "enriched" &&
-            !match.detail.enrichmentSources.includes("stratz") &&
-            match.detail.players.some(
-              (player) =>
-                player.abilityBuildStatus === "unavailable" ||
-                player.itemTimelineStatus !== "complete",
-            )
+            stratzEnrichmentIsEligible(match.detail.stratzEnrichment, this.#clock())
             ? [match]
             : [],
         );
