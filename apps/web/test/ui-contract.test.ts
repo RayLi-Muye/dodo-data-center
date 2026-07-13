@@ -211,7 +211,8 @@ describe("Web UI copy and touch contract", () => {
     }
     expect(playerControl).toContain("最近 20 场");
     expect(playerControl).toContain("全部已导入");
-    expect(playerControl).toContain("继续下一批");
+    expect(workflow).toContain('buttonLabel: "继续下一批"');
+    expect(workflow).toContain('buttonLabel: "等待计划重试"');
     expect(playerControl).toContain("不会自动连续扫描全历史");
     expect(matchControl).toContain("router.refresh()");
     expect(matchControl).toContain("当前比赛数据仍会保留");
