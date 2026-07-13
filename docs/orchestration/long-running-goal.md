@@ -2,7 +2,7 @@
 
 本文件约束 Dodo 长时间开发 Goal 的执行、检查点和自动恢复行为。
 
-## Active goal: complete and refine hero/item catalogs
+## Completed goal: complete and refine hero/item catalogs
 
 上一阶段静态百科已于 2026-07-13 完成海外生产验收。本阶段只修正目录完整性、当前物品口径和前端信息架构，不进入动态胜率或地图。
 
@@ -18,6 +18,8 @@
 英雄胜率、英雄使用率、物品购买率、购买时间与胜率属于百科第二阶段，不进入当前静态资料切片。
 
 每阶段完成条件：相关包测试、全仓 typecheck、真实 PostgreSQL、生产 build、真实账号 `224328273`、QA 无 P0/P1、GitHub PR 与海外部署验证。
+
+本 Goal 已于 2026-07-14 完成。生产结果为 127 个英雄、268 个当前可浏览物品、0 个图纸；390px 英雄与物品页面无横向溢出，公开账号回归与全部门禁通过。下一阶段需要由 Root 重新冻结动态英雄/物品统计的指标口径后再启动。
 
 ## Delivery loop
 
