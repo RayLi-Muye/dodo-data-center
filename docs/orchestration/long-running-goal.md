@@ -4,6 +4,8 @@
 
 ## Active goal: hero and item encyclopedia foundation
 
+状态：已于 2026-07-13 完成海外生产验收。后续动态英雄/物品统计必须作为新的垂直切片单独启动。
+
 地图真实快照激活暂缓，现有 `MAP_UNAVAILABLE` 与审计门禁保持不变。当前 Goal 按以下顺序推进：
 
 1. Root 冻结英雄技能数值与实体更新历史契约。

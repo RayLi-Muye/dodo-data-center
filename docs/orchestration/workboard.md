@@ -19,7 +19,7 @@
 | API-017 entity update history | Backend/API Agent | `apps/api/**`、`packages/db/**`；最近更新筛选与状态语义 | ROOT-017 | ACCEPTED |
 | WEB-017 hero/item reference pages | Web Agent | `apps/web/**`、`packages/ui/**`；基础资料、效果、最近更新、390px | ROOT-017, DATA-017, API-017 | ACCEPTED |
 | QA-017 static encyclopedia acceptance | QA Agent | 只读；当前版本、字段完整度、partial/unavailable 与视觉回归 | DATA-017, API-017, WEB-017 | ACCEPTED |
-| DEPLOY-017 overseas rollout | Root | 全仓门禁、真实数据、Railway/Vercel、生产 smoke | QA-017 | RUNNING |
+| DEPLOY-017 overseas rollout | Root | 全仓门禁、真实数据、Railway/Vercel、生产 smoke | QA-017 | ACCEPTED |
 
 验收目标：
 
@@ -31,7 +31,9 @@
 
 本地证据：官方 `special_values` 及魔法/生命/金币消耗、冷却、施法距离、前摇、持续施法、持续时间、伤害数组已结构化；全零占位不展示。英雄/物品实体更新只从持久化 release 过滤，不运行时直查上游。一次性迁移只将既有 official hero/item snapshot 的 `checkedAt` 标为过期，保留旧行直至刷新事务原子替换。全仓 typecheck、371 项常规测试、生产 build、43 项 schema 检查与真实 PostgreSQL 37/37 通过；QA P0/P1/P2 均为 0。当前浏览器运行时不可用，390px 已完成 CSS/源码审计但仍需在可用浏览器中补实际视觉 smoke。
 
-生产首次刷新发现 official item `heading_loc` 中仍有 `+$all` 等客户端 UI token，数值正确但标签不可直接展示。后续修复只允许显式简中 token 映射、正确格式化百分比，并对未知 token 保持 partial；第二条一次性迁移只重新验证 item snapshot。
+生产首次刷新发现 official item `heading_loc` 中仍有 `+$all` 等客户端 UI token，数值正确但标签不可直接展示。后续修复采用显式简中 token 映射、正确格式化百分比，并对未知 token 保持 partial；第二条一次性迁移只重新验证 item snapshot。
+
+生产验收：GitHub PR #12 与 #13 已合并；Railway 部署 `53bbcf28-fbc6-464c-8ca9-ea03fa11b734` 成功，`/health/live` 与 `/health/ready` 均返回 200；Vercel main commit `70eee53c6a906dbd85423327e97137fc02d4cb81` production 为 `READY`。507 件当前物品全量读取完成，其中 354 件具有结构化效果字段，原始 `$token` 标签泄漏为 0；蝴蝶的闪避与基础攻击速度分别展示为 `+35%`、`+20%`。敌法师当前版本、6 个技能、最近 5 个直接变更版本以及达贡之神力最近变更均与线上快照对账。公开账号 `224328273` 仍返回 100 场合格样本、`coverageRate=1`，数据源为 OpenDota 与 STRATZ。浏览器运行时在本轮仍不可用，因此 390px 验收依据为 CSS/源码审计；生产页面实际视觉 smoke 作为非阻断补充项保留。
 
 ### Wave 12: Five-stage MVP hardening
 
