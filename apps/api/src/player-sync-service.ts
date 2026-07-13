@@ -553,24 +553,19 @@ export class PlayerSyncService {
             ? [match]
             : [],
         );
-        let nextStratzIndex = 0;
-        const enrichWithStratz = async (): Promise<void> => {
-          while (nextStratzIndex < stratzCandidates.length) {
-            const match = stratzCandidates[nextStratzIndex++];
-            if (!match) return;
-            try {
-              await this.#matchEnrichmentService!.enrichMatch(match.detail.id);
-            } catch {
-              // STRATZ is optional enrichment; OpenDota data remains the readable fallback.
-            }
-          }
-        };
-        await Promise.all(
-          Array.from(
-            { length: Math.min(2, stratzCandidates.length) },
-            async () => enrichWithStratz(),
-          ),
-        );
+        for (let index = 0; index < stratzCandidates.length; index += 2) {
+          const outcomes = await Promise.all(
+            stratzCandidates.slice(index, index + 2).map(async (match) => {
+              try {
+                return await this.#matchEnrichmentService!.enrichMatch(match.detail.id);
+              } catch {
+                // STRATZ is optional enrichment; OpenDota data remains the readable fallback.
+                return null;
+              }
+            }),
+          );
+          if (outcomes.some((outcome) => outcome?.stopBatch)) break;
+        }
       }
       await this.#repository.upsertPlayerSyncBatch(batch);
       await this.#repository.clearPlayerSyncFailure(job.accountId);

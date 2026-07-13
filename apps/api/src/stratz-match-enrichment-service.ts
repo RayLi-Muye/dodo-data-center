@@ -16,6 +16,7 @@ export type StratzEnrichmentStatus =
 export type StratzEnrichmentOutcome = {
   changed: boolean;
   status: StratzEnrichmentStatus;
+  stopBatch?: boolean;
 };
 
 type StratzMatchProvider = Pick<StratzProvider, "getMatchDetail">;
@@ -174,12 +175,17 @@ const errorStatus = (error: unknown): Exclude<StratzEnrichmentStatus, "complete"
   if (
     code.includes("authentication") ||
     code.includes("unavailable") ||
-    code.includes("not_found") ||
     reason.includes("network") ||
     reason.includes("timeout") ||
     reason.includes("upstream")
   ) return "unavailable";
   return "failed";
+};
+
+const isProviderWideFailure = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  return code === "AUTHENTICATION" || code === "RATE_LIMITED" || code === "UNAVAILABLE";
 };
 
 const safeErrorReason = (error: unknown): string | null => {
@@ -254,7 +260,11 @@ export class StratzMatchEnrichmentService {
               : `STRATZ match enrichment failed${reason ? ` (${reason})` : ""}.`,
         );
       }
-      return { changed: false, status };
+      return {
+        changed: false,
+        status,
+        ...(isProviderWideFailure(error) ? { stopBatch: true } : {}),
+      };
     }
   }
 

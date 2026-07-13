@@ -84,7 +84,23 @@ export function MetaLine({
       ) : null}
       <div>
         <dt>来源</dt>
-        <dd>{sources.join(" · ")}</dd>
+        <dd>
+          {sources.map((source, index) => (
+            <span key={`${source}-${index}`}>
+              {index > 0 ? " · " : null}
+              {source.toLowerCase() === "stratz" ? (
+                <a
+                  aria-label="STRATZ 数据来源（在新窗口打开）"
+                  href="https://stratz.com/"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  STRATZ ↗
+                </a>
+              ) : source}
+            </span>
+          ))}
+        </dd>
       </div>
       <div>
         <dt>更新</dt>

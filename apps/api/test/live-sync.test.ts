@@ -371,6 +371,40 @@ const createPreparedRepository = async () => {
   return repository;
 };
 
+const createStratzBatchFixture = async () => {
+  const repository = await createPreparedRepository();
+  const openDotaProvider = createProvider();
+  const template = recent.matches[0]!;
+  const matches = Array.from({ length: 20 }, (_, index) => ({
+    ...template,
+    id: String(8_300_000_000 + index),
+    startTime: new Date(Date.parse(template.startTime) - index * 60_000).toISOString(),
+    player: { ...template.player },
+  }));
+  openDotaProvider.getRecentMatches = vi.fn(async () => ({
+    ...recent,
+    eligibleCount: matches.length,
+    excludedCount: 0,
+    exclusionReasons: [],
+    quality: "complete" as const,
+    matches,
+    candidateLedger: matches.map((match, providerIndex) => ({
+      providerIndex,
+      status: "included" as const,
+      matchId: match.id,
+    })),
+  }));
+  openDotaProvider.getMatchDetail = vi.fn(async (matchId) => {
+    const match = matches.find((candidate) => candidate.id === matchId)!;
+    return {
+      ...detailFor(template.id),
+      ...match,
+      players: [match.player],
+    };
+  });
+  return { repository, openDotaProvider, matches };
+};
+
 const json = (response: { body: string }): unknown => JSON.parse(response.body);
 
 describe("live player synchronization", () => {
@@ -1543,6 +1577,71 @@ describe("live player synchronization", () => {
     await service.waitForJob(secondJob.jobId);
     expect(getMatchDetail).toHaveBeenCalledTimes(2);
     expect(secondRunUpsert).not.toHaveBeenCalled();
+    await service.close();
+  });
+
+  it.each([
+    ["AUTHENTICATION", "invalid_token", false, "unavailable"],
+    ["RATE_LIMITED", "rate_limited", true, "degraded"],
+    ["UNAVAILABLE", "timeout", true, "unavailable"],
+  ] as const)("stops scheduling STRATZ candidates after %s/%s without failing core sync", async (code, reason, retryable, healthStatus) => {
+    const { repository, openDotaProvider, matches } = await createStratzBatchFixture();
+    const getMatchDetail = vi.fn(async () => {
+      throw { code, reason, retryable };
+    });
+    const matchEnrichmentService = new StratzMatchEnrichmentService({
+      repository,
+      provider: { getMatchDetail } as unknown as Pick<StratzProvider, "getMatchDetail">,
+      clock: () => new Date(CLOCK_AT),
+    });
+    const service = new PlayerSyncService({
+      repository,
+      provider: openDotaProvider,
+      matchEnrichmentService,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const job = await service.requestSync(ACCOUNT_ID);
+    const terminal = await service.waitForJob(job.jobId);
+
+    expect(terminal?.status).toBe("public_complete");
+    expect(getMatchDetail).toHaveBeenCalledTimes(2);
+    expect((await repository.getMatch(matches[0]!.id))?.detail.detailStatus).toBe("enriched");
+    expect(await repository.getProviderHealth("stratz")).toMatchObject({
+      status: healthStatus,
+      message: expect.not.stringContaining("STRATZ access was forbidden"),
+    });
+    await service.close();
+  });
+
+  it("does not schedule a second STRATZ chunk when slow forbidden races fast NOT_FOUND", async () => {
+    const { repository, openDotaProvider } = await createStratzBatchFixture();
+    let callCount = 0;
+    const getMatchDetail = vi.fn(async () => {
+      const callIndex = callCount++;
+      if (callIndex === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw { code: "AUTHENTICATION", reason: "forbidden", retryable: false };
+      }
+      throw { code: "NOT_FOUND", reason: "not_found", retryable: false };
+    });
+    const matchEnrichmentService = new StratzMatchEnrichmentService({
+      repository,
+      provider: { getMatchDetail } as unknown as Pick<StratzProvider, "getMatchDetail">,
+      clock: () => new Date(CLOCK_AT),
+    });
+    const service = new PlayerSyncService({
+      repository,
+      provider: openDotaProvider,
+      matchEnrichmentService,
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const job = await service.requestSync(ACCOUNT_ID);
+    const terminal = await service.waitForJob(job.jobId);
+
+    expect(terminal?.status).toBe("public_complete");
+    expect(getMatchDetail).toHaveBeenCalledTimes(2);
     await service.close();
   });
 

@@ -16,10 +16,18 @@
 | API-012 sync coalescing and idempotency audit | Backend/API Agent | `apps/api/**`, `packages/db/**` | DATA-012 | ACCEPTED |
 | QA-012 phase 1 reliability gate | QA Agent | read-only | DATA-012, API-012 | ACCEPTED |
 | ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
-| DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | READY |
+| DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | RUNNING |
 | DATA-014 encyclopedia correctness | Data Source Agent | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | READY |
 | API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | READY |
 | MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
+
+### Wave 12 phase 2 checkpoint
+
+- 同一 STRATZ token 在本地可读取已知公开比赛，但 Railway Singapore 返回 HTTP 403 / GraphQL `AUTHENTICATION: forbidden`；该差异按服务器访问授权问题处理，不解释为比赛不存在或玩家隐私。
+- 不采用代理或更换出口绕过。Dodo 将申请/确认面向网站服务端的 Individual token，并在申请中明确 Railway 运行环境。
+- 等待外部授权期间，OpenDota 继续作为完整 MVP 基线；STRATZ 只负责可选的带时间加点与购买事件增强。
+- 第 2 阶段的内部门禁是错误分类、无损降级、来源归属、密钥边界和测试；真实 Railway 增强是外部授权门禁，不阻断 DATA-014。
+- 第 2 阶段只承诺 opportunistic secondary enrichment；已落库但 partial 的 STRATZ 结果如何再次回填，归入 API-WEB-015，不以 `enrichmentSources` 误称完整。
 
 ### Wave 12 phase 1 evidence
 
