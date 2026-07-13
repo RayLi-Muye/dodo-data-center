@@ -19,7 +19,7 @@
 | API-018 item snapshot revalidation | Backend/API Agent | `apps/api/**`、`packages/db/**`；一次性过期、原子 universe 替换验证 | ROOT-018, DATA-018 | ACCEPTED |
 | WEB-018 catalog redesign | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；全量英雄、分组、自定义、商店式物品与详情重排 | ROOT-018 | ACCEPTED |
 | QA-018 catalog acceptance | QA Agent | 只读；数量、过滤、交互、状态、390px | DATA-018, API-018, WEB-018 | ACCEPTED |
-| DEPLOY-018 overseas rollout | Root | 全仓门禁、真实数据、Railway/Vercel、生产 smoke | QA-018 | RUNNING |
+| DEPLOY-018 overseas rollout | Root | 全仓门禁、真实数据、Railway/Vercel、生产 smoke | QA-018 | ACCEPTED |
 
 验收目标：
 
@@ -29,7 +29,9 @@
 - 目录采用紧凑头像/图标网格，详情减少松散大卡片，信息优先级接近 Dota 英雄浏览器与商店；390px 不横向溢出。
 - Private、Partial、Rate limited、Unavailable 与 Failed 语义不回退为空结果。
 
-本地验收证据：Dota 2 official 7.41d 返回 127 个英雄（力量 36、敏捷 35、智力 34、全才 22）和 268 个当前可浏览物品（普通 192、中立 49、中立附魔 27），`recipe=0`；旧版与内部黄金负样本均被排除，catalog 因未验证排除项与一个未解析模板保持 `partial`。全仓 typecheck、386 项常规测试、生产 build、43 项 schema 检查和真实 PostgreSQL 39/39 通过。QA 初查两个 P2 已补充跨页保守 metadata 合并及本地分组存储边界测试，复验无 P0/P1。390×844 真实浏览器验证英雄 127/127 全部渲染、页面与 body `scrollWidth=390`、自定义分组可创建并在刷新后保留；物品目录同样无横向溢出。生产部署与最终目录对账进行中。
+验收证据：Dota 2 official 7.41d 返回 127 个英雄（力量 36、敏捷 35、智力 34、全才 22）和 268 个当前可浏览物品（普通 192、中立 49、中立附魔 27），`recipe=0`；旧版与内部黄金负样本均被排除，catalog 因未验证排除项与一个未解析模板保持 `partial`。全仓 typecheck、386 项常规测试、生产 build、43 项 schema 检查和真实 PostgreSQL 39/39 通过。QA 初查两个 P2 已补充跨页保守 metadata 合并及本地分组存储边界测试，复验无 P0/P1。390×844 真实浏览器验证英雄 127/127、物品 268/268 全部渲染，页面与 body `scrollWidth=390`，自定义分组可创建并在刷新后保留。
+
+生产验收：GitHub PR #15 已合并；Railway 部署 `875f95d3-7004-4354-95db-5c882875fcd0` 成功，`/health/live` 与 `/health/ready` 均返回 200，并完成旧 item snapshot 的原子收敛。Vercel production `dpl_2e9KHUHrAJzSJYkfZSkdVYHT9FVZ` 为 Ready，稳定地址的英雄页为 127 项、物品页为 268 项、图纸与旧版黄金样本为 0。公开账号 `224328273` 回归仍为 100/100 合格样本、`coverageRate=1`，来源为 OpenDota 与 STRATZ。
 
 ### Wave 13: Hero and item encyclopedia foundation
 
