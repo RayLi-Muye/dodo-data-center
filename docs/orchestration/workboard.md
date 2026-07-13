@@ -18,7 +18,7 @@
 | ROOT-012 main and automatic deployment baseline | Root | GitHub PR、Railway source、release evidence | QA-012 | ACCEPTED |
 | DATA-013 STRATZ server access | Root / Data Source Agent | 上游授权或允许的运行出口 | API-012 | ACCEPTED |
 | DATA-014 encyclopedia correctness | Data Source / Backend / Web Agents | 官方简中、legacy rows、天赋与字段 | DATA-013 may run in parallel | ACCEPTED |
-| API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | REVIEW |
+| API-WEB-015 match detail completion | API / Web Agents | 时间线、来源、回填状态 | DATA-013, DATA-014 | ACCEPTED |
 | MAP-016 audited static map | Root / Data / Web Agents | 版本化地图静态百科 | DATA-014 | READY |
 
 ### Wave 12 phase 2 checkpoint
@@ -57,7 +57,11 @@
 - `stratzEnrichment` 持久状态与 `enrichmentSources` 来源归属分离；完整、计划重试、终止部分/失败和 provider blocked 均可区分，partial/empty 上游响应不会删除已有事件。
 - 玩家页可选择最近 20 场或全部已导入比赛；每次 POST 只处理下一批最多 20 场，前端只轮询当前批次，绝不自动扫描上游全历史。单场比赛另有手动增强入口。
 - OpenDota summary 先补成十人详情，再按状态尝试 STRATZ；同场和同账号 scope 在单实例内合并。OpenDota 限流或不可用立即停止当前批次，单场错误跳过，数据库/合并异常进入实际错误日志且不伪装为空数据。
-- 本地玩家与单场交互验证通过：scope 切换有效、桌面无横向溢出；增强服务不可用时明确保留已有数据。全仓 typecheck、336 项常规测试、生产 build、41 项 schema 检查和真实 PostgreSQL 30/30 通过；最终 QA P0/P1 为 0，部署验收待完成。
+- 本地玩家与单场交互验证通过：scope 切换有效、桌面无横向溢出；增强服务不可用时明确保留已有数据。部署前门禁包括全仓 typecheck、336 项常规测试、生产 build、41 项 schema 检查和真实 PostgreSQL 30/30；最终 QA P0/P1/P2 为 0。
+- PR #5 与文案修正 PR #6 均通过 GitHub verify 和 Vercel Preview 后合并。Railway deployment `efa6be62-bb92-4426-937a-9738b61d74ba` success；Vercel production `web-e7ewntqqr-rays-projects-f956e95b.vercel.app` ready。
+- Vercel Production 原先缺少 `API_BASE_URL`，导致主站无法连接 Railway；已补为生产 API 并重新部署。账号 `224328273` 的玩家页、增强控件与单场接口恢复可读，浏览器无 error/warning、桌面无横向溢出。
+- 真实最近 20 场首批结束后：20 场详情均 ready，1 场 STRATZ complete、19 场因 partial response 计划重试、0 terminal/blocked/not-requested；立即再次 POST 不增加 attempt。赛事 `8894132397` 仍保留 timed ability 与 partial purchase timeline，来源为 OpenDota/STRATZ。
+- 生产文案不再把计划重试误称为完成：显示“19 场已计划重试，尚未到再次请求时间”，按钮禁用为“等待计划重试”。最终 QA P0/P1/P2 均为 0，API-WEB-015 接受。
 
 ### Wave 12 phase 1 evidence
 
