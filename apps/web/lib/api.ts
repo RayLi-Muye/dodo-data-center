@@ -11,6 +11,7 @@ import {
   playerOverviewResponseSchema,
   patchesResponseSchema,
   dataStatusResponseSchema,
+  entityUpdatesResponseSchema,
   updateDetailResponseSchema,
   updatesResponseSchema,
 } from "@dodo/contracts";
@@ -104,6 +105,12 @@ export const api = {
     fetchApi(heroDetailResponseSchema, `/v1/heroes/${encodeURIComponent(heroId)}`, {
       cache: "no-store",
     }),
+  heroUpdates: (heroId: string) =>
+    fetchApi(
+      entityUpdatesResponseSchema,
+      `/v1/heroes/${encodeURIComponent(heroId)}/updates${queryString({ limit: 5 })}`,
+      { cache: "no-store" },
+    ),
   heroes: (options: { cursor?: string | undefined; limit?: number; q?: string | undefined } = {}) =>
     fetchApi(
       heroesResponseSchema,
@@ -114,6 +121,12 @@ export const api = {
     fetchApi(itemDetailResponseSchema, `/v1/items/${encodeURIComponent(itemId)}`, {
       next: { revalidate: 3_600 },
     }),
+  itemUpdates: (itemId: string) =>
+    fetchApi(
+      entityUpdatesResponseSchema,
+      `/v1/items/${encodeURIComponent(itemId)}/updates${queryString({ limit: 5 })}`,
+      { cache: "no-store" },
+    ),
   items: (options: { cursor?: string | undefined; limit?: number; q?: string | undefined } = {}) =>
     fetchApi(
       itemsResponseSchema,

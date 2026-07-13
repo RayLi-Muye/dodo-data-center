@@ -247,7 +247,7 @@ describe("MemoryDodoRepository", () => {
         version: "7.41b",
         releasedAt: "2026-07-12T01:00:00.000Z",
         sourceUrl: "https://www.dota2.com/patches/7.41b",
-        changeGroupCount: 1,
+        changeGroupCount: 3,
         contentStatus: "complete" as const,
         excludedNoteCount: 0,
         groups: [
@@ -259,6 +259,24 @@ describe("MemoryDodoRepository", () => {
             relatedAbilityId: null,
             title: null,
             notes: [{ text: "Updated matchmaking.", info: null, indentLevel: 1 }],
+          },
+          {
+            kind: "hero" as const,
+            subsection: "overview" as const,
+            entityId: "107",
+            entityName: "Earth Spirit",
+            relatedAbilityId: null,
+            title: null,
+            notes: [{ text: "Agility increased.", info: null, indentLevel: 1 }],
+          },
+          {
+            kind: "hero" as const,
+            subsection: "ability" as const,
+            entityId: "107",
+            entityName: "Earth Spirit",
+            relatedAbilityId: "5608",
+            title: "Boulder Smash",
+            notes: [{ text: "Damage increased.", info: null, indentLevel: 1 }],
           },
         ],
       },
@@ -291,6 +309,19 @@ describe("MemoryDodoRepository", () => {
     expect(summaries[0]).not.toHaveProperty("groups");
     expect(await repository.getUpdateRelease("7.41a")).toEqual(releases[1]);
     expect(await repository.getUpdateSnapshot()).toEqual(snapshot);
+    const entityReleases = await repository.listEntityUpdateReleases(["hero"], "107");
+    expect(entityReleases.map((release) => release.version)).toEqual(["7.41b", "7.41a"]);
+    expect(entityReleases[0]).toMatchObject({ matchedGroupCount: 2 });
+    expect(entityReleases.flatMap((release) => release.groups)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "hero", entityId: "107" }),
+      ]),
+    );
+    expect(entityReleases.flatMap((release) => release.groups)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "general" })]),
+    );
+    expect(await repository.listEntityUpdateReleases(["item", "neutral_item"], "107"))
+      .toEqual([]);
 
     const partialSnapshot = {
       ...snapshot,

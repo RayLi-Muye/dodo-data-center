@@ -1,8 +1,10 @@
+import type { ItemSummary } from "@dodo/contracts";
 import { DataSection, MetaLine } from "@dodo/ui";
 import Link from "next/link";
 
 import { AssetImage } from "../../../components/asset-image";
 import { DataState, EmptyState } from "../../../components/data-state";
+import { EntityRecentUpdates } from "../../../components/entity-recent-updates";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
 import { api, settle } from "../../../lib/api";
@@ -30,16 +32,21 @@ const abilityTypeLabel = {
 
 export default async function HeroDetailPage({ params }: { params: Promise<{ heroId: string }> }) {
   const { heroId } = await params;
-  const result = await settle(api.hero(heroId));
-  if (!result.ok) {
+  const [heroResult, updatesResult] = await Promise.all([
+    settle(api.hero(heroId)),
+    settle(api.heroUpdates(heroId)),
+  ]);
+  if (!heroResult.ok) {
     return (
       <div className="page-shell">
         <PageHeading eyebrow={`HERO / ${heroId}`} lead="当前数据快照中的英雄属性、定位与技能资料。" title="英雄详情" />
-        <DataState error={result.error} retryHref={`/heroes/${encodeURIComponent(heroId)}`} />
+        <DataState error={heroResult.error} retryHref={`/heroes/${encodeURIComponent(heroId)}`} />
       </div>
     );
   }
-  const hero = result.value;
+  const hero = heroResult.value;
+  const heroById = new Map([[hero.data.id, hero.data]]);
+  const itemById = new Map<string, ItemSummary>();
   const versionLabel = encyclopediaVersionLabel(hero.data.officialVersion);
   const hype = hero.data.hype.trim() || "当前官方快照玩法简介不可用";
   const biography = hero.data.biography.trim() || "当前官方快照背景说明不可用";
@@ -175,6 +182,14 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
         </DataSection>
       </div>
 
+      <EntityRecentUpdates
+        entityLabel={hero.data.localizedName}
+        heroById={heroById}
+        itemById={itemById}
+        result={updatesResult}
+        retryHref={`/heroes/${encodeURIComponent(heroId)}`}
+      />
+
       <div className="detail-grid">
         <DataSection className="detail-grid__main" eyebrow="ABILITY KIT" title="技能组">
           {hero.data.abilities.length === 0 ? (
@@ -185,10 +200,20 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
                 <li key={ability.id}>
                   <span className="ability-list__slot">{String(ability.slot + 1).padStart(2, "0")}</span>
                   <AssetImage alt={`${ability.localizedName} 技能图标`} className="ability-list__icon" kind="ability" name={ability.name} />
-                  <div>
+                  <div className="ability-list__body">
                     <small>{abilityTypeLabel[ability.type]}</small>
                     <h3>{ability.localizedName}</h3>
                     <p>{officialDescription(ability.description)}</p>
+                    {ability.attributes.length > 0 ? (
+                      <dl className="ability-attribute-list">
+                        {ability.attributes.map((attribute, index) => (
+                          <div key={`${attribute.label}-${index}`}>
+                            <dt>{attribute.label}</dt>
+                            <dd>{attribute.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : null}
                   </div>
                 </li>
               ))}

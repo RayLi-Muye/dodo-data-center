@@ -228,6 +228,24 @@ describeWithDatabase("PostgresDodoRepository", () => {
       },
     ]);
     expect(await repository.getUpdateRelease(update.version)).toEqual(update);
+    expect(await repository.listEntityUpdateReleases(["hero"], hero.id)).toEqual([
+      expect.objectContaining({
+        version: update.version,
+        matchedGroupCount: 1,
+        groups: [expect.objectContaining({ kind: "hero", entityId: hero.id })],
+      }),
+    ]);
+    expect(await repository.listEntityUpdateReleases(["item", "neutral_item"], item.id))
+      .toEqual([
+        expect.objectContaining({
+          version: update.version,
+          matchedGroupCount: 2,
+          groups: [
+            expect.objectContaining({ kind: "item", entityId: item.id }),
+            expect.objectContaining({ kind: "neutral_item", entityId: item.id }),
+          ],
+        }),
+      ]);
     expect(await repository.getUpdateSnapshot()).toEqual(snapshot);
     expect(await repository.getCurrentMap()).toEqual(map);
     expect(await repository.getMapSnapshot()).toEqual(mapSnapshot);

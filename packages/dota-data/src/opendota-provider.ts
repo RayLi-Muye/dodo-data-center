@@ -732,6 +732,7 @@ export class OpenDotaProvider {
           name: candidate.name,
           localizedName: readNullableString(ability?.dname) ?? candidate.name,
           description: readNullableString(ability?.desc) ?? "",
+          attributes: [],
           slot: candidate.slot,
           type,
         });

@@ -2,6 +2,7 @@ import {
   accountIdParamsSchema,
   accountReferenceSchema,
   encyclopediaListQuerySchema,
+  entityUpdatesQuerySchema,
   heroIdParamsSchema,
   identifierSchema,
   itemIdParamsSchema,
@@ -491,6 +492,48 @@ export const registerRoutes = async (
             },
       ),
     );
+  const entityUpdatesResponse = async (
+    resource: "Hero" | "Item",
+    entityExists: boolean,
+    entitySnapshot: StaticDataSnapshot | undefined,
+    entityId: string,
+    kinds: Array<"hero" | "item" | "neutral_item">,
+    query: z.output<typeof entityUpdatesQuerySchema>,
+    errorMeta: ErrorMeta,
+  ) => {
+    if (!entitySnapshot) throw staticUnavailableError(resource);
+    if (!entityExists) {
+      if (entitySnapshot.quality === "partial") {
+        throw staticUnavailableError(resource, entitySnapshot);
+      }
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        `${resource} was not found.`,
+        false,
+        createErrorMeta("not_found", null, descriptorFromSnapshot(entitySnapshot)),
+      );
+    }
+
+    const [releases, updateSnapshot, allReleases] = await Promise.all([
+      repository.listEntityUpdateReleases(kinds, entityId),
+      repository.getUpdateSnapshot(),
+      repository.listUpdateReleases(),
+    ]);
+    if (!updateSnapshot || (updateSnapshot.quality === "partial" && allReleases.length === 0)) {
+      throw staticUnavailableError("Update", updateSnapshot);
+    }
+    return {
+      data: paginate(
+        releases,
+        query.limit,
+        query.cursor,
+        (release) => release.version,
+        errorMeta,
+      ),
+      meta: createOperationMeta(descriptorFromSnapshot(updateSnapshot)),
+    };
+  };
   const playerDescriptor = async (accountId: string): Promise<MetaDescriptor> => {
     const [batch, failure, job, profile] = await Promise.all([
       repository.getPlayerSyncBatch(accountId),
@@ -1100,6 +1143,25 @@ export const registerRoutes = async (
     };
   });
 
+  app.get("/v1/heroes/:heroId/updates", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const { heroId } = parse(heroIdParamsSchema, request.params, errorMeta);
+    const query = parse(entityUpdatesQuerySchema, request.query, errorMeta);
+    const [hero, heroSnapshot] = await Promise.all([
+      repository.getHero(heroId),
+      repository.getHeroSnapshot(),
+    ]);
+    return entityUpdatesResponse(
+      "Hero",
+      hero !== undefined,
+      heroSnapshot,
+      heroId,
+      ["hero"],
+      query,
+      errorMeta,
+    );
+  });
+
   app.get("/v1/items", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
@@ -1149,6 +1211,25 @@ export const registerRoutes = async (
         descriptorFromSnapshot(snapshot),
       ),
     };
+  });
+
+  app.get("/v1/items/:itemId/updates", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const { itemId } = parse(itemIdParamsSchema, request.params, errorMeta);
+    const query = parse(entityUpdatesQuerySchema, request.query, errorMeta);
+    const [item, itemSnapshot] = await Promise.all([
+      repository.getItem(itemId),
+      repository.getItemSnapshot(),
+    ]);
+    return entityUpdatesResponse(
+      "Item",
+      item !== undefined,
+      itemSnapshot,
+      itemId,
+      ["item", "neutral_item"],
+      query,
+      errorMeta,
+    );
   });
 
   app.get("/v1/maps/current", async () => {

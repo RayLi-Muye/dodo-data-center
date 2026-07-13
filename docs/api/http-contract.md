@@ -76,8 +76,10 @@ GET  /v1/updates/{version}
 ```http
 GET /v1/heroes?q=&patch=
 GET /v1/heroes/{heroId}?patch=
+GET /v1/heroes/{heroId}/updates?limit=&cursor=
 GET /v1/items?q=&patch=
 GET /v1/items/{itemId}?patch=
+GET /v1/items/{itemId}/updates?limit=&cursor=
 GET /v1/maps/current
 GET /v1/maps/{mapVersionId}/features?type=
 GET /v1/data-status
@@ -85,7 +87,7 @@ GET /v1/data-status
 
 A successfully observed latest official version that differs from a curated map's verified `patch` clears the current pointer. `GET /v1/maps/current` then returns `503 MAP_UNAVAILABLE` until that version receives a new audited snapshot. This means “re-verification required”; it does not claim that the map changed. Historical map rows and snapshot evidence remain stored.
 
-`GET /v1/heroes/{heroId}` 的 `hype`、`biography`、`complexity` 与 `baseStats` 使用 Dota 2 official current-data。`baseStats` 包括初始生命/魔法、恢复、护甲、魔抗、攻击、三维及成长、移速、攻击距离/间隔、弹道、转身和昼夜视野；历史 payload 缺少这些字段时返回空文本或 `null`，不得从比赛样本反推。`abilities` 使用比赛加点事件同一 numeric ability ID，并以 Dota 2 official current-data 为规则主源。普通技能保持官方编排顺序，天赋随后按等级顺序排列；隐藏技能不得公开。`facetsStatus=active|removed|unavailable` 区分当前启用、当前版本已移除和来源不足；deprecated facet 不得作为当前 facet 展示。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
+`GET /v1/heroes/{heroId}` 的 `hype`、`biography`、`complexity` 与 `baseStats` 使用 Dota 2 official current-data。`baseStats` 包括初始生命/魔法、恢复、护甲、魔抗、攻击、三维及成长、移速、攻击距离/间隔、弹道、转身和昼夜视野；历史 payload 缺少这些字段时返回空文本或 `null`，不得从比赛样本反推。`abilities` 使用比赛加点事件同一 numeric ability ID，并以 Dota 2 official current-data 为规则主源；`attributes` 只保存官方结构化技能数值。普通技能保持官方编排顺序，天赋随后按等级顺序排列；隐藏技能不得公开。`facetsStatus=active|removed|unavailable` 区分当前启用、当前版本已移除和来源不足；deprecated facet 不得作为当前 facet 展示。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
 
 物品响应使用 `kind=item|recipe|neutral_item|neutral_enhancement` 区分定义类型，并返回 `availabilityStatus=verified_current|unverified`。官方 datafeed 中存在一条定义不能单独证明它当前可在商店购买；未建立独立可用性证据时必须返回 `unverified`，前端不得将其描述为“当前可购买”。
 
@@ -94,6 +96,8 @@ A successfully observed latest official version that differs from a curated map'
 `/v1/patches` 使用 Dota 2 官方 `patchnoteslist` 返回包含字母后缀的小版本目录；`/v1/updates` 返回同一官方版本的结构化改动正文。OpenDota major patch ID 只保留在比赛的 `openDotaPatchId` 中，不再作为面向用户的版本目录。
 
 `GET /v1/updates/{version}` 返回通用、英雄、物品、中立物品与中立野怪分组。英雄技能与天赋分别使用 `ability`、`talent` subsection；无法安全转为纯文本的条目必须计入 `excludedNoteCount`，并将 `contentStatus` 标为 `partial`。公开响应不得包含上游 HTML，且必须保留 Dota 2 官方 `sourceUrl`。
+
+`GET /v1/heroes/{heroId}/updates` 与 `GET /v1/items/{itemId}/updates` 从已经持久化的最近官方更新中筛选实体 ID。每个 release 的 `groups` 只能包含目标实体，`matchedGroupCount` 必须等于过滤后的 group 数；物品查询同时接受 `item` 与 `neutral_item` 分组。默认 `limit=5`，稳定顺序为 `releasedAt DESC, version DESC`。空 `items` 仅表示已同步版本范围内没有直接匹配；若更新快照为 partial，响应 meta 必须保持 partial，前端不得把它表述为“官方确认没有改动”。
 
 ## Error codes
 

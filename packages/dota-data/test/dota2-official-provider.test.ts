@@ -218,17 +218,25 @@ describe("Dota2OfficialProvider", () => {
         name: "antimage_blink",
         localizedName: "闪烁",
         description: "主动：闪烁 最远传送 875 / 950 / 1025 / 1100 距离。",
+        attributes: [
+          { label: "魔法消耗：", value: "50 / 55 / 60 / 65" },
+          { label: "冷却时间（秒）：", value: "13 / 11 / 9 / 7" },
+          { label: "施法距离：", value: "875 / 950 / 1025 / 1100" },
+          { label: "施法前摇（秒）：", value: "0 / 0.1 / 0.2 / 0.3" },
+        ],
         type: "basic",
       }),
       expect.objectContaining({
         name: "antimage_persecutor",
         localizedName: "迫害者",
         description: "减速 24%。",
+        attributes: [{ label: "减速：", value: "24" }],
         type: "innate",
       }),
       expect.objectContaining({
         name: "special_bonus_hp_regen_3",
         localizedName: "+3 生命恢复",
+        attributes: [],
         type: "talent",
       }),
       expect.objectContaining({
@@ -236,6 +244,7 @@ describe("Dota2OfficialProvider", () => {
         name: "special_bonus_unresolved_fixture",
         localizedName: "+20 攻击速度",
         description: "",
+        attributes: [],
         type: "talent",
       }),
     ]));
@@ -392,6 +401,10 @@ describe("Dota2OfficialProvider", () => {
       availabilityStatus: "unverified",
       description: "主动：闪烁 最远传送 1200 距离。",
       componentNames: ["blades_of_attack", "broadsword"],
+      attributes: [
+        { label: "冷却时间（秒）：", value: "15" },
+        { label: "施法距离：", value: "1200" },
+      ],
       officialVersion: "7.41d",
       officialRecipes: [{
         componentIds: ["2", "3"],
@@ -553,6 +566,7 @@ describe("Dota2OfficialProvider", () => {
       "general", "hero", "item", "neutral_item", "neutral_creep",
     ]));
     expect(latest.groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "item", entityId: "104" }),
       expect.objectContaining({ kind: "hero", subsection: "talent", entityId: "107" }),
       expect.objectContaining({
         kind: "hero",
@@ -561,6 +575,11 @@ describe("Dota2OfficialProvider", () => {
         relatedAbilityId: "5608",
       }),
       expect.objectContaining({ kind: "neutral_item", entityId: null, title: "宝物" }),
+      expect.objectContaining({
+        kind: "neutral_item",
+        entityId: "301",
+        title: "中立物品测试",
+      }),
       expect.objectContaining({
         kind: "neutral_creep",
         entityId: "12",

@@ -2,15 +2,18 @@
 
 本文件约束 Dodo 长时间开发 Goal 的执行、检查点和自动恢复行为。
 
-## Active goal: five-stage MVP hardening
+## Active goal: hero and item encyclopedia foundation
 
-当前 Goal 按以下顺序推进；前一阶段达到 Root 与 QA 门禁后才进入下一阶段，但不依赖同一上游的任务可以并行审计：
+地图真实快照激活暂缓，现有 `MAP_UNAVAILABLE` 与审计门禁保持不变。当前 Goal 按以下顺序推进：
 
-1. OpenDota 自动同步：有限重试、请求合并、30 分钟 freshness、无变化不写入，以及 `main` 自动部署基线。
-2. STRATZ 自动增强：确认 Railway `403` 的服务端访问方案；不得使用代理绕过上游限制，未解决时保持 OpenDota 降级。
-3. 英雄、物品和更新百科：清理 legacy rows、简中或双语、保留未完全解析天赋并扩展官方字段。
-4. 比赛详情：加点、购买时间线、来源完整度与批量回填状态。
-5. 地图百科：只接受版本化、可审计的静态地图快照；热图和 replay parser 仍不属于 MVP。
+1. Root 冻结英雄技能数值与实体更新历史契约。
+2. Data Source Agent 从 Dota 2 official current-data 补齐可验证的技能效果字段，并对英雄、物品、更新实体 ID 做黄金样本对账。
+3. Backend/API Agent 在现有更新快照上实现英雄/物品最近变更查询；不新增分析型数据库或运行时上游直查。
+4. Web Agent 完善英雄与物品列表/详情，展示基础资料、价格、效果、合成与最近变更，并完成 390px 竖屏适配。
+5. QA Agent 只读验证完整/partial/unavailable、当前版本、官方来源链接与无匹配更新语义。
+6. Root 执行全仓门禁、真实生产数据对账和 Railway/Vercel 部署。
+
+英雄胜率、英雄使用率、物品购买率、购买时间与胜率属于百科第二阶段，不进入当前静态资料切片。
 
 每阶段完成条件：相关包测试、全仓 typecheck、真实 PostgreSQL、生产 build、真实账号 `224328273`、QA 无 P0/P1、GitHub PR 与海外部署验证。
 

@@ -223,6 +223,33 @@ describe("Web UI copy and touch contract", () => {
     expect(css).toMatch(/@media \(min-width: 40rem\)[\s\S]*?\.hero-reference-grid[^}]+grid-template-columns:/);
   });
 
+  it("keeps hero and item details usable while recent official updates fail independently", () => {
+    const heroDetail = source("../app/heroes/[heroId]/page.tsx");
+    const itemDetail = source("../app/items/[itemId]/page.tsx");
+    const recentUpdates = source("../components/entity-recent-updates.tsx");
+    const api = source("../lib/api.ts");
+    const css = source("../app/globals.css");
+
+    expect(heroDetail).toContain("Promise.all([");
+    expect(heroDetail).toContain("settle(api.hero(heroId))");
+    expect(heroDetail).toContain("settle(api.heroUpdates(heroId))");
+    expect(heroDetail).toContain("if (!heroResult.ok)");
+    expect(heroDetail).toContain("ability.attributes.length > 0");
+    expect(heroDetail).toContain('className="ability-attribute-list"');
+    expect(itemDetail).toContain("settle(api.item(itemId))");
+    expect(itemDetail).toContain("settle(api.itemUpdates(itemId))");
+    expect(itemDetail).toContain("if (!itemResult.ok)");
+    expect(recentUpdates).toContain("if (!result.ok)");
+    expect(recentUpdates).toContain("当前可用的部分更新快照没有匹配记录");
+    expect(recentUpdates).toContain("不能据此判断它没有改动");
+    expect(recentUpdates).toContain("release.sourceUrl");
+    expect(recentUpdates).toContain("release.releasedAt.slice(0, 10)");
+    expect(api).toContain("/updates${queryString({ limit: 5 })}");
+    expect(css).toMatch(/\.entity-update-release\s*\{[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.entity-update-release__header dd[^}]*overflow-wrap:\s*anywhere/s);
+    expect(css).toMatch(/\.ability-attribute-list dd[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
   it("runs bounded player and match enrichment without automatically scanning history", () => {
     const playerPage = source("../app/players/[accountId]/page.tsx");
     const matchPage = source("../app/matches/[matchId]/page.tsx");

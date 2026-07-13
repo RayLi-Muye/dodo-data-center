@@ -1,4 +1,5 @@
 import type {
+  EntityUpdateRelease,
   HeroDetail,
   ItemDetail,
   MapVersion,
@@ -344,6 +345,36 @@ export class MemoryDodoRepository implements DodoRepository {
   async getUpdateRelease(version: string): Promise<UpdateReleaseDetail | undefined> {
     const release = this.#updateReleases.get(version);
     return release ? clone(release) : undefined;
+  }
+
+  async listEntityUpdateReleases(
+    kinds: Array<UpdateReleaseDetail["groups"][number]["kind"]>,
+    entityId: string,
+  ): Promise<EntityUpdateRelease[]> {
+    const allowedKinds = new Set(kinds);
+    return [...this.#updateReleases.values()]
+      .sort(
+        (left, right) =>
+          Date.parse(right.releasedAt) - Date.parse(left.releasedAt) ||
+          right.version.localeCompare(left.version),
+      )
+      .flatMap((release) => {
+        const groups = release.groups.filter(
+          (group) => allowedKinds.has(group.kind) && group.entityId === entityId,
+        );
+        return groups.length === 0
+          ? []
+          : [{
+              version: release.version,
+              releasedAt: release.releasedAt,
+              sourceUrl: release.sourceUrl,
+              contentStatus: release.contentStatus,
+              excludedNoteCount: release.excludedNoteCount,
+              matchedGroupCount: groups.length,
+              groups,
+            }];
+      })
+      .map(clone);
   }
 
   async getUpdateSnapshot(): Promise<StaticDataSnapshot | undefined> {

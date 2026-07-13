@@ -1,8 +1,10 @@
+import type { HeroSummary } from "@dodo/contracts";
 import { DataSection, MetaLine } from "@dodo/ui";
 import Link from "next/link";
 
 import { AssetImage } from "../../../components/asset-image";
 import { DataState } from "../../../components/data-state";
+import { EntityRecentUpdates } from "../../../components/entity-recent-updates";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
 import { api, settle } from "../../../lib/api";
@@ -17,19 +19,24 @@ const itemKindLabel = {
 
 export default async function ItemDetailPage({ params }: { params: Promise<{ itemId: string }> }) {
   const { itemId } = await params;
-  const result = await settle(api.item(itemId));
-  if (!result.ok) {
+  const [itemResult, updatesResult] = await Promise.all([
+    settle(api.item(itemId)),
+    settle(api.itemUpdates(itemId)),
+  ]);
+  if (!itemResult.ok) {
     return (
       <div className="page-shell">
         <PageHeading eyebrow={`ITEM / ${itemId}`} lead="官方物品定义中的价格、属性、效果与合成组件。" title="物品详情" />
-        <DataState error={result.error} retryHref={`/items/${encodeURIComponent(itemId)}`} />
+        <DataState error={itemResult.error} retryHref={`/items/${encodeURIComponent(itemId)}`} />
       </div>
     );
   }
-  const item = result.value;
+  const item = itemResult.value;
   const versionLabel = encyclopediaVersionLabel(item.data.officialVersion);
   const componentResults = await Promise.all(item.data.components.map((id) => settle(api.item(id))));
   const components = componentResults.flatMap((component) => component.ok ? [component.value.data] : []);
+  const heroById = new Map<string, HeroSummary>();
+  const itemById = new Map([[item.data.id, item.data]]);
 
   return (
     <div className="page-shell item-detail-page">
@@ -74,6 +81,14 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
           )}
         </DataSection>
       </div>
+
+      <EntityRecentUpdates
+        entityLabel={item.data.localizedName}
+        heroById={heroById}
+        itemById={itemById}
+        result={updatesResult}
+        retryHref={`/items/${encodeURIComponent(itemId)}`}
+      />
 
       <MetaLine sources={item.meta.sources} updatedAt={item.meta.updatedAt} />
       <p className="source-snapshot">来源快照：{item.data.sourceSnapshot}</p>

@@ -2,6 +2,7 @@ import {
   accountResolutionResponseSchema,
   apiErrorSchema,
   dataStatusResponseSchema,
+  entityUpdatesResponseSchema,
   heroDetailResponseSchema,
   heroesResponseSchema,
   itemDetailResponseSchema,
@@ -91,9 +92,15 @@ describe("Dodo API", () => {
     heroDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/heroes/1" })),
     );
+    entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/heroes/1/updates" })),
+    );
     itemsResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/items" })));
     itemDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/items/1" })),
+    );
+    entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/items/1/updates" })),
     );
     mapVersionResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/maps/current" })),
@@ -116,18 +123,97 @@ describe("Dodo API", () => {
       json(await app.inject({ method: "GET", url: "/v1/updates?limit=1" })),
     );
     expect(list.data.items).toHaveLength(1);
-    expect(list.data.items[0]).toMatchObject({ version: "7.41", changeGroupCount: 1 });
+    expect(list.data.items[0]).toMatchObject({ version: "7.41", changeGroupCount: 4 });
     expect(list.data.items[0]).not.toHaveProperty("groups");
 
     const detail = updateDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/updates/7.41" })),
     );
-    expect(detail.data.groups).toHaveLength(1);
+    expect(detail.data.groups).toHaveLength(4);
     expect(detail.data.groups[0]?.notes[0]?.text).toBe("Deterministic test-only update note.");
 
     const missing = await app.inject({ method: "GET", url: "/v1/updates/does-not-exist" });
     expect(missing.statusCode).toBe(404);
     expect(apiErrorSchema.parse(json(missing)).error.code).toBe("NOT_FOUND");
+  });
+
+  it("serves filtered hero and item update histories with empty and missing entity semantics", async () => {
+    const hero = entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/heroes/1/updates" })),
+    );
+    expect(hero.data.items).toEqual([
+      expect.objectContaining({
+        version: "7.41",
+        matchedGroupCount: 1,
+        groups: [expect.objectContaining({ kind: "hero", entityId: "1" })],
+      }),
+    ]);
+
+    const item = entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/items/1/updates" })),
+    );
+    expect(item.data.items[0]).toMatchObject({ matchedGroupCount: 2 });
+    expect(item.data.items[0]?.groups.map((group) => group.kind)).toEqual([
+      "item",
+      "neutral_item",
+    ]);
+
+    const empty = entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/heroes/2/updates" })),
+    );
+    expect(empty.data).toEqual({ items: [], nextCursor: null });
+
+    const missing = await app.inject({ method: "GET", url: "/v1/heroes/999/updates" });
+    expect(missing.statusCode).toBe(404);
+    expect(apiErrorSchema.parse(json(missing)).error.code).toBe("NOT_FOUND");
+  });
+
+  it("defaults entity update histories to five releases and continues with a stable cursor", async () => {
+    await app.close();
+    const repository = await createSeedRepository();
+    const seedUpdate = await repository.getUpdateRelease("7.41");
+    const snapshot = await repository.getUpdateSnapshot();
+    if (!seedUpdate || !snapshot) throw new Error("Seed update fixture missing");
+    const heroGroup = seedUpdate.groups.find((group) => group.kind === "hero");
+    if (!heroGroup) throw new Error("Seed hero update group missing");
+    await repository.replaceUpdateReleases(
+      Array.from({ length: 6 }, (_, index) => ({
+        ...seedUpdate,
+        version: `7.41-test-${index}`,
+        releasedAt: new Date(Date.parse(SEED_UPDATED_AT) + index * 1_000).toISOString(),
+        changeGroupCount: 1,
+        groups: [heroGroup],
+      })),
+      snapshot,
+    );
+    app = await buildApp({ environment: "test", repository });
+
+    const first = entityUpdatesResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/heroes/1/updates" })),
+    );
+    expect(first.data.items.map((release) => release.version)).toEqual([
+      "7.41-test-5",
+      "7.41-test-4",
+      "7.41-test-3",
+      "7.41-test-2",
+      "7.41-test-1",
+    ]);
+    expect(first.data.nextCursor).not.toBeNull();
+
+    const second = entityUpdatesResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/heroes/1/updates?cursor=${first.data.nextCursor}`,
+        }),
+      ),
+    );
+    expect(second.data.items.map((release) => release.version)).toEqual(["7.41-test-0"]);
+    expect(second.data.nextCursor).toBeNull();
+
+    const invalid = await app.inject({ method: "GET", url: "/v1/heroes/1/updates?limit=11" });
+    expect(invalid.statusCode).toBe(400);
+    expect(apiErrorSchema.parse(json(invalid)).error.code).toBe("VALIDATION_ERROR");
   });
 
   it("resolves account ID, Steam ID64, and supported profile URLs", async () => {
