@@ -21,6 +21,11 @@ import type {
   StaticDataSnapshot,
 } from "./types.js";
 import { mergeMatchDetails } from "./match-merge.js";
+import {
+  calculateMapContentHash,
+  parseAuditedMapPayload,
+  parseConsistentMapSnapshot,
+} from "./map-snapshot.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
 const normalizeSnapshot = (snapshot: StaticDataSnapshot): StaticDataSnapshot => ({
@@ -66,6 +71,7 @@ export class MemoryDodoRepository implements DodoRepository {
   #itemSnapshot: StaticDataSnapshot | undefined;
   #patchSnapshot: StaticDataSnapshot | undefined;
   #updateSnapshot: StaticDataSnapshot | undefined;
+  #mapSnapshot: StaticDataSnapshot | undefined;
   #currentMapId: string | undefined;
 
   async upsertHero(hero: HeroDetail): Promise<void> {
@@ -77,9 +83,18 @@ export class MemoryDodoRepository implements DodoRepository {
     this.#items.set(item.id, clone(item));
   }
 
-  async upsertMap(map: MapVersion): Promise<void> {
-    this.#maps.set(map.id, clone(map));
-    this.#currentMapId = map.id;
+  async replaceMap(map: MapVersion, snapshot: StaticDataSnapshot): Promise<void> {
+    const parsed = parseConsistentMapSnapshot(map, snapshot);
+    const existing = this.#maps.get(parsed.id);
+    if (existing && calculateMapContentHash(existing) !== snapshot.contentHash) {
+      throw new Error(`Map version ${parsed.id} already exists with different content`);
+    }
+
+    if (this.#currentMapId !== parsed.id) {
+      this.#maps.set(parsed.id, clone(parsed));
+      this.#currentMapId = parsed.id;
+    }
+    this.#mapSnapshot = clone(normalizeSnapshot(snapshot));
   }
 
   async upsertPlayer(profile: PlayerProfile): Promise<void> {
@@ -226,7 +241,7 @@ export class MemoryDodoRepository implements DodoRepository {
   }
 
   async touchStaticSnapshot(
-    kind: "hero" | "item" | "patch" | "update",
+    kind: "hero" | "item" | "patch" | "update" | "map",
     expectedContentHash: string | null,
     snapshot: StaticDataSnapshot,
   ): Promise<boolean> {
@@ -237,13 +252,21 @@ export class MemoryDodoRepository implements DodoRepository {
           ? this.#itemSnapshot
           : kind === "patch"
             ? this.#patchSnapshot
-            : this.#updateSnapshot;
+            : kind === "update"
+              ? this.#updateSnapshot
+              : this.#mapSnapshot;
     if (!current || current.contentHash !== expectedContentHash) return false;
     const normalized = clone(normalizeSnapshot(snapshot));
+    if (kind === "map") {
+      const map = this.#currentMapId ? this.#maps.get(this.#currentMapId) : undefined;
+      if (!map) return false;
+      parseConsistentMapSnapshot(map, normalized);
+    }
     if (kind === "hero") this.#heroSnapshot = normalized;
     else if (kind === "item") this.#itemSnapshot = normalized;
     else if (kind === "patch") this.#patchSnapshot = normalized;
-    else this.#updateSnapshot = normalized;
+    else if (kind === "update") this.#updateSnapshot = normalized;
+    else this.#mapSnapshot = normalized;
     return true;
   }
 
@@ -319,6 +342,10 @@ export class MemoryDodoRepository implements DodoRepository {
     return this.#updateSnapshot ? clone(this.#updateSnapshot) : undefined;
   }
 
+  async getMapSnapshot(): Promise<StaticDataSnapshot | undefined> {
+    return this.#mapSnapshot ? clone(this.#mapSnapshot) : undefined;
+  }
+
   async getCurrentMap(): Promise<MapVersion | undefined> {
     if (!this.#currentMapId) return undefined;
     return this.getMap(this.#currentMapId);
@@ -326,7 +353,7 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async getMap(id: string): Promise<MapVersion | undefined> {
     const map = this.#maps.get(id);
-    return map ? clone(map) : undefined;
+    return map ? clone(parseAuditedMapPayload(map)) : undefined;
   }
 
   async getPlayer(accountId: string): Promise<PlayerProfile | undefined> {

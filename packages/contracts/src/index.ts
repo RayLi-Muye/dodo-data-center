@@ -127,6 +127,10 @@ export const encyclopediaListQuerySchema = paginationQuerySchema.extend({
 export const mapFeatureTypeSchema = z.enum([
   "lane",
   "tower",
+  "tormentor",
+  "twin_gate",
+  "watcher",
+  "wisdom_rune",
   "outpost",
   "shop",
   "roshan",
@@ -447,23 +451,173 @@ export const playerOverviewSchema = z.object({
   heroes: z.array(playerHeroStatsSchema),
 });
 
+const mapCoordinateSchema = z.tuple([z.number().finite(), z.number().finite()]);
+const mapLinearRingSchema = z.array(mapCoordinateSchema).min(4).refine(
+  (ring) => {
+    const first = ring[0];
+    const last = ring.at(-1);
+    return first !== undefined && last !== undefined && first[0] === last[0] && first[1] === last[1];
+  },
+  { message: "Map polygon rings must be closed." },
+);
+
+export const mapGeometrySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("Point"), coordinates: mapCoordinateSchema }).strict(),
+  z.object({
+    type: z.literal("LineString"),
+    coordinates: z.array(mapCoordinateSchema).min(2),
+  }).strict(),
+  z.object({
+    type: z.literal("Polygon"),
+    coordinates: z.array(mapLinearRingSchema).min(1),
+  }).strict(),
+]);
+
+export const mapSourceRefSchema = z.object({
+  resourcePath: z.string().trim().min(1).max(512),
+  entityClassname: z.string().trim().min(1).max(128),
+  entityTargetName: z.string().trim().min(1).max(256).nullable(),
+  entityIndex: z.number().int().nonnegative().nullable(),
+}).strict();
+
 export const mapFeatureSchema = z.object({
   id: identifierSchema,
   type: mapFeatureTypeSchema,
   localizedName: z.string().min(1),
   description: z.string(),
-  geometry: z.record(z.string(), z.unknown()),
+  geometry: mapGeometrySchema,
+  sourceRefs: z.array(mapSourceRefSchema).min(1),
+}).strict().superRefine((feature, context) => {
+  if (feature.type === "lane" && feature.geometry.type !== "LineString") {
+    context.addIssue({ code: "custom", message: "Lane features require LineString geometry." });
+  }
+  if (
+    feature.type !== "lane" &&
+    feature.type !== "landmark" &&
+    feature.geometry.type !== "Point"
+  ) {
+    context.addIssue({ code: "custom", message: `${feature.type} features require Point geometry.` });
+  }
 });
+
+export const mapSourceRevisionSchema = z.object({
+  appId: z.literal("570"),
+  buildId: z.string().regex(/^\d+$/),
+  depotManifestId: z.string().regex(/^\d+$/),
+  resourcePath: z.string().trim().min(1).max(512),
+  resourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  extractor: z.string().trim().min(1).max(128),
+  extractorVersion: z.string().trim().min(1).max(64),
+  snapshotSha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
+export const mapCoverageSchema = z.object({
+  includedTypes: z.array(mapFeatureTypeSchema),
+  exclusions: z.array(z.object({
+    type: mapFeatureTypeSchema,
+    reason: z.string().trim().min(1).max(500),
+  }).strict()),
+}).strict();
 
 export const mapVersionSchema = z.object({
   id: identifierSchema,
   patch: z.string().min(1),
-  coordinateSystem: z.string().min(1),
-  bounds: z.object({ minX: z.number(), minY: z.number(), maxX: z.number(), maxY: z.number() }),
-  features: z.array(mapFeatureSchema),
-  sourceSnapshot: z.string().min(1),
+  quality: z.enum(["complete", "partial"]),
+  coordinateSystem: z.literal("source2-world-units"),
+  bounds: z.object({
+    minX: z.number().finite(),
+    minY: z.number().finite(),
+    maxX: z.number().finite(),
+    maxY: z.number().finite(),
+  }).strict().refine(
+    (bounds) => bounds.maxX > bounds.minX && bounds.maxY > bounds.minY,
+    { message: "Map bounds must have positive width and height." },
+  ),
+  features: z.array(mapFeatureSchema).min(1),
+  sourceSnapshot: z.string().url().max(2_048),
+  sourceUrls: z.array(z.string().url().max(2_048)).min(1),
+  sourceRevision: mapSourceRevisionSchema,
+  coverage: mapCoverageSchema,
   verifiedAt: timestampSchema,
+}).strict().superRefine((map, context) => {
+  const featureIds = new Set<string>();
+  const includedTypes = new Set(map.coverage.includedTypes);
+  const excludedTypes = new Set(map.coverage.exclusions.map((entry) => entry.type));
+  if (includedTypes.size !== map.coverage.includedTypes.length) {
+    context.addIssue({ code: "custom", message: "Map included feature types must be unique." });
+  }
+  if (excludedTypes.size !== map.coverage.exclusions.length) {
+    context.addIssue({ code: "custom", message: "Map excluded feature types must be unique." });
+  }
+  if (map.quality === "complete" && map.coverage.exclusions.length > 0) {
+    context.addIssue({ code: "custom", message: "Complete map snapshots cannot declare exclusions." });
+  }
+  if (map.quality === "partial" && map.coverage.exclusions.length === 0) {
+    context.addIssue({ code: "custom", message: "Partial map snapshots require exclusions." });
+  }
+  for (const type of includedTypes) {
+    if (excludedTypes.has(type)) {
+      context.addIssue({ code: "custom", message: `Map feature type ${type} cannot be included and excluded.` });
+    }
+  }
+  for (const type of mapFeatureTypeSchema.options) {
+    if (!includedTypes.has(type) && !excludedTypes.has(type)) {
+      context.addIssue({
+        code: "custom",
+        message: `Map feature type ${type} must be included or explicitly excluded.`,
+      });
+    }
+  }
+  const coordinatesFor = (geometry: z.infer<typeof mapGeometrySchema>): Array<[number, number]> => {
+    if (geometry.type === "Point") return [geometry.coordinates];
+    if (geometry.type === "LineString") return geometry.coordinates;
+    return geometry.coordinates.flat();
+  };
+  for (const feature of map.features) {
+    if (featureIds.has(feature.id)) {
+      context.addIssue({ code: "custom", message: `Duplicate map feature id: ${feature.id}.` });
+    }
+    featureIds.add(feature.id);
+    if (!includedTypes.has(feature.type)) {
+      context.addIssue({ code: "custom", message: `Map feature type ${feature.type} is missing from coverage.` });
+    }
+    for (const [x, y] of coordinatesFor(feature.geometry)) {
+      if (x < map.bounds.minX || x > map.bounds.maxX || y < map.bounds.minY || y > map.bounds.maxY) {
+        context.addIssue({ code: "custom", message: `Map feature ${feature.id} lies outside bounds.` });
+        break;
+      }
+    }
+  }
+  for (const type of includedTypes) {
+    if (!map.features.some((feature) => feature.type === type)) {
+      context.addIssue({ code: "custom", message: `Included map feature type ${type} has no features.` });
+    }
+  }
 });
+
+const stableJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, stableJsonValue(child)]),
+    );
+  }
+  return value;
+};
+
+export const canonicalMapSnapshotPayload = (
+  map: z.infer<typeof mapVersionSchema>,
+): string => {
+  const parsed = mapVersionSchema.parse(map);
+  const { snapshotSha256: _snapshotSha256, ...sourceRevision } = parsed.sourceRevision;
+  return JSON.stringify(stableJsonValue({
+    ...parsed,
+    features: [...parsed.features].sort((left, right) => left.id.localeCompare(right.id)),
+    sourceRevision,
+  }));
+};
 
 export const syncJobSchema = z.object({
   jobId: identifierSchema,
@@ -588,6 +742,10 @@ export type PlayerEnrichmentProgress = z.infer<typeof playerEnrichmentProgressSc
 export type PlayerProfile = z.infer<typeof playerProfileSchema>;
 export type PlayerHeroStats = z.infer<typeof playerHeroStatsSchema>;
 export type PlayerOverview = z.infer<typeof playerOverviewSchema>;
+export type MapGeometry = z.infer<typeof mapGeometrySchema>;
+export type MapSourceRef = z.infer<typeof mapSourceRefSchema>;
+export type MapSourceRevision = z.infer<typeof mapSourceRevisionSchema>;
+export type MapCoverage = z.infer<typeof mapCoverageSchema>;
 export type MapFeature = z.infer<typeof mapFeatureSchema>;
 export type MapVersion = z.infer<typeof mapVersionSchema>;
 export type PatchSummary = z.infer<typeof patchSummarySchema>;

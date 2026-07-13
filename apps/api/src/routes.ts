@@ -21,6 +21,7 @@ import type {
   ItemDetail,
   ItemSummary,
   MapFeature,
+  MapVersion,
   OperationMeta,
   PlayerHeroStats,
   MatchEnrichmentScope,
@@ -30,6 +31,9 @@ import type {
 } from "@dodo/contracts";
 import {
   SEED_UPDATED_AT,
+  MapAuditError,
+  mapSnapshotIsConsistent,
+  parseAuditedMapPayload,
   type DodoRepository,
   type PlayerSyncBatch,
   type StaticDataSnapshot,
@@ -1148,27 +1152,42 @@ export const registerRoutes = async (
   });
 
   app.get("/v1/maps/current", async () => {
-    const map = await repository.getCurrentMap();
-    if (!map) {
+    const snapshot = await repository.getMapSnapshot();
+    let map: MapVersion | undefined;
+    try {
+      map = await repository.getCurrentMap();
+    } catch (error) {
+      if (!(error instanceof MapAuditError)) throw error;
+      map = undefined;
+    }
+    const expectedSource = dataMode === "live" ? "curated_map" : "seed";
+    if (
+      !map ||
+      !snapshot ||
+      snapshot.source !== expectedSource ||
+      !mapSnapshotIsConsistent(map, snapshot)
+    ) {
       throw new ApiHttpError(
         503,
         "MAP_UNAVAILABLE",
         "No verified current map is available.",
         true,
-        createErrorMeta("source_unavailable", null, {
-          updatedAt: new Date(0).toISOString(),
-          sources: ["curated_map"],
-          quality: "partial",
-        }),
+        createErrorMeta(
+          "source_unavailable",
+          null,
+          snapshot
+            ? { ...descriptorFromSnapshot(snapshot), quality: "partial" }
+            : {
+                updatedAt: new Date(0).toISOString(),
+                sources: [expectedSource],
+                quality: "partial",
+              },
+        ),
       );
     }
     return {
       data: map,
-      meta: createOperationMeta({
-        updatedAt: map.verifiedAt,
-        sources: [dataMode === "live" ? "curated_map" : "seed"],
-        quality: "complete",
-      }),
+      meta: createOperationMeta(descriptorFromSnapshot(snapshot)),
     };
   });
 
@@ -1180,6 +1199,7 @@ export const registerRoutes = async (
     if (!map) {
       throw new ApiHttpError(404, "NOT_FOUND", "Map was not found.", false, errorMeta);
     }
+    parseAuditedMapPayload(map);
     const features = map.features
       .filter((feature) => !query.type || feature.type === query.type)
       .sort(
@@ -1191,7 +1211,7 @@ export const registerRoutes = async (
       meta: createOperationMeta({
         updatedAt: map.verifiedAt,
         sources: [dataMode === "live" ? "curated_map" : "seed"],
-        quality: "complete",
+        quality: map.quality,
       }),
     };
   });

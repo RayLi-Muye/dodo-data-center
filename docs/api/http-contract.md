@@ -52,6 +52,9 @@ GET  /v1/updates/{version}
 - 单场比赛的 `parse_pending` 仅限制 replay 派生能力，基础比赛详情仍可成功返回并明确 parse 状态。
 - 玩家同步若因所有候选比赛缺少核心字段而进入 `parse_pending`，玩家统计请求返回 HTTP 409 `PARSE_PENDING`，不得返回 200 空统计；同步任务将同名错误码写入 `errorCode`。
 - 当前没有经过来源验证的地图时，地图请求返回 HTTP 503 `MAP_UNAVAILABLE`；不得用 seed、空 geometry 或 complete meta 代替。
+- 地图 `patch` 表示该快照明确复核对应的官方 Patch，不是抓取时间或 STRATZ game version。地图必须带不可变 `sourceSnapshot`、官方 `sourceUrls`、App 570 build/depot/resource/extractor/hash 修订和 coverage/exclusions；每个 feature 必须可回查资源实体。
+- 地图 geometry 仅允许 `source2-world-units` 下的有限二维 Point、LineString、Polygon，并必须位于 bounds 内。lane 只接受提取的 waypoint topology；Roshan Point 表示 pit/spawner，不表示实时位置。无合法快照时继续 503。
+- 地图响应是 operation meta，不是统计 meta。quality、updatedAt 和 sources 来自持久 map snapshot；不得因为存在 current row 就硬编码 complete。
 - 已有成功快照后发生 timeout、429、5xx 或内部瞬时失败时，旧玩家数据继续返回 200，并通过 `quality=partial|stale`、同步任务与 provider health 表达失败。`PROFILE_PRIVATE`、`HISTORY_PRIVATE` 与 `NOT_FOUND` 不是可保留旧公开数据的瞬时失败，必须更新访问状态并阻断读取。
 
 列表响应的 `data` 必须包含 `items` 与 `nextCursor`；无下一页时 `nextCursor=null`。`cursor` 是 opaque string，客户端不得解析。

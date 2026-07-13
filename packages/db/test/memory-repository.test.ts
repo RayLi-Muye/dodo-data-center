@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mapFeatureTypeSchema, type MapVersion } from "@dodo/contracts";
 
 import {
+  calculateMapContentHash,
   createLiveRepository,
   createSeedRepository,
   seedRepository,
@@ -9,7 +11,91 @@ import {
   SEED_UPDATED_AT,
 } from "../src/index.js";
 
+const mapRevision = (
+  base: MapVersion,
+  changes: Partial<Omit<MapVersion, "sourceRevision">> = {},
+): MapVersion => {
+  const draft: MapVersion = {
+    ...base,
+    ...changes,
+    sourceRevision: { ...base.sourceRevision, snapshotSha256: "0".repeat(64) },
+  };
+  return {
+    ...draft,
+    sourceRevision: {
+      ...draft.sourceRevision,
+      snapshotSha256: calculateMapContentHash(draft),
+    },
+  };
+};
+
+const mapSnapshot = (map: MapVersion, checkedAt = map.verifiedAt) => ({
+  source: "seed" as const,
+  quality: map.quality,
+  fetchedAt: checkedAt,
+  checkedAt,
+  changedAt: map.verifiedAt,
+  contentHash: calculateMapContentHash(map),
+  officialVersion: map.patch,
+});
+
 describe("MemoryDodoRepository", () => {
+  it("atomically versions maps and only touches the snapshot for an unchanged current map", async () => {
+    const repository = await createSeedRepository();
+    const first = await repository.getCurrentMap();
+    if (!first) throw new Error("Seed map missing");
+    expect(first.quality).toBe("partial");
+    expect([
+      ...first.coverage.includedTypes,
+      ...first.coverage.exclusions.map((entry) => entry.type),
+    ].sort()).toEqual([...mapFeatureTypeSchema.options].sort());
+    expect(calculateMapContentHash({ ...first, features: [...first.features].reverse() })).toBe(
+      calculateMapContentHash(first),
+    );
+
+    const touched = mapSnapshot(first, "2026-07-13T01:00:00.000Z");
+    await repository.replaceMap(first, touched);
+    expect(await repository.getCurrentMap()).toEqual(first);
+    expect(await repository.getMapSnapshot()).toEqual(touched);
+
+    const conflicting = mapRevision(first, {
+      features: first.features.map((feature, index) =>
+        index === 0 ? { ...feature, description: "Changed without a revision ID." } : feature,
+      ),
+    });
+    await expect(repository.replaceMap(conflicting, mapSnapshot(conflicting))).rejects.toThrow(
+      "already exists with different content",
+    );
+    expect(await repository.getCurrentMap()).toEqual(first);
+    expect(await repository.getMapSnapshot()).toEqual(touched);
+
+    const second = mapRevision(first, {
+      id: "seed-map-r2",
+      verifiedAt: "2026-07-13T02:00:00.000Z",
+    });
+    const secondSnapshot = mapSnapshot(second);
+    await repository.replaceMap(second, secondSnapshot);
+    expect(await repository.getCurrentMap()).toEqual(second);
+    expect(await repository.getMap("seed-map")).toEqual(first);
+    expect(await repository.getMapSnapshot()).toEqual(secondSnapshot);
+  });
+
+  it("rejects an invalid map before changing the current map or its snapshot", async () => {
+    const repository = await createSeedRepository();
+    const current = await repository.getCurrentMap();
+    const snapshot = await repository.getMapSnapshot();
+    if (!current || !snapshot) throw new Error("Seed map missing");
+    const invalid = {
+      ...current,
+      id: "invalid-map",
+      bounds: { minX: 10, minY: 0, maxX: 0, maxY: 100 },
+    } as MapVersion;
+
+    await expect(repository.replaceMap(invalid, snapshot)).rejects.toThrow();
+    expect(await repository.getCurrentMap()).toEqual(current);
+    expect(await repository.getMapSnapshot()).toEqual(snapshot);
+  });
+
   it("upserts the deterministic seed without duplicating matches", async () => {
     const repository = await createSeedRepository();
 

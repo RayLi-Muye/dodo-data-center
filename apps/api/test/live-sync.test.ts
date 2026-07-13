@@ -3,6 +3,9 @@ import {
   dataStatusResponseSchema,
   heroDetailResponseSchema,
   itemDetailResponseSchema,
+  mapFeatureTypeSchema,
+  mapFeaturesResponseSchema,
+  mapVersionResponseSchema,
   matchDetailResponseSchema,
   patchesResponseSchema,
   playerHeroesResponseSchema,
@@ -13,6 +16,7 @@ import {
   updateDetailResponseSchema,
   updatesResponseSchema,
   type UpdateReleaseDetail,
+  type MapVersion,
 } from "@dodo/contracts";
 import {
   OpenDotaProviderError,
@@ -30,7 +34,13 @@ import {
   type StratzMatchDetail,
   type StratzProvider,
 } from "@dodo/dota-data";
-import { createLiveRepository } from "@dodo/db";
+import {
+  calculateMapContentHash,
+  createLiveRepository,
+  createSeedRepository,
+  MapAuditError,
+  type DodoRepository,
+} from "@dodo/db";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -430,6 +440,83 @@ const createStratzBatchFixture = async () => {
 
 const json = (response: { body: string }): unknown => JSON.parse(response.body);
 
+const mapRevision = (
+  base: MapVersion,
+  changes: Partial<Omit<MapVersion, "sourceRevision">>,
+): MapVersion => {
+  const draft: MapVersion = {
+    ...base,
+    ...changes,
+    sourceRevision: { ...base.sourceRevision, snapshotSha256: "0".repeat(64) },
+  };
+  return {
+    ...draft,
+    sourceRevision: {
+      ...draft.sourceRevision,
+      snapshotSha256: calculateMapContentHash(draft),
+    },
+  };
+};
+
+const auditedMapFixture = async (quality: "complete" | "partial") => {
+  const fixtures = await createSeedRepository();
+  const base = await fixtures.getCurrentMap();
+  await fixtures.close();
+  if (!base) throw new Error("Seed map missing");
+  const omittedTypes = mapFeatureTypeSchema.options.filter(
+    (type) => !base.coverage.includedTypes.includes(type),
+  );
+  const completeFeatures = [
+    ...base.features,
+    ...omittedTypes.map((type, index) => ({
+      id: `fixture-${type}`,
+      type,
+      localizedName: `Fixture ${type}`,
+      description: "Deterministic test-only map feature.",
+      geometry: { type: "Point" as const, coordinates: [index + 1, index + 1] as [number, number] },
+      sourceRefs: [{
+        resourcePath: "seed/maps/seed-map.vmap_c",
+        entityClassname: `fixture_${type}`,
+        entityTargetName: null,
+        entityIndex: index + 2,
+      }],
+    })),
+  ];
+  const map = mapRevision(base, {
+    id: quality === "complete" ? "live-map-complete" : "live-map-partial",
+    quality,
+    features: quality === "complete" ? completeFeatures : base.features,
+    coverage: quality === "complete"
+      ? { includedTypes: [...mapFeatureTypeSchema.options], exclusions: [] }
+      : base.coverage,
+    verifiedAt: quality === "complete" ? CLOCK_AT : "2026-07-10T01:00:00.000Z",
+  });
+  return {
+    map,
+    snapshot: {
+      source: "curated_map" as const,
+      quality,
+      fetchedAt: map.verifiedAt,
+      checkedAt: map.verifiedAt,
+      changedAt: map.verifiedAt,
+      contentHash: calculateMapContentHash(map),
+      officialVersion: map.patch,
+    },
+  };
+};
+
+const repositoryProxy = (
+  repository: DodoRepository,
+  overrides: Partial<DodoRepository>,
+): DodoRepository => new Proxy(repository, {
+  get(target, property) {
+    const override = overrides[property as keyof DodoRepository];
+    if (override) return override;
+    const value = Reflect.get(target, property, target) as unknown;
+    return typeof value === "function" ? value.bind(target) : value;
+  },
+});
+
 describe("live player synchronization", () => {
   let app: FastifyInstance | undefined;
 
@@ -528,6 +615,130 @@ describe("live player synchronization", () => {
         updatedAt: CLOCK_AT,
       });
     }
+  });
+
+  it.each(["complete", "partial"] as const)(
+    "serves a verified live %s map with persisted operation metadata",
+    async (quality) => {
+      const repository = await createLiveRepository();
+      const fixture = await auditedMapFixture(quality);
+      await repository.replaceMap(fixture.map, fixture.snapshot);
+      app = await buildApp({
+        environment: "test",
+        dataMode: "live",
+        repository,
+        playerDataProvider: createProvider(),
+        clock: () => new Date(CLOCK_AT),
+      });
+
+      const current = mapVersionResponseSchema.parse(
+        json(await app.inject({ method: "GET", url: "/v1/maps/current" })),
+      );
+      expect(current.data).toEqual(fixture.map);
+      expect(current.meta).toEqual({
+        updatedAt: fixture.snapshot.checkedAt,
+        sources: ["curated_map"],
+        quality,
+      });
+      expect(current.meta).not.toHaveProperty("sampleSize");
+
+      const features = mapFeaturesResponseSchema.parse(
+        json(
+          await app.inject({
+            method: "GET",
+            url: `/v1/maps/${fixture.map.id}/features?type=roshan`,
+          }),
+        ),
+      );
+      expect(features.data.items).toHaveLength(1);
+      expect(features.meta).toEqual({
+        updatedAt: fixture.map.verifiedAt,
+        sources: ["curated_map"],
+        quality,
+      });
+    },
+  );
+
+  it("returns MAP_UNAVAILABLE when the current map and snapshot are inconsistent", async () => {
+    const repository = await createLiveRepository();
+    const fixture = await auditedMapFixture("complete");
+    await repository.replaceMap(fixture.map, fixture.snapshot);
+    const inconsistent = repositoryProxy(repository, {
+      getMapSnapshot: async () => ({
+        ...fixture.snapshot,
+        contentHash: "0".repeat(64),
+      }),
+    });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository: inconsistent,
+      playerDataProvider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/v1/maps/current" });
+    const error = apiErrorSchema.parse(json(response));
+    expect(response.statusCode).toBe(503);
+    expect(error.error.code).toBe("MAP_UNAVAILABLE");
+    expect(error.meta).toMatchObject({
+      sources: ["curated_map"],
+      updatedAt: fixture.snapshot.checkedAt,
+    });
+  });
+
+  it("classifies a corrupt current map row as MAP_UNAVAILABLE", async () => {
+    const repository = await createLiveRepository();
+    const fixture = await auditedMapFixture("complete");
+    await repository.replaceMap(fixture.map, fixture.snapshot);
+    const corrupted = repositoryProxy(repository, {
+      getCurrentMap: async () => {
+        throw new MapAuditError("Stored current map audit failed");
+      },
+    });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository: corrupted,
+      playerDataProvider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/v1/maps/current" });
+    const error = apiErrorSchema.parse(json(response));
+    expect(response.statusCode).toBe(503);
+    expect(error.error.code).toBe("MAP_UNAVAILABLE");
+    expect(error.meta).toMatchObject({
+      sources: ["curated_map"],
+      updatedAt: fixture.snapshot.checkedAt,
+    });
+  });
+
+  it("does not publish a historical map whose embedded audit hash is invalid", async () => {
+    const repository = await createLiveRepository();
+    const fixture = await auditedMapFixture("complete");
+    await repository.replaceMap(fixture.map, fixture.snapshot);
+    const corrupted = {
+      ...fixture.map,
+      sourceRevision: { ...fixture.map.sourceRevision, snapshotSha256: "0".repeat(64) },
+    };
+    const inconsistent = repositoryProxy(repository, {
+      getMap: async () => corrupted,
+    });
+    app = await buildApp({
+      environment: "test",
+      dataMode: "live",
+      repository: inconsistent,
+      playerDataProvider: createProvider(),
+      clock: () => new Date(CLOCK_AT),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/v1/maps/${fixture.map.id}/features`,
+    });
+    expect(response.statusCode).toBe(500);
+    expect(apiErrorSchema.parse(json(response)).error.code).toBe("INTERNAL_ERROR");
   });
 
   it("does not report an empty partial update snapshot as an empty result", async () => {
