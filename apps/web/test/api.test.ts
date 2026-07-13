@@ -1,7 +1,7 @@
 import { dataStatusResponseSchema, mapFeatureTypeSchema } from "@dodo/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, DodoApiError, fetchApi, getApiBaseUrl } from "../lib/api";
+import { api, collectAllHeroesWithMeta, DodoApiError, fetchApi, getApiBaseUrl } from "../lib/api";
 
 const validMapResponse = {
   data: {
@@ -119,6 +119,79 @@ describe("server API client", () => {
       expect.stringMatching(/\/v1\/heroes\?limit=100$/),
       expect.objectContaining({ next: { revalidate: 3_600 } }),
     );
+  });
+
+  it("collects every hero catalog page instead of stopping at the first 100 rows", async () => {
+    const meta = { quality: "complete", sources: ["seed"], updatedAt: "2026-07-14T00:00:00.000Z" };
+    const hero = (id: string) => ({
+      attackType: "melee" as const,
+      id,
+      localizedName: `英雄 ${id}`,
+      name: `hero_${id}`,
+      officialVersion: "7.41d",
+      primaryAttribute: "strength" as const,
+      roles: [],
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [hero("1")], nextCursor: "page-2" }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [hero("2")], nextCursor: null }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(collectAllHeroesWithMeta()).resolves.toMatchObject({ items: [{ id: "1" }, { id: "2" }], meta });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringContaining("cursor=page-2"), expect.anything());
+  });
+
+  it("conservatively merges catalog metadata across every page", async () => {
+    const pages = [
+      { quality: "complete", sources: ["seed"], updatedAt: "2026-07-12T00:00:00.000Z" },
+      { quality: "partial", sources: ["dota2_official"], updatedAt: "2026-07-14T00:00:00.000Z" },
+      { quality: "stale", sources: ["seed", "opendota"], updatedAt: "2026-07-13T00:00:00.000Z" },
+    ] as const;
+    let index = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      const meta = pages[index]!;
+      index += 1;
+      return new Response(JSON.stringify({
+        data: { items: [], nextCursor: index < pages.length ? `page-${index + 1}` : null },
+        meta,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    await expect(collectAllHeroesWithMeta()).resolves.toEqual({
+      items: [],
+      meta: {
+        quality: "stale",
+        sources: ["seed", "dota2_official", "opendota"],
+        updatedAt: "2026-07-14T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("rejects a repeated hero catalog cursor", async () => {
+    const body = JSON.stringify({
+      data: { items: [], nextCursor: "same-cursor" },
+      meta: { quality: "complete", sources: ["seed"], updatedAt: "2026-07-14T00:00:00.000Z" },
+    });
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(body, { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(collectAllHeroesWithMeta()).rejects.toThrow("Catalog pagination returned a repeated cursor.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("caps a hero catalog traversal at 50 pages", async () => {
+    let page = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      page += 1;
+      return new Response(JSON.stringify({
+        data: { items: [], nextCursor: `page-${page}` },
+        meta: { quality: "complete", sources: ["seed"], updatedAt: "2026-07-14T00:00:00.000Z" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(collectAllHeroesWithMeta()).rejects.toThrow("Catalog pagination exceeded 50 pages.");
+    expect(fetchMock).toHaveBeenCalledTimes(50);
   });
 
   it("does not cache hero details across live catalog refreshes", async () => {

@@ -8,6 +8,29 @@
 
 ## Active wave
 
+### Wave 14: Complete catalogs and Dota-style information architecture
+
+地图与动态胜率继续不在范围内。英雄目录必须消费全部游标页；物品目录必须在数据源边界收敛到当前普通比赛可见内容；前端采用 Dota 客户端式紧凑层级，但不复制受版权保护的客户端面板素材。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-018 catalog semantics | Root | PRD、API 与编排文档；完整英雄、四属性、本地自定义分组、当前物品口径 | Wave 13 | ACCEPTED |
+| DATA-018 current item visibility | Data Source Agent | `packages/dota-data/**`；图纸与 legacy/event/internal 排除、证据与 fixtures | ROOT-018 | ACCEPTED |
+| API-018 item snapshot revalidation | Backend/API Agent | `apps/api/**`、`packages/db/**`；一次性过期、原子 universe 替换验证 | ROOT-018, DATA-018 | ACCEPTED |
+| WEB-018 catalog redesign | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；全量英雄、分组、自定义、商店式物品与详情重排 | ROOT-018 | ACCEPTED |
+| QA-018 catalog acceptance | QA Agent | 只读；数量、过滤、交互、状态、390px | DATA-018, API-018, WEB-018 | ACCEPTED |
+| DEPLOY-018 overseas rollout | Root | 全仓门禁、真实数据、Railway/Vercel、生产 smoke | QA-018 | RUNNING |
+
+验收目标：
+
+- 当前 127 个英雄在一个目录体验中完整可达，默认按力量、敏捷、智力、全才分组，搜索不受单页边界影响。
+- 自定义英雄分组仅本地持久化，清楚标注作用域；无分组或存储不可用时不影响官方分组。
+- 当前目录不含 `kind=recipe`，已知 legacy/event/internal 黄金样本不可见；当前商店物品与当前中立物品/附魔仍可见。
+- 目录采用紧凑头像/图标网格，详情减少松散大卡片，信息优先级接近 Dota 英雄浏览器与商店；390px 不横向溢出。
+- Private、Partial、Rate limited、Unavailable 与 Failed 语义不回退为空结果。
+
+本地验收证据：Dota 2 official 7.41d 返回 127 个英雄（力量 36、敏捷 35、智力 34、全才 22）和 268 个当前可浏览物品（普通 192、中立 49、中立附魔 27），`recipe=0`；旧版与内部黄金负样本均被排除，catalog 因未验证排除项与一个未解析模板保持 `partial`。全仓 typecheck、386 项常规测试、生产 build、43 项 schema 检查和真实 PostgreSQL 39/39 通过。QA 初查两个 P2 已补充跨页保守 metadata 合并及本地分组存储边界测试，复验无 P0/P1。390×844 真实浏览器验证英雄 127/127 全部渲染、页面与 body `scrollWidth=390`、自定义分组可创建并在刷新后保留；物品目录同样无横向溢出。生产部署与最终目录对账进行中。
+
 ### Wave 13: Hero and item encyclopedia foundation
 
 地图真实快照 `MAP-016B` 按产品决定暂缓；生产继续返回 `MAP_UNAVAILABLE`，不得用 seed、推断坐标或旧版数据替代。当前波只交付英雄/物品静态百科第一阶段，动态比赛聚合另开后续波次。

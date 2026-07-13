@@ -113,17 +113,6 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
       <QualityNotice label="英雄详情" quality={hero.meta.quality} showComplete />
 
       <div className="hero-reference-grid">
-        <DataSection className="hero-lore" eyebrow="PLAYSTYLE / LORE" title="玩法与背景">
-          <article>
-            <small>玩法简介</small>
-            <p>{hype}</p>
-          </article>
-          <article>
-            <small>英雄背景</small>
-            <p>{biography}</p>
-          </article>
-        </DataSection>
-
         <DataSection
           className="hero-facts"
           eyebrow="BASE PROFILE"
@@ -180,15 +169,18 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
             </>
           )}
         </DataSection>
-      </div>
 
-      <EntityRecentUpdates
-        entityLabel={hero.data.localizedName}
-        heroById={heroById}
-        itemById={itemById}
-        result={updatesResult}
-        retryHref={`/heroes/${encodeURIComponent(heroId)}`}
-      />
+        <DataSection className="hero-lore" eyebrow="PLAYSTYLE / LORE" title="玩法与背景">
+          <article>
+            <small>玩法简介</small>
+            <p>{hype}</p>
+          </article>
+          <article>
+            <small>英雄背景</small>
+            <p>{biography}</p>
+          </article>
+        </DataSection>
+      </div>
 
       <div className="detail-grid">
         <DataSection className="detail-grid__main" eyebrow="ABILITY KIT" title="技能组">
@@ -237,6 +229,14 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
           )}
         </DataSection>
       </div>
+
+      <EntityRecentUpdates
+        entityLabel={hero.data.localizedName}
+        heroById={heroById}
+        itemById={itemById}
+        result={updatesResult}
+        retryHref={`/heroes/${encodeURIComponent(heroId)}`}
+      />
 
       <MetaLine sources={hero.meta.sources} updatedAt={hero.meta.updatedAt} />
       <p className="source-snapshot">来源快照：{hero.data.sourceSnapshot}</p>

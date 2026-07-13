@@ -873,6 +873,64 @@ describe("Dodo API", () => {
     expect(features.data.items[0]?.type).toBe("roshan");
   });
 
+  it("paginates complete hero and item catalogs beyond the 100-entry client page", async () => {
+    await app.close();
+    const repository = await createSeedRepository();
+    const [heroTemplate, itemTemplate, heroSnapshot, itemSnapshot] = await Promise.all([
+      repository.getHero("1"),
+      repository.getItem("1"),
+      repository.getHeroSnapshot(),
+      repository.getItemSnapshot(),
+    ]);
+    if (!heroTemplate || !itemTemplate || !heroSnapshot || !itemSnapshot) {
+      throw new Error("Seed encyclopedia fixture missing");
+    }
+    const ids = Array.from({ length: 127 }, (_, index) => String(index + 1));
+    await repository.replaceHeroes(
+      ids.map((id) => ({
+        ...heroTemplate,
+        id,
+        name: `hero_${id.padStart(3, "0")}`,
+        localizedName: `Hero ${id.padStart(3, "0")}`,
+      })),
+      heroSnapshot,
+      ids,
+    );
+    await repository.replaceItems(
+      ids.map((id) => ({
+        ...itemTemplate,
+        id,
+        name: `item_${id.padStart(3, "0")}`,
+        localizedName: `Item ${id.padStart(3, "0")}`,
+      })),
+      itemSnapshot,
+      ids,
+    );
+    app = await buildApp({ environment: "test", repository });
+
+    for (const resource of ["heroes", "items"] as const) {
+      const schema = resource === "heroes" ? heroesResponseSchema : itemsResponseSchema;
+      const first = schema.parse(
+        json(await app.inject({ method: "GET", url: `/v1/${resource}?limit=100` })),
+      );
+      expect(first.data.items).toHaveLength(100);
+      expect(first.data.nextCursor).not.toBeNull();
+      const second = schema.parse(
+        json(
+          await app.inject({
+            method: "GET",
+            url: `/v1/${resource}?limit=100&cursor=${first.data.nextCursor}`,
+          }),
+        ),
+      );
+      expect(second.data.items).toHaveLength(27);
+      expect(second.data.nextCursor).toBeNull();
+
+      const overLimit = await app.inject({ method: "GET", url: `/v1/${resource}?limit=101` });
+      expect(overLimit.statusCode).toBe(400);
+    }
+  });
+
   it("only enables local CORS in development", async () => {
     await app.close();
     const developmentApp = await buildApp({ environment: "development" });

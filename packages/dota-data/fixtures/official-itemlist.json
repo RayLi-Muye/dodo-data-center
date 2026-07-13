@@ -27,7 +27,7 @@
         {
           "id": 2,
           "name": "item_blades_of_attack",
-          "name_loc": "",
+          "name_loc": "攻击之爪",
           "neutral_item_tier": -1,
           "is_pregame_suggested": false,
           "is_earlygame_suggested": false,
@@ -38,7 +38,7 @@
         {
           "id": 3,
           "name": "item_broadsword",
-          "name_loc": "",
+          "name_loc": "阔剑",
           "neutral_item_tier": -1,
           "is_pregame_suggested": false,
           "is_earlygame_suggested": false,
@@ -56,6 +56,193 @@
           "is_lategame_suggested": false,
           "recipes": [],
           "is_innate": false
+        },
+        {
+          "id": 104,
+          "name": "item_dagon",
+          "name_loc": "达贡之神力",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 204,
+          "name": "item_dagon_5",
+          "name_loc": "达贡之神力（5级）",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": true,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 200,
+          "name": "item_recipe_dagon_5",
+          "name_loc": "图纸（达贡之神力5级）",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [{ "items": [104] }],
+          "is_innate": false
+        },
+        {
+          "id": 42,
+          "name": "item_ward_observer",
+          "name_loc": "侦察守卫",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": true,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 1125,
+          "name": "item_cornucopia",
+          "name_loc": "丰饶之环",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 30,
+          "name": "item_gem",
+          "name_loc": "真视宝石",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 40,
+          "name": "item_dust",
+          "name_loc": "显影之尘",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 10,
+          "name": "item_quarterstaff",
+          "name_loc": "短棍",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 133,
+          "name": "item_rapier",
+          "name_loc": "圣剑",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 46,
+          "name": "item_tpscroll",
+          "name_loc": "回城卷轴",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 1500,
+          "name": "item_current_neutral_fixture",
+          "name_loc": "当前中立物品样本",
+          "neutral_item_tier": 2,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 1592,
+          "name": "item_enhancement_timeless",
+          "name_loc": "永恒",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 212,
+          "name": "item_ring_of_aquila",
+          "name_loc": "天鹰之戒",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 239,
+          "name": "item_iron_talon",
+          "name_loc": "寒铁钢爪",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 369,
+          "name": "item_trident",
+          "name_loc": "三元重戟",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 117,
+          "name": "item_aegis",
+          "name_loc": "不朽之守护",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": false,
+          "recipes": [],
+          "is_innate": false
+        },
+        {
+          "id": 1999,
+          "name": "item_internal_innate_fixture",
+          "name_loc": "内部定义样本",
+          "neutral_item_tier": -1,
+          "is_pregame_suggested": false,
+          "is_earlygame_suggested": false,
+          "is_lategame_suggested": true,
+          "recipes": [],
+          "is_innate": true
         }
       ]
     }

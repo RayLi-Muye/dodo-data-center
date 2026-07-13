@@ -1,4 +1,4 @@
-import type { DodoRepository } from "@dodo/db";
+import type { DodoRepository, StaticDataSnapshot } from "@dodo/db";
 
 import type { PlayerDataProvider } from "./player-data-provider.js";
 import {
@@ -12,6 +12,16 @@ import {
 } from "./player-sync-service.js";
 
 const REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1_000;
+export const OFFICIAL_ITEM_CATALOG_REVISION = "official-item-visibility-v1";
+
+const itemCatalogHash = (value: unknown): string =>
+  `${OFFICIAL_ITEM_CATALOG_REVISION}:${contentHash(value)}`;
+
+const officialItemSnapshotIsCurrent = (
+  snapshot: StaticDataSnapshot | undefined,
+): boolean =>
+  snapshot?.source !== "dota2_official" ||
+  snapshot.contentHash?.startsWith(`${OFFICIAL_ITEM_CATALOG_REVISION}:`) === true;
 
 const catalogUniverseIds = (
   entityType: "hero" | "item",
@@ -167,7 +177,8 @@ export class StaticCatalogService {
         itemSnapshot,
         checkedAt,
         itemSnapshot?.quality === "partial" ? UPDATE_TTL_MS : CATALOG_TTL_MS,
-      ) && itemSnapshot?.officialVersion === officialVersion
+      ) && itemSnapshot?.officialVersion === officialVersion &&
+      officialItemSnapshotIsCurrent(itemSnapshot)
         ? Promise.resolve()
         : this.#provider.getItemConstants().then(async (items) => {
             const universeIds = catalogUniverseIds(
@@ -180,7 +191,7 @@ export class StaticCatalogService {
               items.source.fetchedAt,
               items.officialVersion,
             );
-            const hash = contentHash([items.items, universeIds]);
+            const hash = itemCatalogHash([items.items, universeIds]);
             const snapshot = nextSnapshot(
               itemSnapshot,
               "dota2_official",

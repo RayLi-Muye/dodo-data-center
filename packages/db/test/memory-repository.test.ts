@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mapFeatureTypeSchema, type MapVersion } from "@dodo/contracts";
+import {
+  mapFeatureTypeSchema,
+  type ItemDetail,
+  type MapVersion,
+} from "@dodo/contracts";
 
 import {
   calculateMapContentHash,
@@ -582,5 +586,48 @@ describe("MemoryDodoRepository", () => {
     await repository.replaceItems([], snapshot, []);
     expect(await repository.listHeroes()).toEqual([]);
     expect(await repository.listItems()).toEqual([]);
+  });
+
+  it("atomically prunes legacy and recipe items outside the refreshed universe", async () => {
+    const repository = await createSeedRepository();
+    const template = await repository.getItem("1");
+    const initialSnapshot = await repository.getItemSnapshot();
+    if (!template || !initialSnapshot) throw new Error("Seed item fixture missing");
+    const legacy = { ...template, id: "998", name: "legacy_item" };
+    const recipe = {
+      ...template,
+      id: "999",
+      name: "recipe_legacy_item",
+      kind: "recipe" as const,
+    };
+    await repository.replaceItems(
+      [template, legacy, recipe],
+      initialSnapshot,
+      [template.id, legacy.id, recipe.id],
+    );
+    const beforeFailure = await repository.listItems();
+    const invalid = {
+      ...template,
+      id: "broken",
+      sourceSnapshot: () => "not cloneable",
+    } as unknown as ItemDetail;
+
+    await expect(
+      repository.replaceItems([invalid], { ...initialSnapshot, contentHash: "failed" }, [invalid.id]),
+    ).rejects.toThrow();
+    expect(await repository.listItems()).toEqual(beforeFailure);
+    expect(await repository.getItemSnapshot()).toEqual(initialSnapshot);
+
+    const refreshedSnapshot = {
+      ...initialSnapshot,
+      checkedAt: "2026-07-14T00:00:00.000Z",
+      contentHash: "visible-items-v1",
+    };
+    await repository.replaceItems([template], refreshedSnapshot, [template.id]);
+    await repository.replaceItems([template], refreshedSnapshot, [template.id]);
+    expect((await repository.listItems()).map((item) => item.id)).toEqual([template.id]);
+    expect(await repository.getItem(legacy.id)).toBeUndefined();
+    expect(await repository.getItem(recipe.id)).toBeUndefined();
+    expect(await repository.getItemSnapshot()).toEqual(refreshedSnapshot);
   });
 });

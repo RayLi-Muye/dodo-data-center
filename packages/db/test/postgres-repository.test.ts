@@ -428,6 +428,48 @@ describeWithDatabase("PostgresDodoRepository", () => {
     expect(await repository.listItems()).toEqual([]);
   });
 
+  it("rolls back item pruning on failure and atomically removes legacy and recipe rows", async () => {
+    const fixtures = await createSeedRepository();
+    const template = await fixtures.getItem("1");
+    const initialSnapshot = await fixtures.getItemSnapshot();
+    await fixtures.close();
+    if (!template || !initialSnapshot) throw new Error("Seed item fixture missing");
+    const legacy = { ...template, id: "998", name: "legacy_item" };
+    const recipe = {
+      ...template,
+      id: "999",
+      name: "recipe_legacy_item",
+      kind: "recipe" as const,
+    };
+    await repository.replaceItems(
+      [template, legacy, recipe],
+      initialSnapshot,
+      [template.id, legacy.id, recipe.id],
+    );
+    const beforeFailure = await repository.listItems();
+
+    await expect(
+      repository.replaceItems(
+        [template, { ...template }],
+        { ...initialSnapshot, contentHash: "failed" },
+        [template.id],
+      ),
+    ).rejects.toThrow();
+    expect(await repository.listItems()).toEqual(beforeFailure);
+    expect(await repository.getItemSnapshot()).toEqual(initialSnapshot);
+
+    const refreshedSnapshot = {
+      ...initialSnapshot,
+      checkedAt: "2026-07-14T00:00:00.000Z",
+      contentHash: "official-item-visibility-v1:refreshed",
+    };
+    await repository.replaceItems([template], refreshedSnapshot, [template.id]);
+    expect((await repository.listItems()).map((item) => item.id)).toEqual([template.id]);
+    expect(await repository.getItem(legacy.id)).toBeUndefined();
+    expect(await repository.getItem(recipe.id)).toBeUndefined();
+    expect(await repository.getItemSnapshot()).toEqual(refreshedSnapshot);
+  });
+
   it("persists official Dota provider health through the database source constraint", async () => {
     const health = {
       source: "dota2_official" as const,
