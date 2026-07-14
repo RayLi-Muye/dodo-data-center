@@ -5,7 +5,6 @@ import Link from "next/link";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { AssetImage } from "./asset-image";
-import { heroRoleLabel } from "../lib/format";
 import { canCreateHeroGroup, type HeroGroup, readHeroGroups, writeHeroGroups } from "../lib/hero-groups";
 const attributeGroups = [
   { key: "strength", label: "力量", short: "STR", note: "坚韧与正面交锋" },
@@ -15,11 +14,16 @@ const attributeGroups = [
 ] as const;
 
 function HeroTile({ hero }: { hero: HeroSummary }) {
+  const attackLabel = hero.attackType === "melee" ? "近战" : "远程";
   return (
-    <Link className="hero-armory-tile" href={`/heroes/${encodeURIComponent(hero.id)}`}>
-      <AssetImage alt={`${hero.localizedName} 英雄图标`} className="hero-armory-tile__image" kind="hero" name={hero.name} />
+    <Link
+      aria-label={`${hero.localizedName}，${attackLabel}`}
+      className="hero-armory-tile"
+      href={`/heroes/${encodeURIComponent(hero.id)}`}
+      title={`${hero.localizedName} · ${attackLabel}`}
+    >
+      <AssetImage alt="" className="hero-armory-tile__image" kind="hero" name={hero.name} />
       <span className="hero-armory-tile__name">{hero.localizedName}</span>
-      <small>{hero.attackType === "melee" ? "近战" : "远程"} · {hero.roles.slice(0, 2).map(heroRoleLabel).join(" / ") || "定位未标注"}</small>
     </Link>
   );
 }

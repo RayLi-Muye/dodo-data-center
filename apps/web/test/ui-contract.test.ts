@@ -156,6 +156,7 @@ describe("Web UI copy and touch contract", () => {
     const heroList = source("../app/heroes/page.tsx");
     const heroDetail = source("../app/heroes/[heroId]/page.tsx");
     const itemList = source("../app/items/page.tsx");
+    const itemCatalog = source("../lib/item-catalog.ts");
     const itemDetail = source("../app/items/[itemId]/page.tsx");
     const patchesPage = source("../app/patches/page.tsx");
 
@@ -166,7 +167,7 @@ describe("Web UI copy and touch contract", () => {
     expect(heroList).toContain("collectAllHeroesWithMeta");
     expect(itemList).toContain("collectAllItemsWithMeta");
     expect(itemList).toContain('item.kind !== "recipe"');
-    expect(itemList).toContain('label: "其他当前物品"');
+    expect(itemCatalog).toContain('label: "其他当前物品"');
     expect(itemDetail).toContain('item.data.availabilityStatus === "unverified"');
     expect(itemDetail).toContain("官方定义存在不等于当前商店可购买");
     expect(patchesPage).toContain("updatedAt={detail.meta.updatedAt}");
@@ -180,7 +181,7 @@ describe("Web UI copy and touch contract", () => {
     const patchesPage = source("../app/patches/page.tsx");
 
     expect(heroList).toContain("<HeroCatalogBrowser");
-    expect(heroBrowser).toContain("map(heroRoleLabel)");
+    expect(heroBrowser).toContain('aria-label={`${hero.localizedName}，${attackLabel}`}');
     expect(heroDetail).toContain("heroRoleLabel(role)");
     expect(heroDetail).toContain("officialDescription(ability.description)");
     expect(heroDetail).toContain("officialDescription(facet.description)");
@@ -193,6 +194,7 @@ describe("Web UI copy and touch contract", () => {
     const heroList = source("../app/heroes/page.tsx");
     const heroBrowser = source("../components/hero-catalog-browser.tsx");
     const itemList = source("../app/items/page.tsx");
+    const css = source("../app/globals.css");
 
     expect(heroList).toContain("collectAllHeroesWithMeta(query.q)");
     for (const attribute of ["strength", "agility", "intelligence", "universal"]) {
@@ -201,9 +203,34 @@ describe("Web UI copy and touch contract", () => {
     expect(heroBrowser).toContain('useState<"official" | "custom">("official")');
     expect(heroBrowser).toContain("readHeroGroups(window.localStorage)");
     expect(heroBrowser).toContain("writeHeroGroups(window.localStorage, customGroups)");
-    expect(itemList).toContain("groupCurrentItems(currentItems)");
-    expect(itemList).toContain('kind === "neutral_enhancement"');
-    expect(itemList).toContain('kind === "neutral_item"');
+    expect(itemList).toContain("buildItemCatalogEntries(result.items.filter((item) => item.kind !== \"recipe\"))");
+    expect(itemList).toContain("filterItemCatalogEntries(");
+    expect(itemList).toContain("groupItemCatalogEntries(entries)");
+    expect(itemList).toContain("itemCatalogHref(entry.item.id, query.q)");
+    expect(itemList).toContain("{currentItems.length} 个实体 / {entries.length} 个目录入口");
+    expect(css).toMatch(/\.hero-armory-tile__image\s*\{[^}]*aspect-ratio:\s*3\s*\/\s*4;[^}]*object-fit:\s*cover;/s);
+    expect(css).toMatch(/@media \(min-width: 64rem\)[\s\S]*?\.hero-attribute-groups\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
+    expect(css).toMatch(/@media \(min-width: 64rem\)[\s\S]*?\.hero-armory-grid\s*\{[^}]*grid-template-columns:\s*repeat\(6,/s);
+  });
+
+  it("keeps the item inspector immediate on small screens and sticky on desktop", () => {
+    const css = source("../app/globals.css");
+    const itemList = source("../app/items/page.tsx");
+    const itemPanel = source("../components/item-detail-panel.tsx");
+    const itemDetail = source("../app/items/[itemId]/page.tsx");
+
+    expect(css).toMatch(/\.item-workbench\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
+    expect(css).toMatch(/\.item-inspector\s*\{[^}]*order:\s*-1;/s);
+    expect(css).toMatch(/@media \(min-width: 75rem\)[\s\S]*?\.item-inspector\s*\{[^}]*position:\s*sticky;[^}]*order:\s*0;/s);
+    expect(css).toContain(".item-inspector > .dodo-meta-line");
+    expect(itemList).toContain("findItemCatalogEntry(entries, query.selected)");
+    expect(itemPanel).toContain("const isUpgradeFamily = entry.members.length > 1");
+    expect(itemPanel).toContain("const values = hasCompleteFamilyDetails ? levelAttributeValues(familyDetails, index) : null");
+    expect(itemPanel).toContain("升级族已识别，但部分等级详情暂不可用");
+    expect(itemDetail).toContain("const isUpgradeFamily = Boolean(familyEntry && familyEntry.members.length > 1)");
+    expect(itemDetail).toContain("物品目录暂不可用");
+    expect(itemDetail).toContain("levelAttributeValues(familyDetails, index)");
+    expect(itemDetail).toContain('className="item-level-switcher item-level-switcher--detail"');
   });
 
   it("shows the official hero profile and base-stat fields in a responsive reference grid", () => {

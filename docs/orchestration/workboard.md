@@ -8,6 +8,31 @@
 
 ## Active wave
 
+### Wave 15: Dota-client catalog composition
+
+以用户提供的 Dota 2 客户端英雄名册和物品训练页截图为视觉参考，不复制客户端装饰素材。本波只调整 Web 信息架构与交互；现有 127 个英雄、268 个当前物品、API 合同和数据过滤保持不变。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-019 reference layout contract | Root | 参考图分析、PRD 与视觉合同；升级族定义 | Wave 14 | ACCEPTED |
+| WEB-019 catalog composition | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；四列英雄名册、物品工作台、常驻详情 | ROOT-019 | ACCEPTED |
+| QA-019 visual and upgrade acceptance | QA Agent | 只读；桌面、390px、键盘、达贡/黑皇杖对照 | WEB-019 | ACCEPTED |
+| DEPLOY-019 overseas rollout | Root | 全仓门禁、Vercel、生产 smoke | QA-019 | IN_PROGRESS |
+
+验收目标：
+
+- 宽屏英雄目录按力量、敏捷、智力、全才并列成四个纯头像矩阵，127 个英雄全部可达；姓名仍可被键盘和辅助技术读取。
+- 宽屏物品页同时呈现基础分类、合成分类、中立物品和常驻详情；选择物品保留搜索上下文，详情面板在长目录中可持续访问。
+- 达贡在目录中只占一个升级族入口，详情提供 1–5 级选择；多级属性按斜杠显示并高亮所选等级。黑皇杖等固定物品保持单值展示。
+- 390px 不横向溢出，不删除目录、详情、升级等级选择或自定义英雄分组功能。
+
+验收证据：
+
+- 生产形态快照为 127 位英雄（力量/敏捷/智力/全才 `36/35/34/22`）和 268 个物品实体 / 263 个目录入口。
+- 严格升级族仅识别 Dagon 1–5 与远行鞋 1–2；BKB 保持固定物品，不将说明内的斜杠值误判为等级。
+- `dagon_4` 搜索仍返回完整五级族；某个 sibling 详情失败时保留族身份与导航，并显式标记部分不可用。
+- QA 结论无 P0/P1；Web typecheck、16 个测试文件 / 102 项测试、production build 与 `git diff --check` 通过。
+
 ### Wave 14: Complete catalogs and Dota-style information architecture
 
 地图与动态胜率继续不在范围内。英雄目录必须消费全部游标页；物品目录必须在数据源边界收敛到当前普通比赛可见内容；前端采用 Dota 客户端式紧凑层级，但不复制受版权保护的客户端面板素材。

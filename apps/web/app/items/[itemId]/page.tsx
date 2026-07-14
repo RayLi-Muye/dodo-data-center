@@ -5,10 +5,12 @@ import Link from "next/link";
 import { AssetImage } from "../../../components/asset-image";
 import { DataState } from "../../../components/data-state";
 import { EntityRecentUpdates } from "../../../components/entity-recent-updates";
+import { LevelValues } from "../../../components/item-detail-panel";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
-import { api, settle } from "../../../lib/api";
+import { api, collectAllItemsWithMeta, settle } from "../../../lib/api";
 import { encyclopediaVersionLabel, officialDescription } from "../../../lib/format";
+import { buildItemCatalogEntries, findItemCatalogEntry, levelAttributeValues } from "../../../lib/item-catalog";
 
 const itemKindLabel = {
   item: "普通物品定义",
@@ -19,9 +21,10 @@ const itemKindLabel = {
 
 export default async function ItemDetailPage({ params }: { params: Promise<{ itemId: string }> }) {
   const { itemId } = await params;
-  const [itemResult, updatesResult] = await Promise.all([
+  const [itemResult, updatesResult, catalogResult] = await Promise.all([
     settle(api.item(itemId)),
     settle(api.itemUpdates(itemId)),
+    settle(collectAllItemsWithMeta()),
   ]);
   if (!itemResult.ok) {
     return (
@@ -32,6 +35,15 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
     );
   }
   const item = itemResult.value;
+  const catalogEntries = catalogResult.ok ? buildItemCatalogEntries(catalogResult.value.items) : [];
+  const familyEntry = findItemCatalogEntry(catalogEntries, item.data.id);
+  const familyDetailResults = familyEntry && familyEntry.members.length > 1
+    ? await Promise.all(familyEntry.members.map((member) => member.item.id === item.data.id ? itemResult : settle(api.item(member.item.id))))
+    : [];
+  const familyDetails = familyDetailResults.flatMap((candidate) => candidate.ok ? [candidate.value.data] : []);
+  const selectedLevel = familyEntry?.members.find((member) => member.item.id === item.data.id)?.level ?? 1;
+  const isUpgradeFamily = Boolean(familyEntry && familyEntry.members.length > 1);
+  const hasCompleteFamilyDetails = Boolean(familyEntry && familyDetails.length === familyEntry.members.length);
   const versionLabel = encyclopediaVersionLabel(item.data.officialVersion);
   const componentResults = await Promise.all(item.data.components.map((id) => settle(api.item(id))));
   const components = componentResults.flatMap((component) => component.ok ? [component.value.data] : []);
@@ -48,7 +60,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
           <p className="page-heading__eyebrow">ITEM / {item.data.id} / {versionLabel}</p>
           <h1>{item.data.localizedName}</h1>
           <p>{officialDescription(item.data.description)}</p>
-          <div className="tag-row"><span>{categoryLabel}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span></div>
+          <div className="tag-row"><span>{categoryLabel}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span>{isUpgradeFamily ? <span>等级 {selectedLevel}</span> : null}</div>
         </div>
         <div className="item-profile__cost"><span>COST</span><strong>{item.data.cost.toLocaleString("zh-CN")}</strong><small>金币</small></div>
       </section>
@@ -57,12 +69,30 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
       {item.data.availabilityStatus === "unverified" ? (
         <p className="data-disclaimer">官方定义存在不等于当前商店可购买；该物品的当前可购买性尚未核验。</p>
       ) : null}
+      {!catalogResult.ok ? (
+        <p className="data-disclaimer">物品目录暂不可用；当前详情仍保留，但可升级物品的等级导航可能暂时缺失。</p>
+      ) : isUpgradeFamily && !hasCompleteFamilyDetails ? (
+        <p className="data-disclaimer">升级族已识别，但部分等级详情暂不可用；等级导航仍保留，当前仅展示所选等级的原始属性。</p>
+      ) : null}
+
+      {isUpgradeFamily && familyEntry ? (
+        <nav aria-label={`${item.data.localizedName} 等级`} className="item-level-switcher item-level-switcher--detail">
+          {familyEntry.members.map((member) => (
+            <Link aria-current={member.item.id === item.data.id ? "page" : undefined} href={`/items/${encodeURIComponent(member.item.id)}`} key={member.item.id}>
+              <span>等级</span><strong>{member.level}</strong>
+            </Link>
+          ))}
+        </nav>
+      ) : null}
 
       <div className="detail-grid">
         <DataSection className="detail-grid__main" eyebrow="ATTRIBUTES" title="属性与效果">
           {item.data.attributes.length > 0 ? (
             <dl className="attribute-list">
-              {item.data.attributes.map((attribute, index) => <div key={`${attribute.label}-${index}`}><dt>{attribute.label}</dt><dd>{attribute.value}</dd></div>)}
+              {item.data.attributes.map((attribute, index) => {
+                const values = hasCompleteFamilyDetails ? levelAttributeValues(familyDetails, index) : null;
+                return <div key={`${attribute.label}-${index}`}><dt>{attribute.label}</dt><dd>{values ? <LevelValues currentLevel={selectedLevel} values={values} /> : attribute.value}</dd></div>;
+              })}
             </dl>
           ) : <p className="detail-empty">当前快照没有结构化属性。</p>}
         </DataSection>
