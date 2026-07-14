@@ -17,7 +17,7 @@
 | ROOT-019 reference layout contract | Root | 参考图分析、PRD 与视觉合同；升级族定义 | Wave 14 | ACCEPTED |
 | WEB-019 catalog composition | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；四列英雄名册、物品工作台、常驻详情 | ROOT-019 | ACCEPTED |
 | QA-019 visual and upgrade acceptance | QA Agent | 只读；桌面、390px、键盘、达贡/黑皇杖对照 | WEB-019 | ACCEPTED |
-| DEPLOY-019 overseas rollout | Root | 全仓门禁、Vercel、生产 smoke | QA-019 | IN_PROGRESS |
+| DEPLOY-019 overseas rollout | Root | 全仓门禁、Vercel、生产 smoke | QA-019 | ACCEPTED |
 
 验收目标：
 
@@ -32,6 +32,8 @@
 - 严格升级族仅识别 Dagon 1–5 与远行鞋 1–2；BKB 保持固定物品，不将说明内的斜杠值误判为等级。
 - `dagon_4` 搜索仍返回完整五级族；某个 sibling 详情失败时保留族身份与导航，并显式标记部分不可用。
 - QA 结论无 P0/P1；Web typecheck、16 个测试文件 / 102 项测试、production build 与 `git diff --check` 通过。
+- PR [#17](https://github.com/RayLi-Muye/dodo-data-center/pull/17) 在 GitHub `verify` 与 Vercel 检查通过后合并为 `0ee0010`；Vercel production `dpl_2WbeTDaDJc2QcyJKZ2ygUwjJ8Jwf` 为 Ready，稳定别名为 `https://web-flax-one-62.vercel.app`。
+- 最终 Root 门禁通过：全仓 typecheck/test/build、43 项静态 schema 检查、39/39 真实 PostgreSQL 集成测试与 `git diff --check`。
 
 ### Wave 14: Complete catalogs and Dota-style information architecture
 
