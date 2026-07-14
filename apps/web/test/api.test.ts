@@ -132,12 +132,17 @@ describe("server API client", () => {
       primaryAttribute: "strength" as const,
       roles: [],
     });
+    const firstPage = Array.from({ length: 100 }, (_, index) => hero(String(index + 1)));
+    const secondPage = Array.from({ length: 27 }, (_, index) => hero(String(index + 101)));
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [hero("1")], nextCursor: "page-2" }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [hero("2")], nextCursor: null }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: firstPage, nextCursor: "page-2" }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: secondPage, nextCursor: null }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(collectAllHeroesWithMeta()).resolves.toMatchObject({ items: [{ id: "1" }, { id: "2" }], meta });
+    const result = await collectAllHeroesWithMeta();
+    expect(result.items).toHaveLength(127);
+    expect(result.items.at(-1)?.id).toBe("127");
+    expect(result.meta).toEqual(meta);
     expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringContaining("cursor=page-2"), expect.anything());
   });
 
