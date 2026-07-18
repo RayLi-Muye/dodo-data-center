@@ -8,6 +8,27 @@
 
 ## Active wave
 
+### Wave 16: Compact reference details and shadcn foundation
+
+本波只重做英雄详情与物品详情，并建立可渐进采用的 shadcn/Tailwind v4 基础。现有 API、127 个英雄、当前物品口径和地图范围保持不变；不在本波伪造动态胜率、购买率或时间序列。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-020 UI foundation and acceptance contract | Root | shadcn/Tailwind v4 配置、依赖锁定、验收与发布 | Wave 15 | ACCEPTED |
+| WEB-020 compact hero/item details | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；无裁切素材、紧凑资料台、390px 重排 | ROOT-020 | ACCEPTED |
+| QA-020 detail visual acceptance | QA Agent | 只读；桌面、390px、键盘、固定/升级物品与素材比例 | WEB-020 | ACCEPTED |
+| DEPLOY-020 overseas rollout | Root | 全仓门禁、Vercel preview/production smoke | QA-020 | RUNNING |
+
+验收目标：
+
+- 英雄、物品与技能素材分别按 16:9、3:2 与 1:1 完整显示，默认 `contain`；装饰性背景以外不得用 `cover` 裁切实体素材。
+- 英雄和物品详情首屏身份区压缩为紧凑资料条；宽屏将核心属性/效果置于主阅读路径，玩法背景、命石、合成和更新按优先级下沉。
+- 可升级物品保留等级导航与斜杠数值，固定物品保持单值；所有 partial、unavailable、quality 与来源元数据继续可见。
+- shadcn 仅作为可维护的组件源码层渐进接入，不一次性重写全站；Dodo 既有暗色、金色强调与字体继续作为主题源。
+- 390px 无横向溢出，关键内容不被隐藏；键盘焦点、链接语义和 reduced-motion 保持可用。
+
+本地验收证据：真实 7.41d 敌法师桌面身份条高 112px，英雄图为 144×81、技能图为 52×52；真实达贡四级桌面物品图为 144×96，等级 1–5 与斜杠数值同时可见。390×844 的敌法师和达贡详情均为 `scrollWidth=390`，素材 `object-fit=contain`，页面无横向溢出。QA 首轮发现合成组件大图仍被旧固定高度拉伸，修为 `height:auto` + 3:2 并加入回归测试后复验无 P0/P1/P2。全仓 typecheck、测试和 production build 通过；Web 为 16 个测试文件 / 104 项测试。
+
 ### Wave 15: Dota-client catalog composition
 
 以用户提供的 Dota 2 客户端英雄名册和物品训练页截图为视觉参考，不复制客户端装饰素材。本波只调整 Web 信息架构与交互；现有 127 个英雄、268 个当前物品、API 合同和数据过滤保持不变。

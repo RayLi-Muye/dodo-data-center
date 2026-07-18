@@ -7,6 +7,8 @@ import { DataState, EmptyState } from "../../../components/data-state";
 import { EntityRecentUpdates } from "../../../components/entity-recent-updates";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
+import { Badge } from "../../../components/ui/badge";
+import { Separator } from "../../../components/ui/separator";
 import { api, settle } from "../../../lib/api";
 import {
   encyclopediaVersionLabel,
@@ -95,12 +97,11 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
         <AssetImage alt={`${hero.data.localizedName} 英雄图像`} className="hero-profile__image" kind="hero" name={hero.data.name} priority />
         <div className="hero-profile__main">
           <p className="page-heading__eyebrow">HERO / {hero.data.id} / {versionLabel}</p>
-          <h1>{hero.data.localizedName}</h1>
-          <p>{hero.data.name}</p>
-          <div className="tag-row">
-            <span>{attributeLabel[hero.data.primaryAttribute]}</span>
-            <span>{hero.data.attackType === "melee" ? "近战" : "远程"}</span>
-            {hero.data.roles.map((role) => <span key={role}>{heroRoleLabel(role)}</span>)}
+          <div className="hero-profile__title"><h1>{hero.data.localizedName}</h1><span>{hero.data.name}</span></div>
+          <div className="hero-profile__tags">
+            <Badge variant="secondary">{attributeLabel[hero.data.primaryAttribute]}</Badge>
+            <Badge variant="outline">{hero.data.attackType === "melee" ? "近战" : "远程"}</Badge>
+            {hero.data.roles.map((role) => <Badge key={role} variant="outline">{heroRoleLabel(role)}</Badge>)}
           </div>
         </div>
         <div className="hero-profile__index">
@@ -112,9 +113,9 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
 
       <QualityNotice label="英雄详情" quality={hero.meta.quality} showComplete />
 
-      <div className="hero-reference-grid">
+      <div className="hero-detail-workbench">
         <DataSection
-          className="hero-facts"
+          className="hero-facts hero-detail-workbench__facts"
           eyebrow="BASE PROFILE"
           title="基础数据"
           trailing={(
@@ -170,20 +171,7 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
           )}
         </DataSection>
 
-        <DataSection className="hero-lore" eyebrow="PLAYSTYLE / LORE" title="玩法与背景">
-          <article>
-            <small>玩法简介</small>
-            <p>{hype}</p>
-          </article>
-          <article>
-            <small>英雄背景</small>
-            <p>{biography}</p>
-          </article>
-        </DataSection>
-      </div>
-
-      <div className="detail-grid">
-        <DataSection className="detail-grid__main" eyebrow="ABILITY KIT" title="技能组">
+        <DataSection className="hero-detail-workbench__abilities" eyebrow="ABILITY KIT" title="技能组">
           {hero.data.abilities.length === 0 ? (
             <EmptyState detail="当前来源快照还没有结构化技能资料；这不代表英雄没有技能。" title="技能资料待补充" />
           ) : (
@@ -213,21 +201,35 @@ export default async function HeroDetailPage({ params }: { params: Promise<{ her
           )}
         </DataSection>
 
-        <DataSection className="detail-grid__side" eyebrow="FACETS" title="命石 / 分支">
-          {hero.data.facetsStatus === "active" && hero.data.facets.length > 0 ? (
-            <ul className="facet-list">
-              {hero.data.facets.map((facet) => (
-                <li key={facet.name}><strong>{facet.name}</strong><p>{officialDescription(facet.description)}</p></li>
-              ))}
-            </ul>
-          ) : hero.data.facetsStatus === "removed" ? (
-            <p className="detail-empty">当前版本已移除命石机制，不展示历史命石数据。</p>
-          ) : hero.data.facetsStatus === "unavailable" ? (
-            <p className="detail-empty">当前来源不足以确认命石状态。</p>
-          ) : (
-            <p className="detail-empty">当前版本标记命石可用，但没有可展示的命石条目。</p>
-          )}
-        </DataSection>
+        <aside className="hero-detail-workbench__secondary">
+          <DataSection className="hero-lore" eyebrow="PLAYSTYLE / LORE" title="玩法与背景">
+            <article>
+              <small>玩法简介</small>
+              <p>{hype}</p>
+            </article>
+            <Separator />
+            <article>
+              <small>英雄背景</small>
+              <p>{biography}</p>
+            </article>
+          </DataSection>
+
+          <DataSection className="hero-facets" eyebrow="FACETS" title="命石 / 分支">
+            {hero.data.facetsStatus === "active" && hero.data.facets.length > 0 ? (
+              <ul className="facet-list">
+                {hero.data.facets.map((facet) => (
+                  <li key={facet.name}><strong>{facet.name}</strong><p>{officialDescription(facet.description)}</p></li>
+                ))}
+              </ul>
+            ) : hero.data.facetsStatus === "removed" ? (
+              <p className="detail-empty">当前版本已移除命石机制，不展示历史命石数据。</p>
+            ) : hero.data.facetsStatus === "unavailable" ? (
+              <p className="detail-empty">当前来源不足以确认命石状态。</p>
+            ) : (
+              <p className="detail-empty">当前版本标记命石可用，但没有可展示的命石条目。</p>
+            )}
+          </DataSection>
+        </aside>
       </div>
 
       <EntityRecentUpdates

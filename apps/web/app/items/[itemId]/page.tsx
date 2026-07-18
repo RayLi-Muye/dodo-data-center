@@ -8,6 +8,7 @@ import { EntityRecentUpdates } from "../../../components/entity-recent-updates";
 import { LevelValues } from "../../../components/item-detail-panel";
 import { PageHeading } from "../../../components/page-heading";
 import { QualityNotice } from "../../../components/quality-notice";
+import { Badge } from "../../../components/ui/badge";
 import { api, collectAllItemsWithMeta, settle } from "../../../lib/api";
 import { encyclopediaVersionLabel, officialDescription } from "../../../lib/format";
 import { buildItemCatalogEntries, findItemCatalogEntry, levelAttributeValues } from "../../../lib/item-catalog";
@@ -56,11 +57,20 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
       <Link className="back-link" href="/items">← 返回物品百科</Link>
       <section className="item-profile">
         <AssetImage alt={`${item.data.localizedName} 物品图标`} className="item-profile__image" kind="item" name={item.data.name} priority />
-        <div>
+        <div className="item-profile__main">
           <p className="page-heading__eyebrow">ITEM / {item.data.id} / {versionLabel}</p>
           <h1>{item.data.localizedName}</h1>
           <p>{officialDescription(item.data.description)}</p>
-          <div className="tag-row"><span>{categoryLabel}</span><span>{itemKindLabel[item.data.kind]}</span><span>{versionLabel}</span>{isUpgradeFamily ? <span>等级 {selectedLevel}</span> : null}</div>
+          <div className="item-profile__tags"><Badge variant="secondary">{categoryLabel}</Badge><Badge variant="outline">{itemKindLabel[item.data.kind]}</Badge><Badge variant="outline">{versionLabel}</Badge>{isUpgradeFamily ? <Badge variant="outline">等级 {selectedLevel}</Badge> : null}</div>
+          {isUpgradeFamily && familyEntry ? (
+            <nav aria-label={`${item.data.localizedName} 等级`} className="item-level-switcher item-level-switcher--detail">
+              {familyEntry.members.map((member) => (
+                <Link aria-current={member.item.id === item.data.id ? "page" : undefined} href={`/items/${encodeURIComponent(member.item.id)}`} key={member.item.id}>
+                  <span>等级</span><strong>{member.level}</strong>
+                </Link>
+              ))}
+            </nav>
+          ) : null}
         </div>
         <div className="item-profile__cost"><span>COST</span><strong>{item.data.cost.toLocaleString("zh-CN")}</strong><small>金币</small></div>
       </section>
@@ -75,18 +85,8 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
         <p className="data-disclaimer">升级族已识别，但部分等级详情暂不可用；等级导航仍保留，当前仅展示所选等级的原始属性。</p>
       ) : null}
 
-      {isUpgradeFamily && familyEntry ? (
-        <nav aria-label={`${item.data.localizedName} 等级`} className="item-level-switcher item-level-switcher--detail">
-          {familyEntry.members.map((member) => (
-            <Link aria-current={member.item.id === item.data.id ? "page" : undefined} href={`/items/${encodeURIComponent(member.item.id)}`} key={member.item.id}>
-              <span>等级</span><strong>{member.level}</strong>
-            </Link>
-          ))}
-        </nav>
-      ) : null}
-
-      <div className="detail-grid">
-        <DataSection className="detail-grid__main" eyebrow="ATTRIBUTES" title="属性与效果">
+      <div className="detail-grid item-detail-workbench">
+        <DataSection className="detail-grid__main item-detail-workbench__effects" eyebrow="ATTRIBUTES" title="属性与效果">
           {item.data.attributes.length > 0 ? (
             <dl className="attribute-list">
               {item.data.attributes.map((attribute, index) => {
@@ -96,7 +96,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ ite
             </dl>
           ) : <p className="detail-empty">当前快照没有结构化属性。</p>}
         </DataSection>
-        <DataSection className="detail-grid__side" eyebrow="RECIPE" title="合成组件">
+        <DataSection className="detail-grid__side item-detail-workbench__recipe" eyebrow="RECIPE" title="合成组件">
           {item.data.components.length === 0 ? <p className="detail-empty">该物品没有合成组件。</p> : (
             <div className="component-list">
               {item.data.components.map((componentId) => {
