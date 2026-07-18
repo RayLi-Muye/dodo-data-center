@@ -17,7 +17,7 @@
 | ROOT-020 UI foundation and acceptance contract | Root | shadcn/Tailwind v4 配置、依赖锁定、验收与发布 | Wave 15 | ACCEPTED |
 | WEB-020 compact hero/item details | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；无裁切素材、紧凑资料台、390px 重排 | ROOT-020 | ACCEPTED |
 | QA-020 detail visual acceptance | QA Agent | 只读；桌面、390px、键盘、固定/升级物品与素材比例 | WEB-020 | ACCEPTED |
-| DEPLOY-020 overseas rollout | Root | 全仓门禁、Vercel preview/production smoke | QA-020 | RUNNING |
+| DEPLOY-020 overseas rollout | Root | 全仓门禁、Vercel preview/production smoke | QA-020 | ACCEPTED |
 
 验收目标：
 
@@ -27,7 +27,7 @@
 - shadcn 仅作为可维护的组件源码层渐进接入，不一次性重写全站；Dodo 既有暗色、金色强调与字体继续作为主题源。
 - 390px 无横向溢出，关键内容不被隐藏；键盘焦点、链接语义和 reduced-motion 保持可用。
 
-本地验收证据：真实 7.41d 敌法师桌面身份条高 112px，英雄图为 144×81、技能图为 52×52；真实达贡四级桌面物品图为 144×96，等级 1–5 与斜杠数值同时可见。390×844 的敌法师和达贡详情均为 `scrollWidth=390`，素材 `object-fit=contain`，页面无横向溢出。QA 首轮发现合成组件大图仍被旧固定高度拉伸，修为 `height:auto` + 3:2 并加入回归测试后复验无 P0/P1/P2。全仓 typecheck、测试和 production build 通过；Web 为 16 个测试文件 / 104 项测试。
+本地验收证据：真实 7.41d 敌法师桌面身份条高 112px，英雄图为 144×81、技能图为 52×52；真实达贡四级桌面物品图为 144×96，等级 1–5 与斜杠数值同时可见。390×844 的敌法师和达贡详情均为 `scrollWidth=390`，素材 `object-fit=contain`，页面无横向溢出。QA 首轮发现合成组件大图仍被旧固定高度拉伸，修为 `height:auto` + 3:2 并加入回归测试后复验无 P0/P1/P2。全仓 typecheck、测试和 production build 通过；Web 为 16 个测试文件 / 104 项测试。Draft PR [#19](https://github.com/RayLi-Muye/dodo-data-center/pull/19) 已创建，Vercel preview `dpl_DX1g5k2BFwN87t9z9G93vpJe9zBN` 为 Ready，预览地址为 `https://web-3p9euyelq-rays-projects-f956e95b.vercel.app`。
 
 ### Wave 15: Dota-client catalog composition
 
