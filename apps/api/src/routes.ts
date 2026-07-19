@@ -302,6 +302,22 @@ const toItemSummary = (item: ItemDetail): ItemSummary => ({
 const itemNameOrder = <T extends { localizedName: string; id: string }>(left: T, right: T) =>
   left.localizedName.localeCompare(right.localizedName) || left.id.localeCompare(right.id);
 
+const filterCatalogItems = (
+  items: ItemDetail[],
+  query: z.output<typeof encyclopediaListQuerySchema>,
+): ItemDetail[] => {
+  const search = query.q?.toLocaleLowerCase();
+  return items
+    .filter(
+      (item) =>
+        (!query.patch || item.officialVersion === query.patch) &&
+        (!search ||
+          item.name.toLocaleLowerCase().includes(search) ||
+          item.localizedName.toLocaleLowerCase().includes(search)),
+    )
+    .sort(itemNameOrder);
+};
+
 const syncErrorCode = (status: PlayerProfile["status"]): string | null => {
   const codeByStatus: Partial<Record<PlayerProfile["status"], ApiError["error"]["code"]>> = {
     history_private: "HISTORY_PRIVATE",
@@ -1165,19 +1181,25 @@ export const registerRoutes = async (
   app.get("/v1/items", async (request) => {
     const errorMeta = await defaultErrorMeta();
     const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
-    const search = query.q?.toLocaleLowerCase();
     const snapshot = await repository.getItemSnapshot();
     if (!snapshot) throw staticUnavailableError("Item");
-    const items = (await repository.listItems())
-      .filter(
-        (item) =>
-          (!query.patch || item.officialVersion === query.patch) &&
-          (!search ||
-            item.name.toLocaleLowerCase().includes(search) ||
-            item.localizedName.toLocaleLowerCase().includes(search)),
-      )
-      .map(toItemSummary)
-      .sort(itemNameOrder);
+    const items = filterCatalogItems(await repository.listItems(), query).map(toItemSummary);
+    return {
+      data: paginate(items, query.limit, query.cursor, (item) => item.id, errorMeta),
+      meta: createOperationMeta(
+        descriptorFromSnapshot(snapshot),
+      ),
+    };
+  });
+
+  // This static route must be registered before /v1/items/:itemId so Fastify
+  // never interprets the literal "details" segment as an item identifier.
+  app.get("/v1/items/details", async (request) => {
+    const errorMeta = await defaultErrorMeta();
+    const query = parse(encyclopediaListQuerySchema, request.query, errorMeta);
+    const snapshot = await repository.getItemSnapshot();
+    if (!snapshot) throw staticUnavailableError("Item");
+    const items = filterCatalogItems(await repository.listItems(), query);
     return {
       data: paginate(items, query.limit, query.cursor, (item) => item.id, errorMeta),
       meta: createOperationMeta(

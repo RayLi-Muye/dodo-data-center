@@ -80,6 +80,7 @@ GET /v1/heroes?q=&patch=
 GET /v1/heroes/{heroId}?patch=
 GET /v1/heroes/{heroId}/updates?limit=&cursor=
 GET /v1/items?q=&patch=
+GET /v1/items/details?q=&patch=
 GET /v1/items/{itemId}?patch=
 GET /v1/items/{itemId}/updates?limit=&cursor=
 GET /v1/maps/current
@@ -92,6 +93,8 @@ A successfully observed latest official version that differs from a curated map'
 `GET /v1/heroes/{heroId}` 的 `hype`、`biography`、`complexity` 与 `baseStats` 使用 Dota 2 official current-data。`baseStats` 包括初始生命/魔法、恢复、护甲、魔抗、攻击、三维及成长、移速、攻击距离/间隔、弹道、转身和昼夜视野；历史 payload 缺少这些字段时返回空文本或 `null`，不得从比赛样本反推。`abilities` 使用比赛加点事件同一 numeric ability ID，并以 Dota 2 official current-data 为规则主源；`attributes` 只保存官方结构化技能数值。普通技能保持官方编排顺序，天赋随后按等级顺序排列；隐藏技能不得公开。`facetsStatus=active|removed|unavailable` 区分当前启用、当前版本已移除和来源不足；deprecated facet 不得作为当前 facet 展示。无法映射 numeric ID 的技能不得伪造 ID，也不得用名称字符串替代公开 ID。
 
 物品响应使用 `kind=item|recipe|neutral_item|neutral_enhancement` 区分定义类型，并返回 `availabilityStatus=verified_current|unverified`。官方 datafeed 中存在一条定义不能单独证明它当前可在商店购买；进入当前百科目录必须具有可审计的当前可见性证据，且图纸无条件排除。过滤后仍无法逐项证明“可购买”的条目保持 `unverified`，前端不得将其描述为“当前可购买”。
+
+`GET /v1/items/details` 与轻量 `GET /v1/items` 使用相同过滤、排序、游标和 operation meta，但分页项为完整 `ItemDetail`。物品工作台首次进入时必须在服务端遍历该接口的 `nextCursor`，再把一次性目录快照交给客户端；物品选择、搜索、升级等级与已加载合成组件切换不得再次请求 API 或触发 Next.js 路由刷新。选择状态通过 `history.replaceState` 同步到 `q`、`selected` 查询参数，并响应 `popstate`，以保留可分享链接与浏览器前进后退。
 
 比赛详情展示技能名称时只能使用 `abilityBuild[].abilityId` 与英雄技能字典的精确 ID 匹配。未命中时保留 `技能 #<id>`，不能根据加点位置猜测技能。
 

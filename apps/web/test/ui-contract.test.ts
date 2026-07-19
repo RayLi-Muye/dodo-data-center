@@ -9,7 +9,7 @@ describe("Web UI copy and touch contract", () => {
   it("uses the Unicode ellipsis for every requested input placeholder", () => {
     const accountSearch = source("../components/account-search.tsx");
     const heroesPage = source("../app/heroes/page.tsx");
-    const itemsPage = source("../app/items/page.tsx");
+    const itemsPage = source("../components/item-catalog-workbench.tsx");
 
     expect(accountSearch.match(/placeholder: "[^"]+…"/g)).toHaveLength(3);
     expect(heroesPage).toContain('placeholder="输入英雄中文名或内部名称…"');
@@ -156,17 +156,18 @@ describe("Web UI copy and touch contract", () => {
     const heroList = source("../app/heroes/page.tsx");
     const heroDetail = source("../app/heroes/[heroId]/page.tsx");
     const itemList = source("../app/items/page.tsx");
+    const itemWorkbench = source("../components/item-catalog-workbench.tsx");
     const itemCatalog = source("../lib/item-catalog.ts");
     const itemDetail = source("../app/items/[itemId]/page.tsx");
     const patchesPage = source("../app/patches/page.tsx");
 
-    for (const page of [heroList, heroDetail, itemList, itemDetail, patchesPage]) {
+    for (const page of [heroList, heroDetail, itemWorkbench, itemDetail, patchesPage]) {
       expect(page).toContain("<QualityNotice");
       expect(page).toContain("showComplete");
     }
     expect(heroList).toContain("collectAllHeroesWithMeta");
-    expect(itemList).toContain("collectAllItemsWithMeta");
-    expect(itemList).toContain('item.kind !== "recipe"');
+    expect(itemList).toContain("collectAllItemDetailsWithMeta");
+    expect(itemWorkbench).toContain('item.kind !== "recipe"');
     expect(itemCatalog).toContain('label: "其他当前物品"');
     expect(itemDetail).toContain('item.data.availabilityStatus === "unverified"');
     expect(itemDetail).toContain("官方定义存在不等于当前商店可购买");
@@ -193,7 +194,7 @@ describe("Web UI copy and touch contract", () => {
   it("shows all heroes in official attribute groups and preserves local custom groups", () => {
     const heroList = source("../app/heroes/page.tsx");
     const heroBrowser = source("../components/hero-catalog-browser.tsx");
-    const itemList = source("../app/items/page.tsx");
+    const itemWorkbench = source("../components/item-catalog-workbench.tsx");
     const css = source("../app/globals.css");
 
     expect(heroList).toContain("collectAllHeroesWithMeta(query.q)");
@@ -203,19 +204,19 @@ describe("Web UI copy and touch contract", () => {
     expect(heroBrowser).toContain('useState<"official" | "custom">("official")');
     expect(heroBrowser).toContain("readHeroGroups(window.localStorage)");
     expect(heroBrowser).toContain("writeHeroGroups(window.localStorage, customGroups)");
-    expect(itemList).toContain("buildItemCatalogEntries(result.items.filter((item) => item.kind !== \"recipe\"))");
-    expect(itemList).toContain("filterItemCatalogEntries(");
-    expect(itemList).toContain("groupItemCatalogEntries(entries)");
-    expect(itemList).toContain("itemCatalogHref(entry.item.id, query.q)");
-    expect(itemList).toContain("{currentItems.length} 个实体 / {entries.length} 个目录入口");
-    expect(css).toMatch(/\.hero-armory-tile__image\s*\{[^}]*aspect-ratio:\s*3\s*\/\s*4;[^}]*object-fit:\s*cover;/s);
+    expect(itemWorkbench).toContain("buildItemCatalogEntries(details.filter((item) => item.kind !== \"recipe\"))");
+    expect(itemWorkbench).toContain("filterItemCatalogEntries(");
+    expect(itemWorkbench).toContain("groupItemCatalogEntries(entries)");
+    expect(itemWorkbench).toContain("{currentItems.length} 个实体 / {entries.length} 个目录入口");
+    expect(css).toMatch(/\.hero-armory-tile__image\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9;[^}]*object-fit:\s*contain;/s);
     expect(css).toMatch(/@media \(min-width: 64rem\)[\s\S]*?\.hero-attribute-groups\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
-    expect(css).toMatch(/@media \(min-width: 64rem\)[\s\S]*?\.hero-armory-grid\s*\{[^}]*grid-template-columns:\s*repeat\(6,/s);
+    expect(css).toMatch(/@media \(min-width: 64rem\)[\s\S]*?\.hero-armory-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
   });
 
   it("keeps the item inspector immediate on small screens and sticky on desktop", () => {
     const css = source("../app/globals.css");
     const itemList = source("../app/items/page.tsx");
+    const itemWorkbench = source("../components/item-catalog-workbench.tsx");
     const itemPanel = source("../components/item-detail-panel.tsx");
     const itemDetail = source("../app/items/[itemId]/page.tsx");
 
@@ -223,7 +224,8 @@ describe("Web UI copy and touch contract", () => {
     expect(css).toMatch(/\.item-inspector\s*\{[^}]*order:\s*-1;/s);
     expect(css).toMatch(/@media \(min-width: 75rem\)[\s\S]*?\.item-inspector\s*\{[^}]*position:\s*sticky;[^}]*order:\s*0;/s);
     expect(css).toContain(".item-inspector > .dodo-meta-line");
-    expect(itemList).toContain("findItemCatalogEntry(entries, query.selected)");
+    expect(itemList).toContain("collectAllItemDetailsWithMeta");
+    expect(itemWorkbench).toContain("findItemCatalogEntry(entries, selectedId)");
     expect(itemPanel).toContain("const isUpgradeFamily = entry.members.length > 1");
     expect(itemPanel).toContain("const values = hasCompleteFamilyDetails ? levelAttributeValues(familyDetails, index) : null");
     expect(itemPanel).toContain("升级族已识别，但部分等级详情暂不可用");
@@ -233,7 +235,37 @@ describe("Web UI copy and touch contract", () => {
     expect(itemDetail).toContain('className="item-level-switcher item-level-switcher--detail"');
   });
 
-  it("shows the official hero profile and base-stat fields in a responsive reference grid", () => {
+  it("switches the preloaded item workbench with memory state and the History API", () => {
+    const itemPage = source("../app/items/page.tsx");
+    const workbench = source("../components/item-catalog-workbench.tsx");
+    const panel = source("../components/item-detail-panel.tsx");
+
+    expect(itemPage).toContain("collectAllItemDetailsWithMeta()");
+    expect(itemPage).not.toContain("api.item(");
+    expect(workbench).toContain('window.history.replaceState(window.history.state, "", url)');
+    expect(workbench).toContain('window.addEventListener("popstate", restoreFromHistory)');
+    expect(workbench).toContain('window.removeEventListener("popstate", restoreFromHistory)');
+    expect(workbench).toContain('onChange={(event) => updateQuery(event.currentTarget.value)}');
+    expect(workbench).toContain('className="item-shop-tile"');
+    expect(workbench).not.toContain("<Link");
+    expect(workbench).not.toContain("fetch(");
+    expect(workbench).not.toContain("router.");
+    expect(panel.match(/<Link/g)).toHaveLength(1);
+    expect(panel).toContain('className="item-inspector__full-link"');
+    expect(panel).toContain("onClick={() => onSelectLevel(member.item.id)}");
+    expect(panel).toContain("onClick={() => onSelectItem(component.id)}");
+    expect(panel).not.toContain("itemCatalogHref");
+  });
+
+  it("scopes dense hero detail overrides without shrinking shared sections", () => {
+    const css = source("../app/globals.css");
+
+    expect(css).toMatch(/\.hero-detail-page \.dodo-section__header\s*\{[^}]*min-height:\s*3\.25rem;/s);
+    expect(css).toMatch(/\.hero-detail-page \.ability-list li\s*\{[^}]*grid-template-columns:\s*1\.25rem 2\.75rem/s);
+    expect(css).toMatch(/\.hero-detail-page \.hero-profile\s*\{[^}]*min-height:\s*6rem;/s);
+  });
+
+  it("shows the official hero profile and base-stat fields in a compact responsive workbench", () => {
     const heroDetail = source("../app/heroes/[heroId]/page.tsx");
     const css = source("../app/globals.css");
 
@@ -266,9 +298,44 @@ describe("Web UI copy and touch contract", () => {
     ]) {
       expect(heroDetail).toContain(`stats.${field}`);
     }
-    expect(css).toContain(".hero-reference-grid");
+    expect(heroDetail).toContain('className="hero-detail-workbench"');
+    expect(heroDetail).toContain('className="hero-detail-workbench__abilities"');
+    expect(heroDetail.indexOf('className="hero-facts hero-detail-workbench__facts"')).toBeLessThan(
+      heroDetail.indexOf('className="hero-detail-workbench__abilities"'),
+    );
+    expect(heroDetail.indexOf('className="hero-detail-workbench__abilities"')).toBeLessThan(
+      heroDetail.indexOf('className="hero-detail-workbench__secondary"'),
+    );
+    expect(css).toContain(".hero-detail-workbench");
     expect(css).toContain(".hero-primary-stats");
-    expect(css).toMatch(/@media \(min-width: 40rem\)[\s\S]*?\.hero-reference-grid[^}]+grid-template-columns:/);
+    expect(css).toMatch(/@media \(min-width: 64rem\)[\s\S]*?\.hero-detail-workbench\s*\{[^}]*grid-template-columns:/s);
+  });
+
+  it("keeps every Dota asset at its native ratio without cover-cropping", () => {
+    const assetImage = source("../components/asset-image.tsx");
+    const css = source("../app/globals.css");
+
+    expect(assetImage).toContain("asset-image--${kind}");
+    expect(css).toMatch(/\.asset-image\s*\{[^}]*height:\s*auto;[^}]*object-fit:\s*contain;/s);
+    expect(css).toContain(".asset-image--hero { aspect-ratio: 16 / 9; }");
+    expect(css).toContain(".asset-image--item { aspect-ratio: 3 / 2; }");
+    expect(css).toContain(".asset-image--ability { aspect-ratio: 1; }");
+    expect(css).toMatch(/\.item-thumb--large\s*\{[^}]*height:\s*auto;[^}]*aspect-ratio:\s*3\s*\/\s*2;/s);
+    expect(css).not.toMatch(/object-fit:\s*cover/);
+  });
+
+  it("keeps item identity, price, and upgrade levels inside one compact profile", () => {
+    const itemDetail = source("../app/items/[itemId]/page.tsx");
+    const css = source("../app/globals.css");
+
+    const profileStart = itemDetail.indexOf('className="item-profile"');
+    const profileEnd = itemDetail.indexOf("</section>", profileStart);
+    const levelSwitcher = itemDetail.indexOf('className="item-level-switcher item-level-switcher--detail"');
+    expect(levelSwitcher).toBeGreaterThan(profileStart);
+    expect(levelSwitcher).toBeLessThan(profileEnd);
+    expect(itemDetail).toContain('className="detail-grid item-detail-workbench"');
+    expect(css).toMatch(/\.item-profile\s*\{[^}]*min-height:\s*7rem;/s);
+    expect(css).toMatch(/\.item-profile__image\s*\{[^}]*aspect-ratio:\s*3\s*\/\s*2;[^}]*object-fit:\s*contain;/s);
   });
 
   it("keeps hero and item details usable while recent official updates fail independently", () => {

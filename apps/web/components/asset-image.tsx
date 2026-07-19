@@ -27,7 +27,7 @@ export function AssetImage({
 
   if (!src || failed) {
     return (
-      <span className={`asset-fallback asset-fallback--${kind} ${className}`.trim()} role="img" aria-label={`${alt} 图片不可用`}>
+      <span className={`asset-image asset-image--${kind} asset-fallback asset-fallback--${kind} ${className}`.trim()} role="img" aria-label={`${alt} 图片不可用`}>
         {alt.slice(0, 2).toUpperCase()}
       </span>
     );
@@ -36,7 +36,7 @@ export function AssetImage({
   return (
     <img
       alt={alt}
-      className={className}
+      className={`asset-image asset-image--${kind} ${className}`.trim()}
       decoding="async"
       fetchPriority={priority ? "high" : "auto"}
       height={dimensions.height}

@@ -8,6 +8,51 @@
 
 ## Active wave
 
+### Wave 17: In-memory item workbench and hero density calibration
+
+本波修复物品工作台把每次选择实现成服务端页面导航的问题，并按用户反馈重新校准英雄目录与详情密度。静态目录口径、物品可用性声明、英雄字段和移动端信息完整度保持不变。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-021 interaction contract | Root | 完整物品列表响应、URL/缓存语义、验收与发布 | Wave 16 | ACCEPTED |
+| API-021 item detail catalog | Backend/API Agent | `apps/api/**`；完整详情分页接口与测试 | ROOT-021 | ACCEPTED |
+| WEB-021 local workbench and hero scale | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；零刷新选择、四列大卡、紧凑详情 | ROOT-021, API-021 | ACCEPTED |
+| QA-021 interaction and visual acceptance | QA Agent | 只读；网络、前进后退、桌面/390px、键盘与数据状态 | API-021, WEB-021 | ACCEPTED |
+| DEPLOY-021 overseas preview | Root | 全仓门禁、PR、Railway/Vercel smoke | QA-021 | ACCEPTED |
+
+验收目标：
+
+- `/items` 首次进入时遍历完整详情分页；随后搜索、物品选择、升级等级和已加载合成组件选择均不触发 document/RSC 导航或新增 API 请求。
+- 选择与搜索状态使用 History API 写入 `q`、`selected`，可复制链接，并能通过浏览器前进后退恢复；初始 partial、stale、unavailable 和来源元数据继续诚实展示。
+- 不用 268 个浏览器详情请求换取“无刷新”；完整详情只通过批量分页边界取得并由 Next 服务端一次组装。
+- 宽屏四属性英雄库每组改为四列可辨识卡片；390px 保持合理触控尺寸且无横向溢出。
+- 英雄详情的身份条、模块标题、属性、技能行和正文整体压缩一档；不隐藏官方字段、质量状态或来源。
+
+本地验收证据：完整详情接口保持 100 条上限，API 测试验证 127 条目录按 100/27 两页稳定遍历；物品页不再出现 `api.item` 逐项读取，目录、等级和已加载组件均为内存按钮，唯一保留的 Link 是显式独立详情入口。英雄宽屏每属性组由 6 列改为 4 列；详情压缩规则全部限定在 `.hero-detail-page`。全仓 typecheck、production build 与测试通过：API 117 项、Web 106 项、数据源 156 项；独立 QA 无 P0/P1/P2。Seed production 冒烟中 `/v1/items/details`、`/items`、空搜索和无效 selected 回退均为 200，SSR 目录 tile 无 `href`。本机当前缺少 Chrome DevTools `mcporter` 桥接，桌面与 390px 的真实浏览器截图/网络面板验证保留为部署后验证缺口，不以 curl 冒充视觉证据。
+
+部署证据：Railway API deployment `6f9556d5-3266-494b-ba4e-a5386051b78c` 为 SUCCESS，readiness 为 200；生产完整详情第一页返回 100 个 `ItemDetail`、非空 nextCursor、partial quality 与 `dota2_official` 来源。提交 `f441282` 对应的 Vercel preview `web-jly0hrish-rays-projects-f956e95b.vercel.app` 为 READY。Draft PR #19 保持开放，等待用户视觉确认后再决定合并。
+
+### Wave 16: Compact reference details and shadcn foundation
+
+本波只重做英雄详情与物品详情，并建立可渐进采用的 shadcn/Tailwind v4 基础。现有 API、127 个英雄、当前物品口径和地图范围保持不变；不在本波伪造动态胜率、购买率或时间序列。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-020 UI foundation and acceptance contract | Root | shadcn/Tailwind v4 配置、依赖锁定、验收与发布 | Wave 15 | ACCEPTED |
+| WEB-020 compact hero/item details | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；无裁切素材、紧凑资料台、390px 重排 | ROOT-020 | ACCEPTED |
+| QA-020 detail visual acceptance | QA Agent | 只读；桌面、390px、键盘、固定/升级物品与素材比例 | WEB-020 | ACCEPTED |
+| DEPLOY-020 overseas rollout | Root | 全仓门禁、Vercel preview/production smoke | QA-020 | ACCEPTED |
+
+验收目标：
+
+- 英雄、物品与技能素材分别按 16:9、3:2 与 1:1 完整显示，默认 `contain`；装饰性背景以外不得用 `cover` 裁切实体素材。
+- 英雄和物品详情首屏身份区压缩为紧凑资料条；宽屏将核心属性/效果置于主阅读路径，玩法背景、命石、合成和更新按优先级下沉。
+- 可升级物品保留等级导航与斜杠数值，固定物品保持单值；所有 partial、unavailable、quality 与来源元数据继续可见。
+- shadcn 仅作为可维护的组件源码层渐进接入，不一次性重写全站；Dodo 既有暗色、金色强调与字体继续作为主题源。
+- 390px 无横向溢出，关键内容不被隐藏；键盘焦点、链接语义和 reduced-motion 保持可用。
+
+本地验收证据：真实 7.41d 敌法师桌面身份条高 112px，英雄图为 144×81、技能图为 52×52；真实达贡四级桌面物品图为 144×96，等级 1–5 与斜杠数值同时可见。390×844 的敌法师和达贡详情均为 `scrollWidth=390`，素材 `object-fit=contain`，页面无横向溢出。QA 首轮发现合成组件大图仍被旧固定高度拉伸，修为 `height:auto` + 3:2 并加入回归测试后复验无 P0/P1/P2。全仓 typecheck、测试和 production build 通过；Web 为 16 个测试文件 / 104 项测试。Draft PR [#19](https://github.com/RayLi-Muye/dodo-data-center/pull/19) 已创建，Vercel preview `dpl_DX1g5k2BFwN87t9z9G93vpJe9zBN` 为 Ready，预览地址为 `https://web-3p9euyelq-rays-projects-f956e95b.vercel.app`。
+
 ### Wave 15: Dota-client catalog composition
 
 以用户提供的 Dota 2 客户端英雄名册和物品训练页截图为视觉参考，不复制客户端装饰素材。本波只调整 Web 信息架构与交互；现有 127 个英雄、268 个当前物品、API 合同和数据过滤保持不变。
