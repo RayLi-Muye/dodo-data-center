@@ -1,7 +1,7 @@
 import type { ItemDetail, ItemSummary } from "@dodo/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildItemCatalogEntries, filterItemCatalogEntries, findItemCatalogEntry, itemCatalogHref, levelAttributeValues } from "../lib/item-catalog";
+import { buildItemCatalogEntries, filterItemCatalogEntries, findItemCatalogEntry, levelAttributeValues } from "../lib/item-catalog";
 
 function item(id: string, name: string, localizedName: string): ItemSummary {
   return { availabilityStatus: "verified_current", category: "official_quality_4", cost: 1, id, kind: "item", localizedName, name, officialVersion: "7.41d" };
@@ -84,11 +84,6 @@ describe("item catalog upgrade families", () => {
 
     expect(levelAttributeValues(levels, 0)).toBeNull();
     expect(levelAttributeValues(levels, 1)).toEqual(["+60", "+90", "+120", "+150", "+180"]);
-  });
-
-  it("preserves search and selected item context in catalog URLs", () => {
-    expect(itemCatalogHref("4", "达贡 / dagon")).toBe("/items?q=%E8%BE%BE%E8%B4%A1+%2F+dagon&selected=4");
-    expect(itemCatalogHref("4")).toBe("/items?selected=4");
   });
 
   it("filters after folding so a level-specific search keeps the complete upgrade family", () => {

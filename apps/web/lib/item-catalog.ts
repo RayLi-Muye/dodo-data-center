@@ -111,13 +111,6 @@ export function filterItemCatalogEntries(entries: ItemCatalogEntry[], query: str
   )));
 }
 
-export function itemCatalogHref(itemId: string, q?: string): string {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  params.set("selected", itemId);
-  return `/items?${params.toString()}`;
-}
-
 export function levelAttributeValues(details: ItemDetail[], attributeIndex: number): string[] | null {
   if (details.length < 2) return null;
   const label = details[0]?.attributes[attributeIndex]?.label;

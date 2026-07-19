@@ -3,7 +3,7 @@ import { MetaLine } from "@dodo/ui";
 import Link from "next/link";
 
 import type { ItemCatalogEntry } from "../lib/item-catalog";
-import { itemCatalogHref, levelAttributeValues } from "../lib/item-catalog";
+import { levelAttributeValues } from "../lib/item-catalog";
 import { officialDescription } from "../lib/format";
 import { AssetImage } from "./asset-image";
 import { QualityNotice } from "./quality-notice";
@@ -14,14 +14,18 @@ export function ItemDetailPanel({
   entry,
   familyDetails,
   meta,
-  q,
+  onSelectItem,
+  onSelectLevel,
+  selectableComponentIds,
 }: {
   components: ItemDetail[];
   detail: ItemDetail;
   entry: ItemCatalogEntry;
   familyDetails: ItemDetail[];
   meta: { quality: "complete" | "partial" | "stale"; sources: string[]; updatedAt: string };
-  q: string | undefined;
+  onSelectItem: (itemId: string) => void;
+  onSelectLevel: (itemId: string) => void;
+  selectableComponentIds: string[];
 }) {
   const selectedLevel = entry.members.find((member) => member.item.id === detail.id)?.level ?? 1;
   const isUpgradeFamily = entry.members.length > 1;
@@ -40,13 +44,14 @@ export function ItemDetailPanel({
       {isUpgradeFamily ? (
         <nav aria-label={`${detail.localizedName} 等级`} className="item-level-switcher">
           {entry.members.map((member) => (
-            <Link
+            <button
               aria-current={member.item.id === detail.id ? "page" : undefined}
-              href={itemCatalogHref(member.item.id, q)}
               key={member.item.id}
+              onClick={() => onSelectLevel(member.item.id)}
+              type="button"
             >
               <span>等级</span><strong>{member.level}</strong>
-            </Link>
+            </button>
           ))}
         </nav>
       ) : null}
@@ -79,12 +84,18 @@ export function ItemDetailPanel({
           <div className="item-inspector__components">
             {detail.components.map((componentId) => {
               const component = components.find((candidate) => candidate.id === componentId);
-              return component ? (
-                <Link href={`/items/${encodeURIComponent(component.id)}`} key={component.id} title={component.localizedName}>
+              if (!component) return <span className="item-inspector__missing" key={componentId}>#{componentId}</span>;
+              const content = (
+                <>
                   <AssetImage alt={component.localizedName} kind="item" name={component.name} />
                   <span>{component.localizedName}<small>{component.cost.toLocaleString("zh-CN")} 金</small></span>
-                </Link>
-              ) : <span className="item-inspector__missing" key={componentId}>#{componentId}</span>;
+                </>
+              );
+              return selectableComponentIds.includes(component.id) ? (
+                <button key={component.id} onClick={() => onSelectItem(component.id)} title={component.localizedName} type="button">
+                  {content}
+                </button>
+              ) : <div className="item-inspector__component-static" key={component.id} title={`${component.localizedName}（不在当前目录）`}>{content}</div>;
             })}
           </div>
         )}

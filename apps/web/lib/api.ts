@@ -3,6 +3,7 @@ import {
   heroDetailResponseSchema,
   heroesResponseSchema,
   itemDetailResponseSchema,
+  itemDetailsResponseSchema,
   itemsResponseSchema,
   mapVersionResponseSchema,
   matchDetailResponseSchema,
@@ -16,7 +17,7 @@ import {
   updatesResponseSchema,
 } from "@dodo/contracts";
 import type { ApiError } from "@dodo/contracts";
-import type { HeroSummary, ItemSummary, OperationMeta, PatchSummary, PlayerHeroStats, ResponseMeta, UpdateReleaseSummary } from "@dodo/contracts";
+import type { HeroSummary, ItemDetail, ItemSummary, OperationMeta, PatchSummary, PlayerHeroStats, ResponseMeta, UpdateReleaseSummary } from "@dodo/contracts";
 import type { z } from "zod";
 
 const FALLBACK_API_BASE_URL = "http://127.0.0.1:3001";
@@ -121,6 +122,12 @@ export const api = {
     fetchApi(itemDetailResponseSchema, `/v1/items/${encodeURIComponent(itemId)}`, {
       next: { revalidate: 3_600 },
     }),
+  itemDetails: (options: { cursor?: string | undefined; limit?: number } = {}) =>
+    fetchApi(
+      itemDetailsResponseSchema,
+      `/v1/items/details${queryString({ cursor: options.cursor, limit: options.limit ?? 100 })}`,
+      { next: { revalidate: 3_600 } },
+    ),
   itemUpdates: (itemId: string) =>
     fetchApi(
       entityUpdatesResponseSchema,
@@ -256,6 +263,10 @@ export async function collectAllHeroes() {
 
 export async function collectAllItemsWithMeta(q?: string) {
   return collectCatalog<ItemSummary>((cursor) => api.items({ cursor, limit: 100, q }));
+}
+
+export async function collectAllItemDetailsWithMeta() {
+  return collectCatalog<ItemDetail>((cursor) => api.itemDetails({ cursor, limit: 100 }));
 }
 
 export async function collectAllItems() {

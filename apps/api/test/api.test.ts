@@ -6,6 +6,7 @@ import {
   heroDetailResponseSchema,
   heroesResponseSchema,
   itemDetailResponseSchema,
+  itemDetailsResponseSchema,
   itemsResponseSchema,
   mapFeaturesResponseSchema,
   mapVersionResponseSchema,
@@ -96,6 +97,9 @@ describe("Dodo API", () => {
       json(await app.inject({ method: "GET", url: "/v1/heroes/1/updates" })),
     );
     itemsResponseSchema.parse(json(await app.inject({ method: "GET", url: "/v1/items" })));
+    itemDetailsResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/items/details" })),
+    );
     itemDetailResponseSchema.parse(
       json(await app.inject({ method: "GET", url: "/v1/items/1" })),
     );
@@ -861,6 +865,23 @@ describe("Dodo API", () => {
       "Seed Blink Dagger",
     ]);
 
+    const details = itemDetailsResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: "/v1/items/details?q=blink&patch=seed-patch&limit=1",
+        }),
+      ),
+    );
+    expect(details.data.items).toHaveLength(1);
+    expect(details.data.items[0]).toMatchObject({
+      id: "1",
+      localizedName: "Seed Blink Dagger",
+      officialVersion: "seed-patch",
+    });
+    expect(details.data.items[0]).toHaveProperty("description");
+    expect(details.data.items[0]).toHaveProperty("attributes");
+
     const features = mapFeaturesResponseSchema.parse(
       json(
         await app.inject({
@@ -929,6 +950,50 @@ describe("Dodo API", () => {
       const overLimit = await app.inject({ method: "GET", url: `/v1/${resource}?limit=101` });
       expect(overLimit.statusCode).toBe(400);
     }
+  });
+
+  it("paginates the complete item-detail catalog with the catalog's stable order", async () => {
+    await app.close();
+    const repository = await createSeedRepository();
+    const [itemTemplate, itemSnapshot] = await Promise.all([
+      repository.getItem("1"),
+      repository.getItemSnapshot(),
+    ]);
+    if (!itemTemplate || !itemSnapshot) throw new Error("Seed item fixture missing");
+    const ids = Array.from({ length: 127 }, (_, index) => String(index + 1));
+    await repository.replaceItems(
+      ids.map((id) => ({
+        ...itemTemplate,
+        id,
+        name: `item_${id.padStart(3, "0")}`,
+        localizedName: `Item ${id.padStart(3, "0")}`,
+      })),
+      itemSnapshot,
+      ids,
+    );
+    app = await buildApp({ environment: "test", repository });
+
+    const first = itemDetailsResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: "/v1/items/details?limit=100" })),
+    );
+    expect(first.data.items).toHaveLength(100);
+    expect(first.data.items[0]?.localizedName).toBe("Item 001");
+    expect(first.data.nextCursor).not.toBeNull();
+
+    const second = itemDetailsResponseSchema.parse(
+      json(
+        await app.inject({
+          method: "GET",
+          url: `/v1/items/details?limit=100&cursor=${first.data.nextCursor}`,
+        }),
+      ),
+    );
+    expect(second.data.items).toHaveLength(27);
+    expect(second.data.items[0]?.localizedName).toBe("Item 101");
+    expect(second.data.nextCursor).toBeNull();
+
+    const invalid = await app.inject({ method: "GET", url: "/v1/items/details?limit=101" });
+    expect(invalid.statusCode).toBe(400);
   });
 
   it("only enables local CORS in development", async () => {

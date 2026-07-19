@@ -8,6 +8,28 @@
 
 ## Active wave
 
+### Wave 17: In-memory item workbench and hero density calibration
+
+本波修复物品工作台把每次选择实现成服务端页面导航的问题，并按用户反馈重新校准英雄目录与详情密度。静态目录口径、物品可用性声明、英雄字段和移动端信息完整度保持不变。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-021 interaction contract | Root | 完整物品列表响应、URL/缓存语义、验收与发布 | Wave 16 | ACCEPTED |
+| API-021 item detail catalog | Backend/API Agent | `apps/api/**`；完整详情分页接口与测试 | ROOT-021 | ACCEPTED |
+| WEB-021 local workbench and hero scale | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；零刷新选择、四列大卡、紧凑详情 | ROOT-021, API-021 | ACCEPTED |
+| QA-021 interaction and visual acceptance | QA Agent | 只读；网络、前进后退、桌面/390px、键盘与数据状态 | API-021, WEB-021 | ACCEPTED |
+| DEPLOY-021 overseas preview | Root | 全仓门禁、PR、Railway/Vercel smoke | QA-021 | RUNNING |
+
+验收目标：
+
+- `/items` 首次进入时遍历完整详情分页；随后搜索、物品选择、升级等级和已加载合成组件选择均不触发 document/RSC 导航或新增 API 请求。
+- 选择与搜索状态使用 History API 写入 `q`、`selected`，可复制链接，并能通过浏览器前进后退恢复；初始 partial、stale、unavailable 和来源元数据继续诚实展示。
+- 不用 268 个浏览器详情请求换取“无刷新”；完整详情只通过批量分页边界取得并由 Next 服务端一次组装。
+- 宽屏四属性英雄库每组改为四列可辨识卡片；390px 保持合理触控尺寸且无横向溢出。
+- 英雄详情的身份条、模块标题、属性、技能行和正文整体压缩一档；不隐藏官方字段、质量状态或来源。
+
+本地验收证据：完整详情接口保持 100 条上限，API 测试验证 127 条目录按 100/27 两页稳定遍历；物品页不再出现 `api.item` 逐项读取，目录、等级和已加载组件均为内存按钮，唯一保留的 Link 是显式独立详情入口。英雄宽屏每属性组由 6 列改为 4 列；详情压缩规则全部限定在 `.hero-detail-page`。全仓 typecheck、production build 与测试通过：API 117 项、Web 106 项、数据源 156 项；独立 QA 无 P0/P1/P2。Seed production 冒烟中 `/v1/items/details`、`/items`、空搜索和无效 selected 回退均为 200，SSR 目录 tile 无 `href`。本机当前缺少 Chrome DevTools `mcporter` 桥接，桌面与 390px 的真实浏览器截图/网络面板验证保留为部署后验证缺口，不以 curl 冒充视觉证据。
+
 ### Wave 16: Compact reference details and shadcn foundation
 
 本波只重做英雄详情与物品详情，并建立可渐进采用的 shadcn/Tailwind v4 基础。现有 API、127 个英雄、当前物品口径和地图范围保持不变；不在本波伪造动态胜率、购买率或时间序列。

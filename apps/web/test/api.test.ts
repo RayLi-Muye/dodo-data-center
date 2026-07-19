@@ -1,7 +1,7 @@
 import { dataStatusResponseSchema, mapFeatureTypeSchema } from "@dodo/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, collectAllHeroesWithMeta, DodoApiError, fetchApi, getApiBaseUrl } from "../lib/api";
+import { api, collectAllHeroesWithMeta, collectAllItemDetailsWithMeta, DodoApiError, fetchApi, getApiBaseUrl } from "../lib/api";
 
 const validMapResponse = {
   data: {
@@ -170,6 +170,19 @@ describe("server API client", () => {
         updatedAt: "2026-07-14T00:00:00.000Z",
       },
     });
+  });
+
+  it("collects item details through the paginated bulk endpoint instead of per-item requests", async () => {
+    const meta = { quality: "partial", sources: ["dota2_official"], updatedAt: "2026-07-19T00:00:00.000Z" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [], nextCursor: "page-2" }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [], nextCursor: null }, meta }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(collectAllItemDetailsWithMeta()).resolves.toEqual({ items: [], meta });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/\/v1\/items\/details\?limit=100$/), expect.objectContaining({ next: { revalidate: 3_600 } }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringContaining("cursor=page-2"), expect.anything());
   });
 
   it("rejects a repeated hero catalog cursor", async () => {

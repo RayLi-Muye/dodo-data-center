@@ -713,6 +713,7 @@ export const playerEnrichmentProgressResponseSchema = createMetricResponseSchema
 export const heroesResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(heroSummarySchema));
 export const heroDetailResponseSchema = createOperationResponseSchema(heroDetailSchema);
 export const itemsResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(itemSummarySchema));
+export const itemDetailsResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(itemDetailSchema));
 export const itemDetailResponseSchema = createOperationResponseSchema(itemDetailSchema);
 export const mapVersionResponseSchema = createOperationResponseSchema(mapVersionSchema);
 export const mapFeaturesResponseSchema = createOperationResponseSchema(createPaginatedDataSchema(mapFeatureSchema));
