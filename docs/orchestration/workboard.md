@@ -18,7 +18,7 @@
 | API-021 item detail catalog | Backend/API Agent | `apps/api/**`；完整详情分页接口与测试 | ROOT-021 | ACCEPTED |
 | WEB-021 local workbench and hero scale | Frontend/Web Agent | `apps/web/**`、`packages/ui/**`；零刷新选择、四列大卡、紧凑详情 | ROOT-021, API-021 | ACCEPTED |
 | QA-021 interaction and visual acceptance | QA Agent | 只读；网络、前进后退、桌面/390px、键盘与数据状态 | API-021, WEB-021 | ACCEPTED |
-| DEPLOY-021 overseas preview | Root | 全仓门禁、PR、Railway/Vercel smoke | QA-021 | RUNNING |
+| DEPLOY-021 overseas preview | Root | 全仓门禁、PR、Railway/Vercel smoke | QA-021 | ACCEPTED |
 
 验收目标：
 
@@ -29,6 +29,8 @@
 - 英雄详情的身份条、模块标题、属性、技能行和正文整体压缩一档；不隐藏官方字段、质量状态或来源。
 
 本地验收证据：完整详情接口保持 100 条上限，API 测试验证 127 条目录按 100/27 两页稳定遍历；物品页不再出现 `api.item` 逐项读取，目录、等级和已加载组件均为内存按钮，唯一保留的 Link 是显式独立详情入口。英雄宽屏每属性组由 6 列改为 4 列；详情压缩规则全部限定在 `.hero-detail-page`。全仓 typecheck、production build 与测试通过：API 117 项、Web 106 项、数据源 156 项；独立 QA 无 P0/P1/P2。Seed production 冒烟中 `/v1/items/details`、`/items`、空搜索和无效 selected 回退均为 200，SSR 目录 tile 无 `href`。本机当前缺少 Chrome DevTools `mcporter` 桥接，桌面与 390px 的真实浏览器截图/网络面板验证保留为部署后验证缺口，不以 curl 冒充视觉证据。
+
+部署证据：Railway API deployment `6f9556d5-3266-494b-ba4e-a5386051b78c` 为 SUCCESS，readiness 为 200；生产完整详情第一页返回 100 个 `ItemDetail`、非空 nextCursor、partial quality 与 `dota2_official` 来源。提交 `f441282` 对应的 Vercel preview `web-jly0hrish-rays-projects-f956e95b.vercel.app` 为 READY。Draft PR #19 保持开放，等待用户视觉确认后再决定合并。
 
 ### Wave 16: Compact reference details and shadcn foundation
 
