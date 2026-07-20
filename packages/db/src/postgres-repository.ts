@@ -4,7 +4,8 @@ import {
   type EntityUpdateRelease,
   heroDetailSchema,
   itemDetailSchema,
-  matchDetailSchema,
+  matchAnalysisSchema,
+  matchCoreDetailSchema,
   patchSummarySchema,
   playerHistorySyncSchema,
   playerProfileSchema,
@@ -14,7 +15,8 @@ import {
   type HeroDetail,
   type ItemDetail,
   type MapVersion,
-  type MatchDetail,
+  type MatchAnalysis,
+  type MatchCoreDetail,
   type PatchSummary,
   type PlayerHistorySync,
   type PlayerProfile,
@@ -33,8 +35,10 @@ import type {
   ProviderHealth,
   StaticDataSnapshot,
   StoredMatch,
+  StoredMatchAnalysis,
 } from "./types.js";
-import { mergeMatchDetails } from "./match-merge.js";
+import { matchAnalysisQuality, mergeMatchAnalyses } from "./match-analysis.js";
+import { mergeMatchDetails, withLegacyMatchDefaults } from "./match-merge.js";
 import {
   calculateMapContentHash,
   parseAuditedMapPayload,
@@ -52,47 +56,11 @@ export type PostgresDodoRepositoryOptions = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const withLegacyMatchDefaults = (value: unknown): unknown => {
-  if (!isRecord(value)) return value;
-  const players = Array.isArray(value.players)
-    ? value.players.map((player) => {
-        if (!isRecord(player)) return player;
-        return {
-          ...player,
-          denies: player.denies ?? null,
-          heroHealing: player.heroHealing ?? null,
-          towerDamage: player.towerDamage ?? null,
-          level: player.level ?? null,
-          netWorth: player.netWorth ?? null,
-          backpackItemIds: player.backpackItemIds ?? [],
-          neutralItemId: player.neutralItemId ?? null,
-          neutralItemEnhancementId: player.neutralItemEnhancementId ?? null,
-          abilityBuild: player.abilityBuild ?? [],
-          abilityBuildStatus: player.abilityBuildStatus ?? "unavailable",
-          itemTimeline: player.itemTimeline ?? [],
-          itemTimelineStatus: player.itemTimelineStatus ?? "unavailable",
-        };
-      })
-    : value.players;
-  return {
-    ...value,
-    officialVersion: value.officialVersion ?? null,
-    openDotaPatchId:
-      value.openDotaPatchId ??
-      (typeof value.patch === "string" && /^\d+$/.test(value.patch) ? value.patch : null),
-    officialVersionSource: value.officialVersionSource ?? "unavailable",
-    players,
-    detailStatus: value.detailStatus ?? "summary",
-    enrichmentSources: value.enrichmentSources ?? [],
-    lobbyType: value.lobbyType ?? null,
-    cluster: value.cluster ?? null,
-    radiantScore: value.radiantScore ?? null,
-    direScore: value.direScore ?? null,
-  };
-};
+const parseStoredMatchDetail = (value: unknown): MatchCoreDetail =>
+  matchCoreDetailSchema.parse(withLegacyMatchDefaults(value));
 
-const parseStoredMatchDetail = (value: unknown): MatchDetail =>
-  matchDetailSchema.parse(withLegacyMatchDefaults(value));
+const parseStoredMatchAnalysis = (value: unknown): MatchAnalysis =>
+  matchAnalysisSchema.parse(value);
 
 const parseStoredHero = (value: unknown): HeroDetail => {
   if (!isRecord(value)) return heroDetailSchema.parse(value);
@@ -321,6 +289,45 @@ export class PostgresDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     await this.#sql.begin(async (sql) => this.#upsertMatch(sql, match, true));
+  }
+
+  async upsertMatchAnalysis(incoming: StoredMatchAnalysis): Promise<void> {
+    await this.#sql.begin(async (sql) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`match-analysis:${incoming.matchId}`}, 0))`;
+      const [existing] = await sql<(JsonRow & { imported_at: unknown })[]>`
+        select payload, imported_at
+        from dodo.match_analysis
+        where match_id = ${incoming.matchId}
+        for update
+      `;
+      const existingAnalysis = existing
+        ? parseStoredMatchAnalysis(existing.payload)
+        : undefined;
+      const analysis = mergeMatchAnalyses(existingAnalysis, incoming.analysis);
+      const analysisChanged = !existing ||
+        JSON.stringify(existingAnalysis) !== JSON.stringify(analysis);
+      const importedAt = analysisChanged
+        ? incoming.importedAt
+        : timestampSchema.parse(asTimestamp(existing.imported_at));
+      const quality = matchAnalysisQuality(analysis);
+      await sql`
+        insert into dodo.match_analysis as stored_analysis
+          (match_id, payload, provider_revision, imported_at, quality, updated_at)
+        values (
+          ${incoming.matchId}, ${sql.json(toJson(analysis))}, ${analysis.providerRevision},
+          ${importedAt}, ${quality}, now()
+        )
+        on conflict (match_id) do update set
+          payload = excluded.payload,
+          provider_revision = excluded.provider_revision,
+          imported_at = excluded.imported_at,
+          quality = excluded.quality,
+          updated_at = now()
+        where stored_analysis.payload is distinct from excluded.payload
+          or stored_analysis.provider_revision is distinct from excluded.provider_revision
+          or stored_analysis.quality is distinct from excluded.quality
+      `;
+    });
   }
 
   async replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void> {
@@ -743,6 +750,27 @@ export class PostgresDodoRepository implements DodoRepository {
       select payload, imported_at, source, quality from dodo.matches where id = ${id}
     `;
     return row ? this.#parseStoredMatch(row) : undefined;
+  }
+
+  async getMatchAnalysis(id: string): Promise<StoredMatchAnalysis | undefined> {
+    const [row] = await this.#sql<
+      (JsonRow & { imported_at: unknown; provider_revision: string; quality: string })[]
+    >`
+      select payload, provider_revision, imported_at, quality
+      from dodo.match_analysis
+      where match_id = ${id}
+    `;
+    if (!row) return undefined;
+    const analysis = parseStoredMatchAnalysis(row.payload);
+    if (analysis.providerRevision !== row.provider_revision) {
+      throw new Error(`Stored match analysis revision mismatch for ${id}`);
+    }
+    return {
+      matchId: id,
+      analysis,
+      importedAt: timestampSchema.parse(asTimestamp(row.imported_at)),
+      quality: dataQualitySchema.parse(row.quality),
+    };
   }
 
   async listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]> {

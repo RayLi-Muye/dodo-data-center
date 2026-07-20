@@ -1,7 +1,7 @@
 import type {
   HeroDetail,
   HeroSummary,
-  MatchDetail,
+  MatchCoreDetail,
   MatchSummary,
   PlayerHeroStats,
   PlayerOverview,
@@ -11,12 +11,12 @@ import type {
 export type {
   HeroDetail,
   HeroSummary,
-  MatchDetail,
+  MatchCoreDetail,
   MatchSummary,
   PlayerHeroStats,
   PlayerOverview,
   PlayerProfile,
 };
 
-export type MatchPlayer = MatchDetail["players"][number];
+export type MatchPlayer = MatchCoreDetail["players"][number];
 export type MetricWindow = PlayerHeroStats["window"];

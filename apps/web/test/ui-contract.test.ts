@@ -6,6 +6,19 @@ const source = (relativePath: string): string =>
   readFileSync(new URL(relativePath, import.meta.url), "utf8");
 
 describe("Web UI copy and touch contract", () => {
+  it("keeps the match workbench dense and locally scrollable at phone width", () => {
+    const css = source("../app/globals.css");
+    const workbench = source("../components/match-detail-workbench.tsx");
+
+    expect(css).toMatch(/\.match-page\s*\{[^}]*overflow-x:\s*clip/s);
+    expect(css).toMatch(/\.match-workbench__tabs\s*\{[^}]*overflow-x:\s*auto/s);
+    expect(css).toMatch(/\.match-player-selector\s*\{[^}]*overflow-x:\s*auto/s);
+    expect(css).toMatch(/\.match-player-selector button\s*\{[^}]*min-height:\s*2\.75rem/s);
+    expect(css).toMatch(/@media \(max-width: 39\.999rem\)[\s\S]*?\.match-teams--compact\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+    expect(workbench).toContain('aria-label="选择玩家"');
+    expect(workbench).toContain("<TabsList");
+  });
+
   it("uses the Unicode ellipsis for every requested input placeholder", () => {
     const accountSearch = source("../components/account-search.tsx");
     const heroesPage = source("../app/heroes/page.tsx");

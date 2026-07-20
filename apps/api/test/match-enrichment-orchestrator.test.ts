@@ -1,5 +1,7 @@
 import {
   apiErrorSchema,
+  emptyMatchAnalysis,
+  matchDetailResponseSchema,
   playerEnrichmentProgressResponseSchema,
   type MatchDetail,
 } from "@dodo/contracts";
@@ -52,6 +54,7 @@ const canonicalDetail = (match: StoredMatch): CanonicalMatchDetail => ({
     },
   ],
   parseStatus: "parsed",
+  analysis: emptyMatchAnalysis(NOW),
   source: { source: "opendota", fetchedAt: NOW },
 });
 
@@ -75,9 +78,28 @@ const summaryCopy = (match: StoredMatch, id: string): StoredMatch => ({
   },
 });
 
+const markStoredAnalysesCurrent = async (
+  repository: Awaited<ReturnType<typeof createSeedRepository>>,
+): Promise<void> => {
+  const matches = await repository.listPlayerMatches(SEED_ACCOUNT_ID);
+  await Promise.all(matches.flatMap((match) => [
+    repository.upsertMatch({
+      ...match,
+      detail: { ...match.detail, parseStatus: "parsed" },
+    }),
+    repository.upsertMatchAnalysis({
+      matchId: match.detail.id,
+      analysis: emptyMatchAnalysis(NOW),
+      importedAt: NOW,
+      quality: "partial",
+    }),
+  ]));
+};
+
 describe("bounded match enrichment orchestration", () => {
   it("reports recent/all progress and coalesces one bounded account batch", async () => {
     const repository = await createSeedRepository();
+    await markStoredAnalysesCurrent(repository);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const getStratzDetail = vi.fn(async () => {
@@ -180,6 +202,109 @@ describe("bounded match enrichment orchestration", () => {
     expect(getMatchDetail).toHaveBeenCalledOnce();
   });
 
+  it("persists real-shaped canonical analysis and composes a schema-valid match response", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    const analysis = emptyMatchAnalysis(NOW);
+    analysis.playerTimelines = {
+      status: "complete",
+      excludedCount: 0,
+      exclusionReasons: [],
+      players: Array.from({ length: 10 }, (_, playerSlot) => ({
+        playerSlot,
+        samples: [{ gameTimeSeconds: 60, gold: 500 + playerSlot, xp: 300, lastHits: 5, denies: 1 }],
+      })),
+    };
+    analysis.teamAdvantages = {
+      status: "complete",
+      excludedCount: 0,
+      exclusionReasons: [],
+      axis: "inferred_60s",
+      samples: [{ gameTimeSeconds: 60, radiantGoldAdvantage: -250, radiantXpAdvantage: -100 }],
+    };
+    analysis.kills.status = "complete";
+    analysis.damage.status = "complete";
+    analysis.objectives.status = "complete";
+    analysis.teamfights = {
+      status: "complete",
+      excludedCount: 0,
+      exclusionReasons: [],
+      fights: [{
+        startTimeSeconds: 600,
+        endTimeSeconds: 630,
+        lastDeathTimeSeconds: 625,
+        deathCount: 1,
+        players: [{
+          playerIndex: 0,
+          playerSlot: stored.detail.players[0]!.playerSlot,
+          deaths: 1,
+          buybacks: 0,
+          damage: 900,
+          healing: 0,
+          goldDelta: -200,
+          xpDelta: -100,
+          xpStart: 2000,
+          xpEnd: 1900,
+        }],
+      }],
+    };
+    const canonical = { ...canonicalDetail(stored), analysis };
+    const orchestrator = new MatchEnrichmentOrchestrator({
+      repository,
+      provider: { getMatchDetail: vi.fn(async () => canonical) },
+      clock: () => new Date(NOW),
+    });
+    await orchestrator.enrichMatch(stored.detail.id);
+    const app = await buildApp({
+      dataMode: "seed",
+      repository,
+      matchEnrichmentOrchestrator: orchestrator,
+    });
+
+    const response = matchDetailResponseSchema.parse(json(await app.inject({
+      method: "GET",
+      url: `/v1/matches/${stored.detail.id}`,
+    })));
+    expect(response.data.analysis.playerTimelines.players).toHaveLength(10);
+    expect(response.data.analysis.teamAdvantages.samples[0]?.radiantGoldAdvantage).toBe(-250);
+    expect(response.data.analysis.teamfights.fights[0]?.players[0]?.playerSlot).toBe(
+      stored.detail.players[0]!.playerSlot,
+    );
+    expect(response.data.analysis).toMatchObject({
+      providerRevision: "opendota-match-analysis-v1",
+      updatedAt: NOW,
+    });
+    expect(response.meta.quality).toBe("complete");
+    await app.close();
+  });
+
+  it("automatically retries unparsed core once without repeatedly scanning current partial analysis", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.replacePlayerMatches(SEED_ACCOUNT_ID, [stored]);
+    await repository.upsertMatchAnalysis({
+      matchId: stored.detail.id,
+      analysis: emptyMatchAnalysis(NOW),
+      importedAt: NOW,
+      quality: "partial",
+    });
+    const getMatchDetail = vi.fn(async () => canonicalDetail(stored));
+    const orchestrator = new MatchEnrichmentOrchestrator({
+      repository,
+      provider: { getMatchDetail },
+      clock: () => new Date(NOW),
+    });
+
+    await orchestrator.requestPlayerEnrichment(SEED_ACCOUNT_ID, "recent");
+    await orchestrator.close();
+    expect(getMatchDetail).toHaveBeenCalledOnce();
+    expect((await repository.getMatch(stored.detail.id))?.detail.parseStatus).toBe("parsed");
+
+    await orchestrator.requestPlayerEnrichment(SEED_ACCOUNT_ID, "recent");
+    await orchestrator.close();
+    expect(getMatchDetail).toHaveBeenCalledOnce();
+  });
+
   it("does not turn a repository write failure into a successful single-match response", async () => {
     const repository = await createSeedRepository();
     const original = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
@@ -215,6 +340,19 @@ describe("bounded match enrichment orchestration", () => {
     const original = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
     const summary = summaryCopy(original, "8999999997");
     await repository.upsertPlayerMatches(SEED_ACCOUNT_ID, [summary]);
+    const previousAnalysis = emptyMatchAnalysis("2026-07-20T00:00:00.000Z");
+    previousAnalysis.kills = {
+      status: "partial",
+      excludedCount: 0,
+      exclusionReasons: [],
+      events: [{ killerPlayerSlot: 0, gameTimeSeconds: 120, victimEntityName: "npc_dota_hero_axe" }],
+    };
+    await repository.upsertMatchAnalysis({
+      matchId: summary.detail.id,
+      analysis: previousAnalysis,
+      importedAt: "2026-07-20T00:00:00.000Z",
+      quality: "partial",
+    });
     const orchestrator = new MatchEnrichmentOrchestrator({
       repository,
       provider: {
@@ -247,11 +385,13 @@ describe("bounded match enrichment orchestration", () => {
       meta: { retryAfterSeconds: 120, sources: ["opendota"] },
     });
     expect((await repository.getMatch(summary.detail.id))?.detail.detailStatus).toBe("summary");
+    expect((await repository.getMatchAnalysis(summary.detail.id))?.analysis).toEqual(previousAnalysis);
     await app.close();
   });
 
   it("consumes background repository failures through the injected error handler", async () => {
     const repository = await createSeedRepository();
+    await markStoredAnalysesCurrent(repository);
     const onError = vi.fn();
     const stratzService = new StratzMatchEnrichmentService({
       repository,
@@ -379,6 +519,7 @@ describe("bounded match enrichment orchestration", () => {
 
   it("passes the actual background error to the production app logger", async () => {
     const repository = await createSeedRepository();
+    await markStoredAnalysesCurrent(repository);
     const stratzService = new StratzMatchEnrichmentService({
       repository,
       provider: {

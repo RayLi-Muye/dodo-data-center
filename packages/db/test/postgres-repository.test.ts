@@ -1,6 +1,6 @@
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { MapVersion } from "@dodo/contracts";
+import { emptyMatchAnalysis, type MapVersion } from "@dodo/contracts";
 
 import {
   calculateMapContentHash,
@@ -573,6 +573,46 @@ describeWithDatabase("PostgresDodoRepository", () => {
     `;
 
     expect(after).toEqual(before);
+  });
+
+  it("persists match analysis revision and keeps an unchanged analysis timestamp", async () => {
+    const fixtures = await createSeedRepository();
+    const match = (await fixtures.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await repository.upsertMatch(match);
+    const storedAnalysis = {
+      matchId: match.detail.id,
+      analysis: emptyMatchAnalysis("2026-07-20T01:00:00.000Z"),
+      importedAt: "2026-07-20T01:00:00.000Z",
+      quality: "partial" as const,
+    };
+    await repository.upsertMatchAnalysis(storedAnalysis);
+    const [before] = await admin<{
+      imported_at: Date;
+      updated_at: Date;
+      provider_revision: string;
+    }[]>`
+      select imported_at, updated_at, provider_revision
+      from dodo.match_analysis
+      where match_id = ${match.detail.id}
+    `;
+
+    await repository.upsertMatchAnalysis({
+      ...storedAnalysis,
+      importedAt: "2026-07-20T02:00:00.000Z",
+    });
+    const [after] = await admin<{
+      imported_at: Date;
+      updated_at: Date;
+      provider_revision: string;
+    }[]>`
+      select imported_at, updated_at, provider_revision
+      from dodo.match_analysis
+      where match_id = ${match.detail.id}
+    `;
+
+    expect(after).toEqual(before);
+    expect(after?.provider_revision).toBe("opendota-match-analysis-v1");
+    expect(await repository.getMatchAnalysis(match.detail.id)).toEqual(storedAnalysis);
   });
 
   it("reads legacy match JSON into separated version and neutral fields", async () => {

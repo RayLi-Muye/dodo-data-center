@@ -1,17 +1,28 @@
 import type {
+  MatchAnalysis,
   MatchEnrichmentScope,
   PlayerEnrichmentProgress,
 } from "@dodo/contracts";
+import { MATCH_ANALYSIS_PROVIDER_REVISION } from "@dodo/contracts";
 import { OpenDotaProviderError, type OpenDotaProvider } from "@dodo/dota-data";
 import type { DataSource, DodoRepository, StoredMatch } from "@dodo/db";
 
-import { toEnrichedMatchDetail } from "./player-sync-service.js";
+import { toEnrichedMatchDetail, toStoredMatchAnalysis } from "./player-sync-service.js";
 import {
   stratzEnrichmentIsEligible,
   type StratzMatchEnrichmentService,
 } from "./stratz-match-enrichment-service.js";
 
 const BATCH_SIZE = 20;
+
+const analysisIsIncomplete = (analysis: MatchAnalysis): boolean => [
+  analysis.playerTimelines.status,
+  analysis.teamAdvantages.status,
+  analysis.kills.status,
+  analysis.damage.status,
+  analysis.objectives.status,
+  analysis.teamfights.status,
+].some((status) => status !== "complete");
 
 type MatchDetailProvider = Pick<OpenDotaProvider, "getMatchDetail">;
 
@@ -46,7 +57,10 @@ export class MatchEnrichmentOrchestrator {
   readonly #stratzService: StratzMatchEnrichmentService | undefined;
   readonly #clock: () => Date;
   readonly #onError: (error: unknown) => void;
-  readonly #matchInFlight = new Map<string, Promise<StoredMatch | undefined>>();
+  readonly #matchInFlight = new Map<string, {
+    execution: Promise<StoredMatch | undefined>;
+    forceIncompleteAnalysis: boolean;
+  }>();
   readonly #accountInFlight = new Map<string, Promise<void>>();
 
   constructor({
@@ -64,12 +78,28 @@ export class MatchEnrichmentOrchestrator {
   }
 
   enrichMatch(matchId: string): Promise<StoredMatch | undefined> {
+    return this.#requestMatchEnrichment(matchId, true);
+  }
+
+  #requestMatchEnrichment(
+    matchId: string,
+    forceIncompleteAnalysis: boolean,
+  ): Promise<StoredMatch | undefined> {
     const existing = this.#matchInFlight.get(matchId);
-    if (existing) return existing;
-    const execution = this.#enrichMatch(matchId).finally(() => {
-      if (this.#matchInFlight.get(matchId) === execution) this.#matchInFlight.delete(matchId);
+    if (existing) {
+      if (forceIncompleteAnalysis && !existing.forceIncompleteAnalysis) {
+        return existing.execution.then(() =>
+          this.#requestMatchEnrichment(matchId, true)
+        );
+      }
+      return existing.execution;
+    }
+    const execution = this.#enrichMatch(matchId, forceIncompleteAnalysis).finally(() => {
+      if (this.#matchInFlight.get(matchId)?.execution === execution) {
+        this.#matchInFlight.delete(matchId);
+      }
     });
-    this.#matchInFlight.set(matchId, execution);
+    this.#matchInFlight.set(matchId, { execution, forceIncompleteAnalysis });
     return execution;
   }
 
@@ -78,6 +108,12 @@ export class MatchEnrichmentOrchestrator {
     scope: MatchEnrichmentScope,
   ): Promise<PlayerEnrichmentSnapshot> {
     const matches = scopedMatches(await this.#repository.listPlayerMatches(accountId), scope);
+    const analyses = await Promise.all(
+      matches.map((match) => this.#repository.getMatchAnalysis(match.detail.id)),
+    );
+    const analysisByMatchId = new Map(
+      analyses.flatMap((analysis) => analysis ? [[analysis.matchId, analysis] as const] : []),
+    );
     const now = this.#clock();
     const counts = {
       detailReadyCount: 0,
@@ -92,6 +128,7 @@ export class MatchEnrichmentOrchestrator {
     let updatedAt: string | null = null;
     const sources = new Set<DataSource>();
     for (const match of matches) {
+      const analysis = analysisByMatchId.get(match.detail.id);
       sources.add(match.source);
       for (const source of match.detail.enrichmentSources) sources.add(source);
       if (
@@ -101,6 +138,10 @@ export class MatchEnrichmentOrchestrator {
         sources.add("stratz");
       }
       if (updatedAt === null || match.importedAt > updatedAt) updatedAt = match.importedAt;
+      if (analysis) {
+        sources.add(analysis.analysis.source);
+        if (analysis.importedAt > (updatedAt ?? "")) updatedAt = analysis.importedAt;
+      }
       const state = match.detail.stratzEnrichment;
       if (state.lastAttemptAt && (updatedAt === null || state.lastAttemptAt > updatedAt)) {
         updatedAt = state.lastAttemptAt;
@@ -114,6 +155,8 @@ export class MatchEnrichmentOrchestrator {
       else counts.notRequestedCount += 1;
       if (
         match.detail.detailStatus === "summary" ||
+        match.detail.parseStatus !== "parsed" ||
+        analysis?.analysis.providerRevision !== MATCH_ANALYSIS_PROVIDER_REVISION ||
         stratzEnrichmentIsEligible(state, now)
       ) {
         counts.retryEligibleCount += 1;
@@ -159,20 +202,29 @@ export class MatchEnrichmentOrchestrator {
   async close(): Promise<void> {
     await Promise.allSettled([
       ...this.#accountInFlight.values(),
-      ...this.#matchInFlight.values(),
+      ...[...this.#matchInFlight.values()].map(({ execution }) => execution),
     ]);
   }
 
   async #executePlayerBatch(accountId: string, scope: MatchEnrichmentScope): Promise<void> {
     const matches = scopedMatches(await this.#repository.listPlayerMatches(accountId), scope);
     const now = this.#clock();
+    const analyses = await Promise.all(
+      matches.map((match) => this.#repository.getMatchAnalysis(match.detail.id)),
+    );
+    const analysisByMatchId = new Map(
+      analyses.flatMap((analysis) => analysis ? [[analysis.matchId, analysis] as const] : []),
+    );
     const candidates = matches.filter((match) =>
       match.detail.detailStatus === "summary" ||
+      match.detail.parseStatus !== "parsed" ||
+      analysisByMatchId.get(match.detail.id)?.analysis.providerRevision !==
+        MATCH_ANALYSIS_PROVIDER_REVISION ||
       stratzEnrichmentIsEligible(match.detail.stratzEnrichment, now)
     ).slice(0, BATCH_SIZE);
     for (const match of candidates) {
       try {
-        await this.enrichMatch(match.detail.id);
+        await this.#requestMatchEnrichment(match.detail.id, false);
       } catch (error) {
         if (error instanceof OpenDotaProviderError) {
           if (
@@ -188,10 +240,21 @@ export class MatchEnrichmentOrchestrator {
     }
   }
 
-  async #enrichMatch(matchId: string): Promise<StoredMatch | undefined> {
+  async #enrichMatch(
+    matchId: string,
+    forceIncompleteAnalysis: boolean,
+  ): Promise<StoredMatch | undefined> {
     let stored = await this.#repository.getMatch(matchId);
     if (!stored) return undefined;
-    if (stored.detail.detailStatus === "summary") {
+    const storedAnalysis = await this.#repository.getMatchAnalysis(matchId);
+    const hasIncompleteAnalysis = storedAnalysis === undefined ||
+      analysisIsIncomplete(storedAnalysis.analysis);
+    if (
+      stored.detail.detailStatus === "summary" ||
+      stored.detail.parseStatus !== "parsed" ||
+      storedAnalysis?.analysis.providerRevision !== MATCH_ANALYSIS_PROVIDER_REVISION ||
+      (forceIncompleteAnalysis && hasIncompleteAnalysis)
+    ) {
       const canonical = await this.#provider.getMatchDetail(matchId);
       const [items, patches] = await Promise.all([
         this.#repository.listItems(),
@@ -213,6 +276,8 @@ export class MatchEnrichmentOrchestrator {
         source: "opendota",
         quality: canonical.quality,
       });
+      const analysis = toStoredMatchAnalysis(canonical);
+      if (analysis) await this.#repository.upsertMatchAnalysis(analysis);
       stored = await this.#repository.getMatch(matchId);
     }
     if (

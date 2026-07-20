@@ -1,10 +1,8 @@
-import { DataSection, MetaLine, StatusNotice } from "@dodo/ui";
+import { MetaLine } from "@dodo/ui";
 
 import { DataState } from "../../../components/data-state";
-import { MatchEnrichmentStatus } from "../../../components/match-enrichment-status";
 import { MatchEnrichmentControl } from "../../../components/match-enrichment-control";
-import { MatchAnalyzer } from "../../../components/match-analyzer";
-import { MatchPlayerRow } from "../../../components/match-player-row";
+import { MatchDetailWorkbench } from "../../../components/match-detail-workbench";
 import { PageHeading } from "../../../components/page-heading";
 import { api, collectAllHeroes, collectAllItems, settle } from "../../../lib/api";
 import { formatDuration, formatUtc, gameModeLabel, matchVersionLabel } from "../../../lib/format";
@@ -36,14 +34,6 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
       .filter((entry) => entry[1].ok)
       .map(([heroId, result]) => [heroId, result.ok ? result.value.data.abilities : []]),
   );
-  const heroById = new Map(heroesResult.ok ? heroesResult.value.map((hero) => [hero.id, hero]) : []);
-  const itemById = new Map(itemsResult.ok ? itemsResult.value.map((item) => [item.id, item]) : []);
-  const radiant = match.data.players.filter((player) => player.side === "radiant");
-  const dire = match.data.players.filter((player) => player.side === "dire");
-  const enriched = match.data.detailStatus === "enriched";
-  const completeLineup = enriched && radiant.length === 5 && dire.length === 5;
-  const teamDetailLabel = completeLineup ? "完整阵容" : enriched ? "阵容详情" : "比赛摘要";
-
   return (
     <div className="page-shell match-page">
       <PageHeading
@@ -52,27 +42,6 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
         title={match.data.radiantWin ? "天辉胜利" : "夜魇胜利"}
       />
 
-      {completeLineup ? (
-        <StatusNotice
-          detail="上游已返回双方完整阵容与可用的赛后字段；缺失的单项数据仍以破折号明确标记。"
-          title="完整阵容已载入"
-          tone="neutral"
-        />
-      ) : enriched ? (
-        <StatusNotice
-          detail="上游已返回增强字段，但当前响应没有包含双方各五名玩家，因此不会标记为完整阵容。"
-          title="阵容详情不完整"
-          tone="warning"
-        />
-      ) : (
-        <StatusNotice
-          detail="当前先保留已有比赛摘要与真实字段，不用占位数据拼出十人阵容。稍后重新读取可获取补全结果。"
-          title="完整详情后台补全中"
-          tone="neutral"
-        />
-      )}
-
-      <MatchEnrichmentStatus match={match.data} />
       <MatchEnrichmentControl matchId={match.data.id} />
 
       <section className="match-scoreboard" aria-label="比赛结果概览">
@@ -93,51 +62,11 @@ export default async function MatchPage({ params }: { params: Promise<{ matchId:
         </div>
       </section>
 
-      <div className="match-teams">
-        {[
-          { label: "天辉", players: radiant, side: "radiant" },
-          { label: "夜魇", players: dire, side: "dire" },
-        ].map((team) => (
-          <DataSection
-            eyebrow={team.side.toUpperCase()}
-            key={team.side}
-            title={`${team.label}${teamDetailLabel}`}
-          >
-            <div
-              className="participant-table"
-              role="table"
-              aria-label={`${team.label}${teamDetailLabel}`}
-            >
-              <div className="participant-table__head" role="row">
-                <span role="columnheader">玩家 / 英雄</span>
-                <span role="columnheader">K / D / A · 等级</span>
-                <span role="columnheader">GPM / XPM</span>
-                <span role="columnheader">补刀 / 反补</span>
-                <span role="columnheader">英雄 / 塔伤</span>
-                <span role="columnheader">最终装备</span>
-              </div>
-              {team.players.length > 0 ? team.players.map((player) => (
-                <MatchPlayerRow
-                  heroById={heroById}
-                  itemById={itemById}
-                  key={player.playerSlot}
-                  player={player}
-                />
-              )) : (
-                <div className="participant-table__empty" role="row">
-                  <span role="cell">当前摘要未包含该阵营玩家。</span>
-                </div>
-              )}
-            </div>
-          </DataSection>
-        ))}
-      </div>
-
-      <MatchAnalyzer
+      <MatchDetailWorkbench
         abilitiesByHeroId={abilitiesByHeroId}
         heroes={heroesResult.ok ? heroesResult.value : []}
         items={itemsResult.ok ? itemsResult.value : []}
-        players={match.data.players}
+        match={match.data}
       />
 
       <MetaLine sources={match.meta.sources} updatedAt={match.meta.updatedAt} />

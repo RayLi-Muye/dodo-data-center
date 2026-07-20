@@ -1,3 +1,8 @@
+import {
+  emptyMatchAnalysis,
+  MATCH_ANALYSIS_PROVIDER_REVISION,
+} from "@dodo/contracts";
+import type { MatchAnalysis } from "@dodo/contracts";
 import { OpenDotaProviderError } from "./errors.js";
 import type {
   CanonicalConstantsSnapshot,
@@ -200,6 +205,453 @@ function normalizeAttackType(value: unknown): CanonicalHeroConstant["attackType"
   if (value === "Ranged") return "ranged";
   return payloadError("hero.attack_type is not recognized");
 }
+
+type AnalysisSection<T> = {
+  rawPresent: boolean;
+  excludedCount: number;
+  reasons: Set<string>;
+  value: T;
+};
+
+const hasOwn = (record: JsonRecord, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(record, key);
+
+const newAnalysisSection = <T>(value: T): AnalysisSection<T> => ({
+  rawPresent: false,
+  excludedCount: 0,
+  reasons: new Set<string>(),
+  value,
+});
+
+const excludeAnalysisValue = <T>(section: AnalysisSection<T>, reason: string): void => {
+  section.excludedCount += 1;
+  section.reasons.add(reason);
+};
+
+const analysisStatus = <T>(section: AnalysisSection<T>): "unavailable" | "partial" | "complete" =>
+  !section.rawPresent
+    ? "unavailable"
+    : section.excludedCount === 0
+      ? "complete"
+      : "partial";
+
+const analysisMeta = <T>(section: AnalysisSection<T>) => ({
+  status: analysisStatus(section),
+  excludedCount: section.excludedCount,
+  exclusionReasons: [...section.reasons].sort(),
+});
+
+const safePlayerSlot = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 255
+    ? value
+    : null;
+
+const safeSignedInteger = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+
+const safeNonNegativeInteger = (value: unknown): number | null => {
+  const number = safeSignedInteger(value);
+  return number !== null && number >= 0 ? number : null;
+};
+
+const safeNonNegativeNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+
+const safeFiniteNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const safeString = (value: unknown, maximum = 256): string | null =>
+  typeof value === "string" && value.length > 0 && value.length <= maximum ? value : null;
+
+const optionalEntityKey = (value: unknown): string | null => {
+  const string = safeString(value);
+  if (string !== null) return string;
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : null;
+};
+
+const normalizePlayerTimelines = (rawPlayers: unknown[]): MatchAnalysis["playerTimelines"] => {
+  const section = newAnalysisSection<MatchAnalysis["playerTimelines"]["players"]>([]);
+  const timelineKeys = ["times", "gold_t", "xp_t", "lh_t", "dn_t"] as const;
+  const metricKeys = [
+    ["gold_t", "gold"],
+    ["xp_t", "xp"],
+    ["lh_t", "lastHits"],
+    ["dn_t", "denies"],
+  ] as const;
+
+  const rawPresent = rawPlayers.some(
+    (value) => isRecord(value) && timelineKeys.some((key) => hasOwn(value, key)),
+  );
+  if (!rawPresent) return { ...analysisMeta(section), players: [] };
+  section.rawPresent = true;
+  rawPlayers.forEach((value) => {
+    if (!isRecord(value)) {
+      excludeAnalysisValue(section, "timeline_player_invalid");
+      return;
+    }
+    const hasTimelineData = timelineKeys.some((key) => hasOwn(value, key));
+    const playerSlot = safePlayerSlot(value.player_slot);
+    if (playerSlot === null) {
+      excludeAnalysisValue(section, "player_slot_invalid");
+      return;
+    }
+    if (!hasTimelineData) {
+      excludeAnalysisValue(section, "timeline_player_unavailable");
+      return;
+    }
+    if (!Array.isArray(value.times)) {
+      excludeAnalysisValue(section, "timeline_times_unavailable");
+      return;
+    }
+    const metricArrays = new Map<string, unknown[]>();
+    for (const [rawKey] of metricKeys) {
+      const metric = value[rawKey];
+      if (!Array.isArray(metric)) {
+        excludeAnalysisValue(section, `timeline_${rawKey}_unavailable`);
+        continue;
+      }
+      metricArrays.set(rawKey, metric);
+      if (metric.length !== value.times.length) {
+        excludeAnalysisValue(section, `timeline_${rawKey}_length_mismatch`);
+      }
+    }
+    const samples: MatchAnalysis["playerTimelines"]["players"][number]["samples"] = [];
+    value.times.forEach((time, sampleIndex) => {
+      const gameTimeSeconds = safeNonNegativeInteger(time);
+      if (gameTimeSeconds === null) {
+        excludeAnalysisValue(section, "timeline_time_invalid");
+        return;
+      }
+      const metrics = metricKeys.map(([rawKey]) => {
+        const candidate = metricArrays.get(rawKey)?.[sampleIndex];
+        if (candidate === undefined || candidate === null) return null;
+        const metric = safeNonNegativeInteger(candidate);
+        if (metric === null) excludeAnalysisValue(section, `timeline_${rawKey}_invalid`);
+        return metric;
+      });
+      samples.push({
+        gameTimeSeconds,
+        gold: metrics[0] ?? null,
+        xp: metrics[1] ?? null,
+        lastHits: metrics[2] ?? null,
+        denies: metrics[3] ?? null,
+      });
+    });
+    section.value.push({ playerSlot, samples });
+  });
+  return { ...analysisMeta(section), players: section.value };
+};
+
+const normalizeTeamAdvantages = (raw: JsonRecord): MatchAnalysis["teamAdvantages"] => {
+  const section = newAnalysisSection<MatchAnalysis["teamAdvantages"]["samples"]>([]);
+  const keys = ["radiant_gold_adv", "radiant_xp_adv"] as const;
+  if (keys.some((key) => hasOwn(raw, key))) section.rawPresent = true;
+  if (!section.rawPresent) return { ...analysisMeta(section), axis: "inferred_60s", samples: [] };
+
+  const arrays = new Map<string, unknown[]>();
+  for (const key of keys) {
+    const value = raw[key];
+    if (!Array.isArray(value)) {
+      excludeAnalysisValue(section, `${key}_unavailable`);
+      continue;
+    }
+    arrays.set(key, value);
+  }
+  const count = Math.max(...[...arrays.values()].map((value) => value.length), 0);
+  if (arrays.size === 2 && arrays.get(keys[0])?.length !== arrays.get(keys[1])?.length) {
+    excludeAnalysisValue(section, "advantage_length_mismatch");
+  }
+  for (let index = 0; index < count; index += 1) {
+    const goldRaw = arrays.get("radiant_gold_adv")?.[index];
+    const xpRaw = arrays.get("radiant_xp_adv")?.[index];
+    const radiantGoldAdvantage = goldRaw === undefined || goldRaw === null
+      ? null
+      : safeSignedInteger(goldRaw);
+    const radiantXpAdvantage = xpRaw === undefined || xpRaw === null
+      ? null
+      : safeSignedInteger(xpRaw);
+    if (goldRaw !== undefined && goldRaw !== null && radiantGoldAdvantage === null) {
+      excludeAnalysisValue(section, "radiant_gold_adv_invalid");
+    }
+    if (xpRaw !== undefined && xpRaw !== null && radiantXpAdvantage === null) {
+      excludeAnalysisValue(section, "radiant_xp_adv_invalid");
+    }
+    section.value.push({
+      gameTimeSeconds: index * 60,
+      radiantGoldAdvantage,
+      radiantXpAdvantage,
+    });
+  }
+  return { ...analysisMeta(section), axis: "inferred_60s", samples: section.value };
+};
+
+const normalizeKills = (rawPlayers: unknown[]): MatchAnalysis["kills"] => {
+  const section = newAnalysisSection<MatchAnalysis["kills"]["events"]>([]);
+  const rawPresent = rawPlayers.some((value) => isRecord(value) && hasOwn(value, "kills_log"));
+  if (!rawPresent) return { ...analysisMeta(section), events: [] };
+  section.rawPresent = true;
+  rawPlayers.forEach((value) => {
+    if (!isRecord(value)) {
+      excludeAnalysisValue(section, "kill_player_invalid");
+      return;
+    }
+    const playerSlot = safePlayerSlot(value.player_slot);
+    if (playerSlot === null) {
+      excludeAnalysisValue(section, "player_slot_invalid");
+      return;
+    }
+    if (!hasOwn(value, "kills_log")) {
+      excludeAnalysisValue(section, "kills_log_unavailable");
+      return;
+    }
+    if (!Array.isArray(value.kills_log)) {
+      excludeAnalysisValue(section, "kills_log_invalid");
+      return;
+    }
+    value.kills_log.forEach((event) => {
+      if (!isRecord(event)) {
+        excludeAnalysisValue(section, "kill_event_invalid");
+        return;
+      }
+      const gameTimeSeconds = safeSignedInteger(event.time);
+      const victimEntityName = safeString(event.key);
+      if (gameTimeSeconds === null || victimEntityName === null) {
+        excludeAnalysisValue(section, "kill_event_invalid");
+        return;
+      }
+      section.value.push({ killerPlayerSlot: playerSlot, gameTimeSeconds, victimEntityName });
+    });
+  });
+  section.value.sort((left, right) =>
+    left.gameTimeSeconds - right.gameTimeSeconds ||
+    left.killerPlayerSlot - right.killerPlayerSlot ||
+    left.victimEntityName.localeCompare(right.victimEntityName),
+  );
+  return { ...analysisMeta(section), events: section.value };
+};
+
+const normalizeBreakdown = (
+  value: unknown,
+  section: AnalysisSection<unknown>,
+  reason: string,
+): MatchAnalysis["damage"]["players"][number]["dealtToEntities"] | null => {
+  if (!isRecord(value)) {
+    excludeAnalysisValue(section, reason);
+    return null;
+  }
+  const entries: MatchAnalysis["damage"]["players"][number]["dealtToEntities"] = [];
+  for (const [entityName, amountValue] of Object.entries(value)) {
+    const amount = safeNonNegativeNumber(amountValue);
+    if (safeString(entityName) === null || amount === null) {
+      excludeAnalysisValue(section, `${reason}_entry_invalid`);
+      continue;
+    }
+    entries.push({ entityName, amount });
+  }
+  return entries.sort((left, right) => left.entityName.localeCompare(right.entityName));
+};
+
+const normalizeDamage = (rawPlayers: unknown[]): MatchAnalysis["damage"] => {
+  const section = newAnalysisSection<MatchAnalysis["damage"]["players"]>([]);
+  const maps = [
+    ["damage", "dealtToEntities"],
+    ["damage_taken", "receivedFromEntities"],
+    ["damage_inflictor", "dealtBySources"],
+    ["damage_inflictor_received", "receivedBySources"],
+  ] as const;
+  const rawPresent = rawPlayers.some(
+    (value) => isRecord(value) && maps.some(([rawKey]) => hasOwn(value, rawKey)),
+  );
+  if (!rawPresent) return { ...analysisMeta(section), players: [] };
+  section.rawPresent = true;
+  rawPlayers.forEach((value) => {
+    if (!isRecord(value)) {
+      excludeAnalysisValue(section, "damage_player_invalid");
+      return;
+    }
+    const playerSlot = safePlayerSlot(value.player_slot);
+    if (playerSlot === null) {
+      excludeAnalysisValue(section, "player_slot_invalid");
+      return;
+    }
+    if (!maps.some(([rawKey]) => hasOwn(value, rawKey))) {
+      excludeAnalysisValue(section, "damage_player_unavailable");
+      return;
+    }
+    const normalized = maps.map(([rawKey, canonicalKey]) => [
+      canonicalKey,
+      normalizeBreakdown(value[rawKey], section, `${rawKey}_unavailable`),
+    ] as const);
+    section.value.push({
+      playerSlot,
+      dealtToEntities: normalized[0]?.[1] ?? [],
+      receivedFromEntities: normalized[1]?.[1] ?? [],
+      dealtBySources: normalized[2]?.[1] ?? [],
+      receivedBySources: normalized[3]?.[1] ?? [],
+    });
+  });
+  return { ...analysisMeta(section), players: section.value };
+};
+
+const normalizeObjectives = (raw: JsonRecord): MatchAnalysis["objectives"] => {
+  const section = newAnalysisSection<MatchAnalysis["objectives"]["events"]>([]);
+  if (!hasOwn(raw, "objectives")) return { ...analysisMeta(section), events: [] };
+  section.rawPresent = true;
+  if (!Array.isArray(raw.objectives)) {
+    excludeAnalysisValue(section, "objectives_invalid");
+    return { ...analysisMeta(section), events: [] };
+  }
+  raw.objectives.forEach((value) => {
+    if (!isRecord(value)) {
+      excludeAnalysisValue(section, "objective_invalid");
+      return;
+    }
+    const gameTimeSeconds = safeSignedInteger(value.time);
+    const type = safeString(value.type, 128);
+    if (gameTimeSeconds === null || type === null) {
+      excludeAnalysisValue(section, "objective_invalid");
+      return;
+    }
+    let team: "radiant" | "dire" | null = null;
+    if (value.team !== undefined && value.team !== null) {
+      if (value.team === 2 || value.team === "radiant") team = "radiant";
+      else if (value.team === 3 || value.team === "dire") team = "dire";
+      else excludeAnalysisValue(section, "objective_team_invalid");
+    }
+    const rawPlayerSlot = value.player_slot;
+    const playerSlot = rawPlayerSlot === undefined || rawPlayerSlot === null
+      ? null
+      : safePlayerSlot(rawPlayerSlot);
+    if (rawPlayerSlot !== undefined && rawPlayerSlot !== null && playerSlot === null) {
+      excludeAnalysisValue(section, "objective_player_slot_invalid");
+    }
+    const unit = value.unit === undefined || value.unit === null ? null : safeString(value.unit);
+    if (value.unit !== undefined && value.unit !== null && unit === null) {
+      excludeAnalysisValue(section, "objective_unit_invalid");
+    }
+    const key = value.key === undefined || value.key === null ? null : optionalEntityKey(value.key);
+    if (value.key !== undefined && value.key !== null && key === null) {
+      excludeAnalysisValue(section, "objective_key_invalid");
+    }
+    section.value.push({ gameTimeSeconds, type, key, unit, playerSlot, team });
+  });
+  section.value.sort((left, right) =>
+    left.gameTimeSeconds - right.gameTimeSeconds ||
+    left.type.localeCompare(right.type) ||
+    (left.key ?? "").localeCompare(right.key ?? ""),
+  );
+  return { ...analysisMeta(section), events: section.value };
+};
+
+const normalizeTeamfights = (
+  raw: JsonRecord,
+  rawPlayers: unknown[],
+): MatchAnalysis["teamfights"] => {
+  const section = newAnalysisSection<MatchAnalysis["teamfights"]["fights"]>([]);
+  if (!hasOwn(raw, "teamfights")) return { ...analysisMeta(section), fights: [] };
+  section.rawPresent = true;
+  if (!Array.isArray(raw.teamfights)) {
+    excludeAnalysisValue(section, "teamfights_invalid");
+    return { ...analysisMeta(section), fights: [] };
+  }
+  raw.teamfights.forEach((value) => {
+    if (!isRecord(value) || !Array.isArray(value.players)) {
+      excludeAnalysisValue(section, "teamfight_invalid");
+      return;
+    }
+    if (value.players.length !== rawPlayers.length) {
+      excludeAnalysisValue(section, "teamfight_player_count_mismatch");
+    }
+    const startTimeSeconds = safeSignedInteger(value.start);
+    const endTimeSeconds = safeSignedInteger(value.end);
+    const deathCount = safeNonNegativeInteger(value.deaths);
+    if (startTimeSeconds === null || endTimeSeconds === null || deathCount === null) {
+      excludeAnalysisValue(section, "teamfight_invalid");
+      return;
+    }
+    const lastDeathTimeSeconds = value.last_death === undefined || value.last_death === null
+      ? null
+      : safeSignedInteger(value.last_death);
+    if (value.last_death !== undefined && value.last_death !== null && lastDeathTimeSeconds === null) {
+      excludeAnalysisValue(section, "teamfight_last_death_invalid");
+    }
+    const players: MatchAnalysis["teamfights"]["fights"][number]["players"] = [];
+    value.players.forEach((playerValue, playerIndex) => {
+      if (!isRecord(playerValue)) {
+        excludeAnalysisValue(section, "teamfight_player_invalid");
+        return;
+      }
+      const deaths = safeNonNegativeInteger(playerValue.deaths);
+      const buybacks = safeNonNegativeInteger(playerValue.buybacks);
+      const damage = safeNonNegativeNumber(playerValue.damage);
+      const healing = safeNonNegativeNumber(playerValue.healing);
+      const goldDelta = safeFiniteNumber(playerValue.gold_delta);
+      const xpDelta = safeFiniteNumber(playerValue.xp_delta);
+      if (
+        deaths === null || buybacks === null || damage === null || healing === null ||
+        goldDelta === null || xpDelta === null
+      ) {
+        excludeAnalysisValue(section, "teamfight_player_invalid");
+        return;
+      }
+      const rawSlot = isRecord(rawPlayers[playerIndex]) ? rawPlayers[playerIndex].player_slot : undefined;
+      const playerSlot = rawSlot === undefined ? null : safePlayerSlot(rawSlot);
+      if (rawSlot !== undefined && playerSlot === null) {
+        excludeAnalysisValue(section, "teamfight_player_slot_invalid");
+      }
+      const xpStart = playerValue.xp_start === undefined || playerValue.xp_start === null
+        ? null
+        : safeNonNegativeNumber(playerValue.xp_start);
+      const xpEnd = playerValue.xp_end === undefined || playerValue.xp_end === null
+        ? null
+        : safeNonNegativeNumber(playerValue.xp_end);
+      if (xpStart === null && playerValue.xp_start !== undefined && playerValue.xp_start !== null) {
+        excludeAnalysisValue(section, "teamfight_xp_start_invalid");
+      }
+      if (xpEnd === null && playerValue.xp_end !== undefined && playerValue.xp_end !== null) {
+        excludeAnalysisValue(section, "teamfight_xp_end_invalid");
+      }
+      players.push({
+        playerIndex,
+        playerSlot,
+        deaths,
+        buybacks,
+        damage,
+        healing,
+        goldDelta,
+        xpDelta,
+        xpStart,
+        xpEnd,
+      });
+    });
+    section.value.push({
+      startTimeSeconds,
+      endTimeSeconds,
+      lastDeathTimeSeconds,
+      deathCount,
+      players,
+    });
+  });
+  section.value.sort((left, right) => left.startTimeSeconds - right.startTimeSeconds);
+  return { ...analysisMeta(section), fights: section.value };
+};
+
+const normalizeMatchAnalysis = (
+  raw: JsonRecord,
+  rawPlayers: unknown[],
+  fetchedAt: Date,
+): MatchAnalysis => ({
+  ...emptyMatchAnalysis(fetchedAt.toISOString()),
+  source: "opendota",
+  providerRevision: MATCH_ANALYSIS_PROVIDER_REVISION,
+  updatedAt: fetchedAt.toISOString(),
+  playerTimelines: normalizePlayerTimelines(rawPlayers),
+  teamAdvantages: normalizeTeamAdvantages(raw),
+  kills: normalizeKills(rawPlayers),
+  damage: normalizeDamage(rawPlayers),
+  objectives: normalizeObjectives(raw),
+  teamfights: normalizeTeamfights(raw, rawPlayers),
+});
 
 function normalizePlayer(
   rawValue: unknown,
@@ -592,6 +1044,7 @@ export class OpenDotaProvider {
       quality: excludedPlayerCount === 0 ? "complete" : "partial",
       players: normalizedPlayers,
       parseStatus: raw.version === null || raw.version === undefined ? "unparsed" : "parsed",
+      analysis: normalizeMatchAnalysis(raw, players, fetchedAt),
       source: sourceMetadata(fetchedAt),
     };
   }

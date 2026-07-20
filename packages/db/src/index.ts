@@ -1,4 +1,5 @@
 export { MemoryDodoRepository } from "./memory-repository.js";
+export { mergeMatchAnalyses } from "./match-analysis.js";
 export { PostgresDodoRepository } from "./postgres-repository.js";
 export {
   calculateMapContentHash,
@@ -30,4 +31,5 @@ export type {
   ProviderHealth,
   StaticDataSnapshot,
   StoredMatch,
+  StoredMatchAnalysis,
 } from "./types.js";

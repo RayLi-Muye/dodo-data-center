@@ -3,7 +3,7 @@ import {
   type HeroDetail,
   type ItemDetail,
   type MapVersion,
-  type MatchDetail,
+  type MatchCoreDetail,
   type PatchSummary,
   type PlayerProfile,
   type UpdateReleaseDetail,
@@ -331,7 +331,7 @@ const playerSeeds: PlayerProfile[] = [
 
 const slots = [0, 1, 2, 3, 4, 128, 129, 130, 131, 132] as const;
 
-const createMatch = (index: number): MatchDetail => {
+const createMatch = (index: number): MatchCoreDetail => {
   const id = String(9_000_000_000 + index);
   const startOffsetHours = index < 2 ? 0 : index - 1;
   const startTime = new Date(

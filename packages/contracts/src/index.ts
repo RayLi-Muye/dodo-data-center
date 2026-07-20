@@ -357,6 +357,156 @@ export const matchPlayerSchema = z.object({
   itemTimelineStatus: z.enum(["unavailable", "partial", "complete"]),
 });
 
+export const matchAdvancedSectionStatusSchema = z.enum([
+  "unavailable",
+  "partial",
+  "complete",
+]);
+
+const matchAdvancedSectionFields = {
+  status: matchAdvancedSectionStatusSchema,
+  excludedCount: z.number().int().nonnegative(),
+  exclusionReasons: z.array(z.string().min(1)),
+};
+
+export const matchTimelineSampleSchema = z.object({
+  gameTimeSeconds: z.number().int(),
+  gold: z.number().int().nonnegative().nullable(),
+  xp: z.number().int().nonnegative().nullable(),
+  lastHits: z.number().int().nonnegative().nullable(),
+  denies: z.number().int().nonnegative().nullable(),
+});
+
+export const matchKillEventSchema = z.object({
+  killerPlayerSlot: z.number().int().min(0).max(255),
+  gameTimeSeconds: z.number().int(),
+  victimEntityName: z.string().min(1).max(256),
+});
+
+export const matchDamageBreakdownEntrySchema = z.object({
+  entityName: z.string().min(1).max(256),
+  amount: z.number().finite().nonnegative(),
+});
+
+export const matchObjectiveEventSchema = z.object({
+  gameTimeSeconds: z.number().int(),
+  type: z.string().min(1).max(128),
+  key: z.string().min(1).max(256).nullable(),
+  unit: z.string().min(1).max(256).nullable(),
+  playerSlot: z.number().int().min(0).max(255).nullable(),
+  team: z.enum(["radiant", "dire"]).nullable(),
+});
+
+export const matchTeamfightPlayerSchema = z.object({
+  playerIndex: z.number().int().nonnegative(),
+  playerSlot: z.number().int().min(0).max(255).nullable(),
+  deaths: z.number().int().nonnegative(),
+  buybacks: z.number().int().nonnegative(),
+  damage: z.number().finite().nonnegative(),
+  healing: z.number().finite().nonnegative(),
+  goldDelta: z.number().finite(),
+  xpDelta: z.number().finite(),
+  xpStart: z.number().finite().nonnegative().nullable(),
+  xpEnd: z.number().finite().nonnegative().nullable(),
+});
+
+export const matchAnalysisSchema = z.object({
+  source: z.literal("opendota"),
+  providerRevision: z.string().min(1).max(64),
+  updatedAt: timestampSchema.nullable(),
+  playerTimelines: z.object({
+    ...matchAdvancedSectionFields,
+    players: z.array(z.object({
+      playerSlot: z.number().int().min(0).max(255),
+      samples: z.array(matchTimelineSampleSchema),
+    })),
+  }),
+  teamAdvantages: z.object({
+    ...matchAdvancedSectionFields,
+    axis: z.literal("inferred_60s"),
+    samples: z.array(z.object({
+      gameTimeSeconds: z.number().int().nonnegative(),
+      radiantGoldAdvantage: z.number().int().nullable(),
+      radiantXpAdvantage: z.number().int().nullable(),
+    })),
+  }),
+  kills: z.object({
+    ...matchAdvancedSectionFields,
+    events: z.array(matchKillEventSchema),
+  }),
+  damage: z.object({
+    ...matchAdvancedSectionFields,
+    players: z.array(z.object({
+      playerSlot: z.number().int().min(0).max(255),
+      dealtToEntities: z.array(matchDamageBreakdownEntrySchema),
+      receivedFromEntities: z.array(matchDamageBreakdownEntrySchema),
+      dealtBySources: z.array(matchDamageBreakdownEntrySchema),
+      receivedBySources: z.array(matchDamageBreakdownEntrySchema),
+    })),
+  }),
+  objectives: z.object({
+    ...matchAdvancedSectionFields,
+    events: z.array(matchObjectiveEventSchema),
+  }),
+  teamfights: z.object({
+    ...matchAdvancedSectionFields,
+    fights: z.array(z.object({
+      startTimeSeconds: z.number().int(),
+      endTimeSeconds: z.number().int(),
+      lastDeathTimeSeconds: z.number().int().nullable(),
+      deathCount: z.number().int().nonnegative(),
+      players: z.array(matchTeamfightPlayerSchema),
+    })),
+  }),
+});
+
+export const MATCH_ANALYSIS_PROVIDER_REVISION = "opendota-match-analysis-v1";
+
+export const emptyMatchAnalysis = (
+  updatedAt: string | null = null,
+): z.infer<typeof matchAnalysisSchema> => ({
+  source: "opendota",
+  providerRevision: MATCH_ANALYSIS_PROVIDER_REVISION,
+  updatedAt,
+  playerTimelines: {
+    status: "unavailable",
+    excludedCount: 0,
+    exclusionReasons: [],
+    players: [],
+  },
+  teamAdvantages: {
+    status: "unavailable",
+    excludedCount: 0,
+    exclusionReasons: [],
+    axis: "inferred_60s",
+    samples: [],
+  },
+  kills: {
+    status: "unavailable",
+    excludedCount: 0,
+    exclusionReasons: [],
+    events: [],
+  },
+  damage: {
+    status: "unavailable",
+    excludedCount: 0,
+    exclusionReasons: [],
+    players: [],
+  },
+  objectives: {
+    status: "unavailable",
+    excludedCount: 0,
+    exclusionReasons: [],
+    events: [],
+  },
+  teamfights: {
+    status: "unavailable",
+    excludedCount: 0,
+    exclusionReasons: [],
+    fights: [],
+  },
+});
+
 export const matchSummarySchema = z.object({
   id: identifierSchema,
   startTime: timestampSchema,
@@ -371,7 +521,7 @@ export const matchSummarySchema = z.object({
   player: matchPlayerSchema,
 });
 
-export const matchDetailSchema = matchSummarySchema.omit({ player: true }).extend({
+export const matchCoreDetailSchema = matchSummarySchema.omit({ player: true }).extend({
   players: z.array(matchPlayerSchema).min(1).max(10),
   detailStatus: z.enum(["summary", "enriched"]),
   enrichmentSources: z.array(z.enum(["stratz"])).default([]),
@@ -380,6 +530,10 @@ export const matchDetailSchema = matchSummarySchema.omit({ player: true }).exten
   cluster: z.string().nullable(),
   radiantScore: z.number().int().nonnegative().nullable(),
   direScore: z.number().int().nonnegative().nullable(),
+});
+
+export const matchDetailSchema = matchCoreDetailSchema.extend({
+  analysis: matchAnalysisSchema,
 });
 
 export const matchEnrichmentScopeSchema = z.enum(["recent", "all_imported"]);
@@ -754,6 +908,8 @@ export type HeroDetail = z.infer<typeof heroDetailSchema>;
 export type ItemSummary = z.infer<typeof itemSummarySchema>;
 export type ItemDetail = z.infer<typeof itemDetailSchema>;
 export type MatchSummary = z.infer<typeof matchSummarySchema>;
+export type MatchCoreDetail = z.infer<typeof matchCoreDetailSchema>;
+export type MatchAnalysis = z.infer<typeof matchAnalysisSchema>;
 export type MatchDetail = z.infer<typeof matchDetailSchema>;
 export type StratzEnrichmentState = z.infer<typeof stratzEnrichmentStateSchema>;
 export type MatchEnrichmentScope = z.infer<typeof matchEnrichmentScopeSchema>;

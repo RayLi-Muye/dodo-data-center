@@ -3,6 +3,7 @@ import {
   apiErrorSchema,
   dataStatusResponseSchema,
   entityUpdatesResponseSchema,
+  emptyMatchAnalysis,
   heroDetailResponseSchema,
   heroesResponseSchema,
   itemDetailResponseSchema,
@@ -653,6 +654,44 @@ describe("Dodo API", () => {
     );
     expect(response.data.enrichmentSources).toEqual(["stratz"]);
     expect(response.meta.sources).toEqual(["seed", "stratz"]);
+  });
+
+  it("distinguishes missing analysis from a known-empty complete analysis", async () => {
+    const repository = await createSeedRepository();
+    const stored = (await repository.listPlayerMatches(SEED_ACCOUNT_ID))[0]!;
+    await app.close();
+    app = await buildApp({ environment: "test", repository });
+
+    const unavailable = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: `/v1/matches/${stored.detail.id}` })),
+    );
+    expect(unavailable.data.analysis.playerTimelines.status).toBe("unavailable");
+    expect(unavailable.meta.quality).toBe("partial");
+
+    const knownEmpty = emptyMatchAnalysis("2026-07-20T01:00:00.000Z");
+    for (const section of [
+      knownEmpty.playerTimelines,
+      knownEmpty.teamAdvantages,
+      knownEmpty.kills,
+      knownEmpty.damage,
+      knownEmpty.objectives,
+      knownEmpty.teamfights,
+    ]) section.status = "complete";
+    await repository.upsertMatchAnalysis({
+      matchId: stored.detail.id,
+      analysis: knownEmpty,
+      importedAt: "2026-07-20T01:00:00.000Z",
+      quality: "partial",
+    });
+
+    const complete = matchDetailResponseSchema.parse(
+      json(await app.inject({ method: "GET", url: `/v1/matches/${stored.detail.id}` })),
+    );
+    expect(complete.data.analysis.playerTimelines).toMatchObject({
+      status: "complete",
+      players: [],
+    });
+    expect(complete.meta.quality).toBe("complete");
   });
 
   it("defaults match browsing to 30 all-imported results", async () => {

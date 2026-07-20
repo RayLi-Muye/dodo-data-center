@@ -2,6 +2,7 @@ import {
   accountIdParamsSchema,
   accountReferenceSchema,
   encyclopediaListQuerySchema,
+  emptyMatchAnalysis,
   entityUpdatesQuerySchema,
   heroIdParamsSchema,
   identifierSchema,
@@ -39,6 +40,7 @@ import {
   type PlayerSyncBatch,
   type StaticDataSnapshot,
   type StoredMatch,
+  type StoredMatchAnalysis,
 } from "@dodo/db";
 import { OpenDotaProviderError } from "@dodo/dota-data";
 import type { FastifyInstance } from "fastify";
@@ -355,11 +357,34 @@ const descriptorFromSnapshot = (snapshot: StaticDataSnapshot): MetaDescriptor =>
   quality: snapshot.quality,
 });
 
-const descriptorFromMatch = (match: StoredMatch): MetaDescriptor => ({
-  updatedAt: match.importedAt,
-  sources: [...new Set([match.source, ...match.detail.enrichmentSources])],
-  quality: match.quality,
-});
+const descriptorFromMatch = (
+  match: StoredMatch,
+  analysis: StoredMatchAnalysis | undefined,
+): MetaDescriptor => {
+  const qualityRank: Record<MetaDescriptor["quality"], number> = {
+    complete: 0,
+    partial: 1,
+    stale: 2,
+  };
+  const analysisQuality = analysis?.quality ?? "partial";
+  return {
+    updatedAt:
+      analysis && analysis.importedAt > match.importedAt
+        ? analysis.importedAt
+        : match.importedAt,
+    sources: [
+      ...new Set([
+        match.source,
+        ...match.detail.enrichmentSources,
+        ...(analysis ? [analysis.analysis.source] : []),
+      ]),
+    ],
+    quality:
+      qualityRank[analysisQuality] > qualityRank[match.quality]
+        ? analysisQuality
+        : match.quality,
+  };
+};
 
 const descriptorWithMatchSources = (
   descriptor: MetaDescriptor,
@@ -470,6 +495,16 @@ export const registerRoutes = async (
       releasedAt: patch.releasedAt,
     }));
     return matches.map((match) => inferStoredMatchVersion(match, releases));
+  };
+  const matchDetailResponse = async (match: StoredMatch) => {
+    const storedAnalysis = await repository.getMatchAnalysis(match.detail.id);
+    return {
+      data: {
+        ...match.detail,
+        analysis: storedAnalysis?.analysis ?? emptyMatchAnalysis(),
+      },
+      meta: createOperationMeta(descriptorFromMatch(match, storedAnalysis)),
+    };
   };
   const defaultDescriptor = async (): Promise<MetaDescriptor> => {
     if (dataMode === "seed") {
@@ -998,7 +1033,7 @@ export const registerRoutes = async (
     if (!match) {
       throw new ApiHttpError(404, "NOT_FOUND", "Match was not found.", false, errorMeta);
     }
-    return { data: match.detail, meta: createOperationMeta(descriptorFromMatch(match)) };
+    return matchDetailResponse(match);
   });
 
   app.post("/v1/matches/:matchId/enrichment", async (request) => {
@@ -1047,7 +1082,7 @@ export const registerRoutes = async (
         ),
       );
     }
-    return { data: match.detail, meta: createOperationMeta(descriptorFromMatch(match)) };
+    return matchDetailResponse(match);
   });
 
   app.get("/v1/patches", async (request) => {

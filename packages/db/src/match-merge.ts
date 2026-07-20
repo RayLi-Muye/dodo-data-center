@@ -1,6 +1,48 @@
-import type { MatchDetail } from "@dodo/contracts";
+import type { MatchCoreDetail } from "@dodo/contracts";
 
-type MatchPlayer = MatchDetail["players"][number];
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export const withLegacyMatchDefaults = (value: unknown): unknown => {
+  if (!isRecord(value)) return value;
+  const players = Array.isArray(value.players)
+    ? value.players.map((player) => {
+        if (!isRecord(player)) return player;
+        return {
+          ...player,
+          denies: player.denies ?? null,
+          heroHealing: player.heroHealing ?? null,
+          towerDamage: player.towerDamage ?? null,
+          level: player.level ?? null,
+          netWorth: player.netWorth ?? null,
+          backpackItemIds: player.backpackItemIds ?? [],
+          neutralItemId: player.neutralItemId ?? null,
+          neutralItemEnhancementId: player.neutralItemEnhancementId ?? null,
+          abilityBuild: player.abilityBuild ?? [],
+          abilityBuildStatus: player.abilityBuildStatus ?? "unavailable",
+          itemTimeline: player.itemTimeline ?? [],
+          itemTimelineStatus: player.itemTimelineStatus ?? "unavailable",
+        };
+      })
+    : value.players;
+  return {
+    ...value,
+    officialVersion: value.officialVersion ?? null,
+    openDotaPatchId:
+      value.openDotaPatchId ??
+      (typeof value.patch === "string" && /^\d+$/.test(value.patch) ? value.patch : null),
+    officialVersionSource: value.officialVersionSource ?? "unavailable",
+    players,
+    detailStatus: value.detailStatus ?? "summary",
+    enrichmentSources: value.enrichmentSources ?? [],
+    lobbyType: value.lobbyType ?? null,
+    cluster: value.cluster ?? null,
+    radiantScore: value.radiantScore ?? null,
+    direScore: value.direScore ?? null,
+  };
+};
+
+type MatchPlayer = MatchCoreDetail["players"][number];
 
 const abilityStatusRank = {
   unavailable: 0,
@@ -77,9 +119,9 @@ const preserveRicherEnrichment = (
 };
 
 export const mergeMatchDetails = (
-  existing: MatchDetail | undefined,
-  incoming: MatchDetail,
-): MatchDetail => {
+  existing: MatchCoreDetail | undefined,
+  incoming: MatchCoreDetail,
+): MatchCoreDetail => {
   if (existing?.detailStatus === "enriched" && incoming.detailStatus === "summary") {
     return existing;
   }

@@ -37,6 +37,19 @@ GET  /v1/updates/{version}
 
 `GET /v1/matches/{matchId}` 使用 `detailStatus=summary|enriched` 区分玩家比赛摘要与完整十人详情。`officialVersion` 由官方发布时间与比赛开始时间推定，`openDotaPatchId` 保留上游大版本 ID，`officialVersionSource` 必须标明推定或不可用。完整详情可以返回最终装备、背包、中立物品本体、中立强化项、技能升级序列和物品交易时间线。技能只有顺序而没有可靠等级/时间时使用 `abilityBuildStatus=ordered`；只有上游提供真实时间时使用 `timed`。物品购买或出售日志缺失时必须使用 `itemTimelineStatus=unavailable|partial`，不得从最终背包反推交易事件。
 
+单局详情的 replay-parser 派生事实位于 `analysis`，首版来源固定为 OpenDota，并携带 `providerRevision` 与独立 `updatedAt`。核心比赛 payload 与 analysis 在持久层分离，只有 `GET /v1/matches/{matchId}` 组合响应；玩家比赛列表与聚合统计不得批量加载大体积 analysis sidecar。`analysis` 包含：
+
+- `playerTimelines`：按 `playerSlot` 保存上游真实 `times` 对齐的累计 gold、xp、lastHits、denies；数组短缺位置返回 `null`，不插值。
+- `teamAdvantages`：天辉 gold/xp 优势；正值表示天辉领先。OpenDota 未给该数组独立时间轴，因此首版明确返回 `axis=inferred_60s` 并使用 `index * 60`。
+- `kills`：击杀方 slot、时间和上游 victim entity key；不宣称是完整死亡或助攻账本。
+- `damage`：按目标实体、来源实体和 inflictor key 拆分造成/承受伤害；不推断物理、魔法、纯粹，也不把 `null` key 武断描述为普通攻击。
+- `objectives`：保留上游类型、时间、key、unit、player slot 与可识别的 Radiant/Dire 引用。
+- `teamfights`：开始、结束、最后死亡、死亡数及每名玩家的死亡、买活、伤害、治疗、gold/xp delta。
+
+每个 analysis section 独立返回 `status=unavailable|partial|complete`、`excludedCount` 和 `exclusionReasons`。缺少上游字段为 unavailable；存在有效数据但字段不齐或坏记录被排除为 partial；只有该 section 输入完整有效才可 complete。`complete + []` 才能解释为“已知没有事件”，`partial/unavailable + []` 必须显示为数据不足。`parseStatus=parsed` 不等于所有 section complete。
+
+Analysis sidecar 合并规则为：unavailable 不覆盖 partial/complete，partial 不覆盖 complete；同级 partial 稳定去重并合并；新的 complete 是该 provider revision 的权威快照，可以替换旧 complete。Provider 失败不得写空 sidecar或删除旧数据。Legacy 比赛无 sidecar 时，API 合成所有 section unavailable 的 `analysis`。
+
 比赛详情的基础事实仍以 OpenDota 为主；STRATZ 只可增强加点时间与购买时间。使用 STRATZ 增强时，`enrichmentSources` 包含 `stratz`，响应 `meta.sources` 同时包含 `opendota` 与 `stratz`。`stratzEnrichment` 独立表达未请求、完成、计划重试、终止 partial/failed 与 provider blocked；来源归属不得再作为完成状态。STRATZ 只提供购买事件时，合法成功仍可为 match-level complete，而玩家 `itemTimelineStatus` 保持 partial，明确不含完整出售账本。STRATZ 缺失、限流或不可用时保留已有 OpenDota 数据，不得把现有时间线覆盖为空。STRATZ 的 `gameVersionId` 不得作为当前官方版本：当前英雄、物品与更新日志继续以 Dota 2 official current-data 为准。
 
 批量增强进度必须返回 total、detail ready、complete、retry scheduled、terminal partial/failed、provider blocked、not requested 与当前 retry eligible 数量。统计 meta 的 `sampleSize`/`eligibleCount` 等于 scope 内比赛数，`coverageRate=completeCount/totalMatches`，`metricVersion=match-enrichment-v1`。每次 POST 最多处理 20 场，不得一次性扫描上游全历史。

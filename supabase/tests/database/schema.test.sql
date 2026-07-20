@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(14);
+select plan(17);
 
 select ok(
   exists (select 1 from information_schema.schemata where schema_name = 'dodo'),
@@ -15,11 +15,11 @@ select is(
    from information_schema.tables
    where table_schema = 'dodo'
      and table_name in (
-       'heroes', 'items', 'maps', 'players', 'matches', 'player_matches',
+       'heroes', 'items', 'maps', 'players', 'matches', 'match_analysis', 'player_matches',
        'sync_jobs', 'player_sync_batches', 'player_sync_failures',
        'provider_health', 'static_snapshots'
      )),
-  11,
+  12,
   'all MVP tables exist'
 );
 
@@ -65,6 +65,32 @@ select is(
      and constraint_name = 'player_matches_match_fk'),
   'CASCADE',
   'deleting a match cascades to player_matches'
+);
+
+select ok(
+  exists (
+    select 1
+    from information_schema.table_constraints
+    where constraint_schema = 'dodo'
+      and table_name = 'match_analysis'
+      and constraint_name = 'match_analysis_match_fk'
+      and constraint_type = 'FOREIGN KEY'
+  ),
+  'match analysis has its match foreign key'
+);
+
+select is(
+  (select delete_rule
+   from information_schema.referential_constraints
+   where constraint_schema = 'dodo'
+     and constraint_name = 'match_analysis_match_fk'),
+  'CASCADE',
+  'deleting a match cascades to match analysis'
+);
+
+select ok(
+  exists (select 1 from pg_constraint where conname = 'match_analysis_quality_check'),
+  'match analysis quality uses the canonical quality set'
 );
 
 select ok(

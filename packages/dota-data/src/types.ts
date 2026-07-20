@@ -1,3 +1,5 @@
+import type { MatchAnalysis } from "@dodo/contracts";
+
 export type OpenDotaSourceMetadata = {
   source: "opendota";
   fetchedAt: string;
@@ -129,6 +131,7 @@ export type CanonicalMatchDetail = {
   quality: "complete" | "partial";
   players: CanonicalMatchPlayer[];
   parseStatus: "unparsed" | "parsed";
+  analysis: MatchAnalysis;
   source: OpenDotaSourceMetadata;
 };
 
