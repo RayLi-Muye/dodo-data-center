@@ -19,7 +19,7 @@
 | API-030 lossless persistence | Backend/API Agent | `apps/api/**`、`packages/db/**`；转换、legacy default、无损幂等合并 | ROOT-030, DATA-030 | ACCEPTED |
 | WEB-030 match workbench | Web Agent | `apps/web/**`、`packages/ui/**`；概览、发育、战斗、目标、构筑五页签与 390px | ROOT-030, DATA-030, API-030 | ACCEPTED |
 | QA-030 truthfulness and responsive gate | QA Agent | 只读；真实字段、缺失状态、无额外请求、桌面/390px 和键盘 | DATA-030, API-030, WEB-030 | ACCEPTED |
-| DEPLOY-030 overseas preview | Root | 全仓门禁、真实公开账号与 Vercel/Railway smoke | QA-030 | READY |
+| DEPLOY-030 overseas preview | Root | 全仓门禁、真实公开账号与 Vercel/Railway smoke | QA-030 | ACCEPTED |
 
 验收目标：
 
@@ -38,7 +38,9 @@
 - 等级变化首轮先保留真实 XP 曲线；只有补齐对应 Patch 的版本化升级经验表或 replay 等级事件后才派生等级曲线。
 - 全部死亡时间、逐次助攻、死亡金钱损失、逐次治疗、伤害类型、modifier 持续时间、胜率预测和 MVP 需要 replay 事实或独立版本化模型。
 
-本地验收证据：OpenDota 公开账号 `224328273` 的已解析比赛 `8904600791` 经数据源规范化、Memory core/sidecar 持久化、Fastify HTTP GET 和公开合同解析完成全链路核对；10 名玩家与六个高级区块均为 complete，分别得到 10 条玩家时间轴、33 个阵营优势点、54 次击杀、10 份伤害汇总、25 个目标事件和 3 次团战。全仓 `pnpm typecheck`、`pnpm test`、`pnpm build`、46 项静态 schema 检查和 `git diff --check` 通过；测试共 419 项通过，19 项需要隔离 PostgreSQL 的集成测试因本机未配置 `TEST_DATABASE_URL` 而按设计跳过。独立 QA 无 P0/P1。真实浏览器完成 1280px 与 390×844 冒烟：五页签和十人选择均可在不改变 URL、不新增页面请求的情况下切换，选择状态跨页签保持，页面无横向溢出且控制台无错误；局部页签栏与玩家选择器允许横向滚动。`DEPLOY-030` 尚未执行，迁移应用与海外环境 smoke 仍是发布前门禁。
+本地验收证据：OpenDota 公开账号 `224328273` 的已解析比赛 `8904600791` 经数据源规范化、Memory core/sidecar 持久化、Fastify HTTP GET 和公开合同解析完成全链路核对；10 名玩家与六个高级区块均为 complete，分别得到 10 条玩家时间轴、33 个阵营优势点、54 次击杀、10 份伤害汇总、25 个目标事件和 3 次团战。全仓 `pnpm typecheck`、`pnpm test`、`pnpm build`、46 项静态 schema 检查和 `git diff --check` 通过；测试共 419 项通过，19 项需要隔离 PostgreSQL 的集成测试因本机未配置 `TEST_DATABASE_URL` 而按设计跳过。独立 QA 无 P0/P1。
+
+部署证据：Supabase migration `20260720000100_match_analysis` 已应用且本地/远端 migration history 一致；Railway API deployment `d68057ec-77be-45a7-a76c-326c0b3844cd` 为 SUCCESS，readiness 为 200。Vercel Preview `web-f32tfo3q5-rays-projects-f956e95b.vercel.app` 为 READY。生产 API 中账号 `224328273` 的比赛 `8894967793` 经手动增强后保留 10 名玩家，六个 analysis section 均为 complete：10 份玩家时间轴、49 个阵营优势点、97 次击杀、10 份伤害汇总、34 个目标事件和 16 次团战；重复增强前后 `analysis.updatedAt` 均为 `2026-07-20T01:37:31.651Z`，证明相同内容没有重复写入。真实浏览器完成 1280px 与 390×844 冒烟：五页签和十人选择均可在不改变 URL的情况下切换，选择状态跨页签保持，页面无横向溢出且控制台无错误；390px 下页签栏和玩家选择器只在各自容器内横向滚动。
 
 ### Wave 17: In-memory item workbench and hero density calibration
 
