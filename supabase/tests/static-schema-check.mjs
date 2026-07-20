@@ -15,6 +15,7 @@ const requiredTables = [
   "maps",
   "players",
   "matches",
+  "match_analysis",
   "player_matches",
   "sync_jobs",
   "player_sync_batches",
@@ -32,6 +33,7 @@ const requiredColumns = {
   maps: ["id", "payload", "is_current", "updated_at"],
   players: ["account_id", "payload", "updated_at"],
   matches: ["id", "payload", "start_time", "imported_at", "source", "quality", "updated_at"],
+  match_analysis: ["match_id", "payload", "provider_revision", "imported_at", "quality", "updated_at"],
   player_matches: ["account_id", "match_id", "start_time"],
   sync_jobs: ["job_id", "payload", "updated_at"],
   player_sync_batches: ["account_id", "payload", "updated_at"],
@@ -57,6 +59,10 @@ const checks = [
   [
     "cascading match foreign key",
     /foreign key \(match_id\)[\s\S]*references dodo\.matches \(id\)[\s\S]*on delete cascade/i,
+  ],
+  [
+    "cascading match analysis foreign key",
+    /create table dodo\.match_analysis[\s\S]*foreign key \(match_id\)[\s\S]*references dodo\.matches \(id\)[\s\S]*on delete cascade/i,
   ],
   [
     "stable recent index",
@@ -94,8 +100,8 @@ for (const [table, columns] of Object.entries(requiredColumns)) {
   }
 }
 
-if (payloadTables.length !== 13) {
-  missing.push(`expected 13 non-null payload tables, found ${payloadTables.length}`);
+if (payloadTables.length !== 14) {
+  missing.push(`expected 14 non-null payload tables, found ${payloadTables.length}`);
 }
 
 if (!/schemas = \["public", "graphql_public"\]/.test(config) || /schemas = \[[^\]]*"dodo"/.test(config)) {

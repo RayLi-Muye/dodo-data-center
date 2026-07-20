@@ -35,6 +35,16 @@
       "item_neutral": 4,
       "item_neutral2": 1592,
       "ability_upgrades_arr": [5010, 5011, 5010],
+      "times": [0, 60, 120],
+      "gold_t": [0, 220, 540],
+      "xp_t": [0, 180, 480],
+      "lh_t": [0, 3, 8],
+      "dn_t": [0, 0, 1],
+      "kills_log": [{ "time": 118, "key": "npc_dota_hero_lina" }],
+      "damage": { "npc_dota_hero_lina": 420 },
+      "damage_taken": { "npc_dota_hero_lina": 200 },
+      "damage_inflictor": { "antimage_mana_break": 300 },
+      "damage_inflictor_received": { "lina_dragon_slave": 150 },
       "purchase_log": [
         { "time": -85, "key": "tango" },
         { "time": 412, "key": "blink" }
@@ -47,7 +57,58 @@
       "kills": 5,
       "deaths": 2,
       "assists": 12,
+      "times": [0, 60, 120],
+      "gold_t": [0, 180, 500],
+      "xp_t": [0, 160, 440],
+      "lh_t": [0, 1, 5],
+      "dn_t": [0, 0, 0],
+      "kills_log": [{ "time": 119, "key": "npc_dota_hero_antimage" }],
+      "damage": { "npc_dota_hero_antimage": 380 },
+      "damage_taken": { "npc_dota_hero_antimage": 260 },
+      "damage_inflictor": { "lina_dragon_slave": 320 },
+      "damage_inflictor_received": { "antimage_mana_break": 190 },
       "item_0": 3
+    }
+  ],
+  "radiant_gold_adv": [0, 40, -20],
+  "radiant_xp_adv": [0, 25, 70],
+  "objectives": [
+    {
+      "time": 95,
+      "type": "CHAT_MESSAGE_FIRSTBLOOD",
+      "key": 4,
+      "player_slot": 2,
+      "team": 2
+    }
+  ],
+  "teamfights": [
+    {
+      "start": 100,
+      "end": 132,
+      "last_death": 120,
+      "deaths": 2,
+      "players": [
+        {
+          "deaths": 1,
+          "buybacks": 0,
+          "damage": 420,
+          "healing": 0,
+          "gold_delta": 150,
+          "xp_delta": 220,
+          "xp_start": 1000,
+          "xp_end": 1220
+        },
+        {
+          "deaths": 1,
+          "buybacks": 0,
+          "damage": 380,
+          "healing": 10,
+          "gold_delta": -120,
+          "xp_delta": 80,
+          "xp_start": 900,
+          "xp_end": 980
+        }
+      ]
     }
   ]
 }

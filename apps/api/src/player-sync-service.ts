@@ -1,10 +1,12 @@
 import type {
   HeroDetail,
   ItemDetail,
-  MatchDetail,
+  MatchAnalysis,
+  MatchCoreDetail,
   PlayerProfile,
   SyncJob,
 } from "@dodo/contracts";
+import { MATCH_ANALYSIS_PROVIDER_REVISION } from "@dodo/contracts";
 import {
   Dota2OfficialProviderError,
   OpenDotaProviderError,
@@ -23,6 +25,7 @@ import type {
   ProviderHealth,
   StaticDataSnapshot,
   StoredMatch,
+  StoredMatchAnalysis,
 } from "@dodo/db";
 import { createHash } from "node:crypto";
 
@@ -37,7 +40,7 @@ export const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const UPDATE_TTL_MS = 2 * 60 * 60 * 1_000;
 export const PLAYER_SYNC_TTL_MS = 30 * 60 * 1_000;
 
-const defaultStratzEnrichment = (): MatchDetail["stratzEnrichment"] => ({
+const defaultStratzEnrichment = (): MatchCoreDetail["stratzEnrichment"] => ({
   status: "not_requested",
   resultQuality: null,
   attemptCount: 0,
@@ -156,7 +159,7 @@ export const toItemDetails = (
 const toMatchPlayer = (
   player: CanonicalMatchPlayer,
   itemIdByName: ReadonlyMap<string, string>,
-): MatchDetail["players"][number] => {
+): MatchCoreDetail["players"][number] => {
   const { eligibleForPersonalAggregation: _eligible, itemTimeline, ...rest } = player;
   const knownTransactions = itemTimeline.flatMap((transaction) => {
     const itemId = itemIdByName.get(transaction.itemKey);
@@ -181,7 +184,7 @@ export const toMatchSummaryDetail = (
   match: CanonicalPlayerMatch,
   itemIdByName: ReadonlyMap<string, string>,
   officialVersion: string | null = null,
-): MatchDetail => {
+): MatchCoreDetail => {
   return {
     id: match.id,
     startTime: match.startTime,
@@ -209,7 +212,7 @@ export const toEnrichedMatchDetail = (
   match: CanonicalMatchDetail,
   itemIdByName: ReadonlyMap<string, string>,
   officialVersion: string | null,
-): MatchDetail => ({
+): MatchCoreDetail => ({
   id: match.id,
   startTime: match.startTime,
   durationSeconds: match.durationSeconds,
@@ -229,6 +232,27 @@ export const toEnrichedMatchDetail = (
   radiantScore: match.radiantScore,
   direScore: match.direScore,
 });
+
+export const toStoredMatchAnalysis = (
+  match: CanonicalMatchDetail,
+): StoredMatchAnalysis | undefined => {
+  const analysis = (match as CanonicalMatchDetail & { analysis?: MatchAnalysis }).analysis;
+  if (!analysis) return undefined;
+  const statuses = [
+    analysis.playerTimelines.status,
+    analysis.teamAdvantages.status,
+    analysis.kills.status,
+    analysis.damage.status,
+    analysis.objectives.status,
+    analysis.teamfights.status,
+  ];
+  return {
+    matchId: match.id,
+    analysis,
+    importedAt: match.source.fetchedAt,
+    quality: statuses.every((status) => status === "complete") ? "complete" : "partial",
+  };
+};
 
 const statusForProviderError = (
   error: OpenDotaProviderError,
@@ -493,9 +517,19 @@ export class PlayerSyncService {
           latestMatches.map((match) => match.detail.id),
         ),
       );
+      const analyses = await Promise.all(
+        latestMatches.map((match) => this.#repository.getMatchAnalysis(match.detail.id)),
+      );
+      const analysisByMatchId = new Map(
+        analyses.flatMap((analysis) => analysis ? [[analysis.matchId, analysis] as const] : []),
+      );
       const enrichmentCandidates = latestMatches.filter(
         (match) =>
-          match.detail.detailStatus !== "enriched" || legacyEnrichedIds.has(match.detail.id),
+          match.detail.detailStatus !== "enriched" ||
+          match.detail.parseStatus !== "parsed" ||
+          legacyEnrichedIds.has(match.detail.id) ||
+          analysisByMatchId.get(match.detail.id)?.analysis.providerRevision !==
+            MATCH_ANALYSIS_PROVIDER_REVISION,
       );
       let nextCandidateIndex = 0;
       const enrichNext = async (): Promise<void> => {
@@ -503,11 +537,13 @@ export class PlayerSyncService {
           const candidate = enrichmentCandidates[nextCandidateIndex++];
           if (!candidate) return;
           let enrichedMatch: StoredMatch;
+          let storedAnalysis: StoredMatchAnalysis | undefined;
           try {
             const canonical = await this.#provider.getMatchDetail(candidate.detail.id);
             if (canonical.id !== candidate.detail.id) {
               throw new Error("Match detail provider returned a different match");
             }
+            storedAnalysis = toStoredMatchAnalysis(canonical);
             const isLegacyEnriched =
               candidate.detail.detailStatus === "enriched" &&
               legacyEnrichedIds.has(candidate.detail.id);
@@ -550,6 +586,7 @@ export class PlayerSyncService {
             continue;
           }
           await this.#repository.upsertMatch(enrichedMatch);
+          if (storedAnalysis) await this.#repository.upsertMatchAnalysis(storedAnalysis);
         }
       };
       await Promise.all(

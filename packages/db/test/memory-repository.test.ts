@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  emptyMatchAnalysis,
   mapFeatureTypeSchema,
   type ItemDetail,
   type MapVersion,
@@ -430,6 +431,61 @@ describe("MemoryDodoRepository", () => {
     });
 
     expect((await repository.getMatch(match.detail.id))?.importedAt).toBe(match.importedAt);
+  });
+
+  it("stores match analysis separately and does not churn its import timestamp", async () => {
+    const repository = await createSeedRepository();
+    const match = await repository.getMatch("9000000000");
+    if (!match) throw new Error("seed match missing");
+    expect(await repository.getMatchAnalysis(match.detail.id)).toBeUndefined();
+    const analysis = {
+      matchId: match.detail.id,
+      analysis: emptyMatchAnalysis("2026-07-20T01:00:00.000Z"),
+      importedAt: "2026-07-20T01:00:00.000Z",
+      quality: "partial" as const,
+    };
+
+    await repository.upsertMatchAnalysis(analysis);
+    await repository.upsertMatchAnalysis({
+      ...analysis,
+      importedAt: "2026-07-20T02:00:00.000Z",
+    });
+
+    expect(await repository.getMatchAnalysis(match.detail.id)).toEqual(analysis);
+  });
+
+  it("derives analysis quality from merged sections and keeps the matching timestamp", async () => {
+    const repository = await createSeedRepository();
+    const match = await repository.getMatch("9000000000");
+    if (!match) throw new Error("seed match missing");
+    const complete = emptyMatchAnalysis("2026-07-20T02:00:00.000Z");
+    for (const section of [
+      complete.playerTimelines,
+      complete.teamAdvantages,
+      complete.kills,
+      complete.damage,
+      complete.objectives,
+      complete.teamfights,
+    ]) section.status = "complete";
+    await repository.upsertMatchAnalysis({
+      matchId: match.detail.id,
+      analysis: complete,
+      importedAt: "2026-07-20T02:00:00.000Z",
+      quality: "partial",
+    });
+    await repository.upsertMatchAnalysis({
+      matchId: match.detail.id,
+      analysis: emptyMatchAnalysis("2026-07-20T01:00:00.000Z"),
+      importedAt: "2026-07-20T03:00:00.000Z",
+      quality: "partial",
+    });
+
+    expect(await repository.getMatchAnalysis(match.detail.id)).toEqual({
+      matchId: match.detail.id,
+      analysis: complete,
+      importedAt: "2026-07-20T02:00:00.000Z",
+      quality: "complete",
+    });
   });
 
   it("detects legacy match players by own neutral enhancement property", async () => {

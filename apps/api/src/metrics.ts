@@ -1,7 +1,7 @@
 import type {
   HeroDetail,
   HeroSummary,
-  MatchDetail,
+  MatchCoreDetail,
   MatchPlayer,
   MatchSummary,
   MetricWindow,
@@ -28,13 +28,13 @@ export const toHeroSummary = (hero: HeroDetail): HeroSummary => ({
   officialVersion: hero.officialVersion,
 });
 
-const targetPlayer = (match: MatchDetail, accountId: string): MatchPlayer => {
+const targetPlayer = (match: MatchCoreDetail, accountId: string): MatchPlayer => {
   const player = match.players.find((candidate) => candidate.accountId === accountId);
   if (!player) throw new Error(`Repository invariant failed for match ${match.id}`);
   return player;
 };
 
-export const toMatchSummary = (match: MatchDetail, accountId: string): MatchSummary => ({
+export const toMatchSummary = (match: MatchCoreDetail, accountId: string): MatchSummary => ({
   id: match.id,
   startTime: match.startTime,
   durationSeconds: match.durationSeconds,

@@ -30,17 +30,18 @@ export function MatchAnalyzer({
   heroes,
   items,
   players,
+  selectedPlayerSlot,
 }: {
   abilitiesByHeroId: AbilitiesByHeroId;
   heroes: HeroSummary[];
   items: ItemSummary[];
   players: MatchPlayer[];
+  selectedPlayerSlot: number;
 }) {
-  const [selectedSlot, setSelectedSlot] = useState(players[0]?.playerSlot ?? 0);
   const [view, setView] = useState<AnalyzerView>("abilities");
   const heroById = new Map(heroes.map((hero) => [hero.id, hero]));
   const itemById = new Map(items.map((item) => [item.id, item]));
-  const player = players.find((candidate) => candidate.playerSlot === selectedSlot) ?? players[0];
+  const player = players.find((candidate) => candidate.playerSlot === selectedPlayerSlot) ?? players[0];
 
   if (!player) return null;
 
@@ -56,42 +57,40 @@ export function MatchAnalyzer({
   return (
     <section className="match-analyzer" aria-labelledby="match-analyzer-title">
       <header className="match-analyzer__heading">
-        <span>PLAYER ANALYZER</span>
-        <h2 id="match-analyzer-title">单场玩家分析</h2>
-        <p>选择一名玩家，查看上游实际记录的加点顺序与物品交易。</p>
-      </header>
-
-      <div className="match-analyzer__players" aria-label="选择分析玩家">
-        {players.map((candidate) => {
-          const candidateHero = heroById.get(candidate.heroId);
-          const selected = candidate.playerSlot === player.playerSlot;
-          return (
-            <button
-              aria-pressed={selected}
-              className={selected ? "match-analyzer__player is-selected" : "match-analyzer__player"}
-              data-side={candidate.side}
-              key={candidate.playerSlot}
-              onClick={() => setSelectedSlot(candidate.playerSlot)}
-              type="button"
-            >
-              <PlayerPortrait hero={candidateHero} />
-              <span>
-                <strong>{candidateHero?.localizedName ?? `英雄 #${candidate.heroId}`}</strong>
-                <small>{candidate.side === "radiant" ? "天辉" : "夜魇"} · {candidate.accountId ?? "匿名玩家"}</small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="match-analyzer__toolbar">
         <div className="match-analyzer__selected">
           <PlayerPortrait hero={hero} />
           <span>
-            <small>{player.side === "radiant" ? "天辉" : "夜魇"} · 玩家</small>
-            <strong>{hero?.localizedName ?? `英雄 #${player.heroId}`}</strong>
+            <small>PLAYER BUILD / {player.side === "radiant" ? "天辉" : "夜魇"}</small>
+            <h2 id="match-analyzer-title">{hero?.localizedName ?? `英雄 #${player.heroId}`}的出装与加点</h2>
           </span>
         </div>
+        <p>仅展示上游实际返回的最终槽位、加点顺序与物品交易。</p>
+      </header>
+
+      <div className="match-build-loadout" aria-label="最终物品">
+        {[
+          { ids: player.finalItemIds, label: "装备" },
+          { ids: player.backpackItemIds, label: "背包" },
+          { ids: player.neutralItemId ? [player.neutralItemId] : [], label: "中立物品" },
+          { ids: player.neutralItemEnhancementId ? [player.neutralItemEnhancementId] : [], label: "中立附魔" },
+        ].map((group) => (
+          <div key={group.label}>
+            <small>{group.label}</small>
+            <span className="item-rack">
+              {group.ids.length === 0 ? <em>无记录</em> : group.ids.map((itemId, index) => {
+                const item = itemById.get(itemId);
+                return item ? (
+                  <Link href={`/items/${encodeURIComponent(item.id)}`} key={`${itemId}-${index}`} title={item.localizedName}>
+                    <AssetImage alt={item.localizedName} className="item-thumb" kind="item" name={item.name} />
+                  </Link>
+                ) : <span className="asset-fallback asset-fallback--item item-thumb" key={`${itemId}-${index}`}>#{itemId}</span>;
+              })}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="match-analyzer__toolbar">
         <div className="match-analyzer__views" role="tablist" aria-label="选择分析维度">
           <button
             aria-controls="match-analyzer-abilities"

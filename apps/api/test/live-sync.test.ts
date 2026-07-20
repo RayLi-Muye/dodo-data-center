@@ -1,6 +1,7 @@
 import {
   apiErrorSchema,
   dataStatusResponseSchema,
+  emptyMatchAnalysis,
   entityUpdatesResponseSchema,
   heroDetailResponseSchema,
   itemDetailResponseSchema,
@@ -372,6 +373,7 @@ const detailFor = (matchId: string): CanonicalMatchDetail => {
     quality: "complete",
     players: [match.player],
     parseStatus: "parsed",
+    analysis: emptyMatchAnalysis(SOURCE.fetchedAt),
     source: SOURCE,
   };
 };

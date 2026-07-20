@@ -54,10 +54,12 @@ function ItemGroup({
 }
 
 export function MatchPlayerRow({
+  compact = false,
   heroById,
   itemById,
   player,
 }: {
+  compact?: boolean;
   heroById: Map<string, HeroSummary>;
   itemById: Map<string, ItemSummary>;
   player: MatchDetail["players"][number];
@@ -65,7 +67,7 @@ export function MatchPlayerRow({
   const hero = heroById.get(player.heroId);
 
   return (
-    <div className="participant-table__row" role="row">
+    <div className={compact ? "participant-table__row participant-table__row--compact" : "participant-table__row"} role="row">
       <span className="participant-identity" data-label="玩家 / 英雄" role="cell">
         {hero ? (
           <AssetImage alt={hero.localizedName} className="hero-thumb" kind="hero" name={hero.name} />
@@ -94,33 +96,33 @@ export function MatchPlayerRow({
         <b>{player.kills}</b><i>/</i><b>{player.deaths}</b><i>/</i><b>{player.assists}</b>
         <small>Lv. {player.level ?? "—"}</small>
       </span>
-      <span data-label="GPM / XPM" role="cell">
+      {compact ? null : <span data-label="GPM / XPM" role="cell">
         {player.gpm ?? "—"} <i>/</i> {player.xpm ?? "—"}
-      </span>
-      <span data-label="补刀 / 反补" role="cell">
+      </span>}
+      {compact ? null : <span data-label="补刀 / 反补" role="cell">
         {player.lastHits ?? "—"} <i>/</i> {player.denies ?? "—"}
-      </span>
-      <span data-label="英雄 / 防御塔伤害" role="cell">
+      </span>}
+      {compact ? null : <span data-label="英雄 / 防御塔伤害" role="cell">
         {player.heroDamage?.toLocaleString("zh-CN") ?? "—"}
         <i>/</i>
         {player.towerDamage?.toLocaleString("zh-CN") ?? "—"}
-      </span>
+      </span>}
 
       <div className="participant-items" data-label="最终装备" role="cell">
         <ItemGroup emptyLabel="无装备记录" itemById={itemById} itemIds={player.finalItemIds} label="装备" />
-        <ItemGroup emptyLabel="无背包记录" itemById={itemById} itemIds={player.backpackItemIds} label="背包" />
-        <ItemGroup
+        {compact ? null : <ItemGroup emptyLabel="无背包记录" itemById={itemById} itemIds={player.backpackItemIds} label="背包" />}
+        {compact ? null : <ItemGroup
           emptyLabel="无中立物品记录"
           itemById={itemById}
           itemIds={player.neutralItemId ? [player.neutralItemId] : []}
           label="中立物品"
-        />
-        <ItemGroup
+        />}
+        {compact ? null : <ItemGroup
           emptyLabel="无中立附魔记录"
           itemById={itemById}
           itemIds={player.neutralItemEnhancementId ? [player.neutralItemEnhancementId] : []}
           label="中立附魔"
-        />
+        />}
       </div>
     </div>
   );

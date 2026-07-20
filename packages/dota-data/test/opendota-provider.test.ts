@@ -409,6 +409,129 @@ describe("OpenDotaProvider", () => {
     });
   });
 
+  it("normalizes parsed OpenDota match analysis with explicit axes and source timestamps", async () => {
+    const match = await providerFor(matchDetailFixture).provider.getMatchDetail("9003");
+
+    expect(match.analysis).toMatchObject({
+      source: "opendota",
+      providerRevision: "opendota-match-analysis-v1",
+      updatedAt: NOW.toISOString(),
+      playerTimelines: { status: "complete", excludedCount: 0 },
+      teamAdvantages: { status: "complete", axis: "inferred_60s", excludedCount: 0 },
+      kills: { status: "complete", excludedCount: 0 },
+      damage: { status: "complete", excludedCount: 0 },
+      objectives: { status: "complete", excludedCount: 0 },
+      teamfights: { status: "complete", excludedCount: 0 },
+    });
+    expect(match.analysis.playerTimelines.players[0]).toEqual({
+      playerSlot: 2,
+      samples: [
+        { gameTimeSeconds: 0, gold: 0, xp: 0, lastHits: 0, denies: 0 },
+        { gameTimeSeconds: 60, gold: 220, xp: 180, lastHits: 3, denies: 0 },
+        { gameTimeSeconds: 120, gold: 540, xp: 480, lastHits: 8, denies: 1 },
+      ],
+    });
+    expect(match.analysis.teamAdvantages.samples).toEqual([
+      { gameTimeSeconds: 0, radiantGoldAdvantage: 0, radiantXpAdvantage: 0 },
+      { gameTimeSeconds: 60, radiantGoldAdvantage: 40, radiantXpAdvantage: 25 },
+      { gameTimeSeconds: 120, radiantGoldAdvantage: -20, radiantXpAdvantage: 70 },
+    ]);
+    expect(match.analysis.kills.events).toEqual([
+      { killerPlayerSlot: 2, gameTimeSeconds: 118, victimEntityName: "npc_dota_hero_lina" },
+      { killerPlayerSlot: 128, gameTimeSeconds: 119, victimEntityName: "npc_dota_hero_antimage" },
+    ]);
+    expect(match.analysis.damage.players[0]?.dealtBySources).toEqual([
+      { entityName: "antimage_mana_break", amount: 300 },
+    ]);
+    expect(match.analysis.objectives.events[0]).toEqual({
+      gameTimeSeconds: 95,
+      type: "CHAT_MESSAGE_FIRSTBLOOD",
+      key: "4",
+      unit: null,
+      playerSlot: 2,
+      team: "radiant",
+    });
+    expect(match.analysis.teamfights.fights[0]?.players.map((player) => player.playerSlot)).toEqual([
+      2,
+      128,
+    ]);
+  });
+
+  it("keeps analysis sections isolated when arrays are misaligned or nested records are invalid", async () => {
+    const detail = structuredClone(matchDetailFixture) as unknown as Record<string, unknown>;
+    const players = detail.players as Array<Record<string, unknown>>;
+    players[1]!.gold_t = [0];
+    delete players[1]!.kills_log;
+    delete players[1]!.damage_inflictor_received;
+    detail.radiant_xp_adv = [0];
+    (detail.objectives as unknown[]).push({ time: "invalid", type: "building_kill" });
+    ((detail.teamfights as Array<Record<string, unknown>>)[0]!.players as unknown[]).pop();
+
+    const match = await providerFor(detail).provider.getMatchDetail("9003");
+
+    expect(match.analysis.playerTimelines).toMatchObject({
+      status: "partial",
+      exclusionReasons: expect.arrayContaining(["timeline_gold_t_length_mismatch"]),
+    });
+    expect(match.analysis.playerTimelines.players[1]?.samples[1]?.gold).toBeNull();
+    expect(match.analysis.teamAdvantages).toMatchObject({
+      status: "partial",
+      exclusionReasons: expect.arrayContaining(["advantage_length_mismatch"]),
+    });
+    expect(match.analysis.kills).toMatchObject({
+      status: "partial",
+      exclusionReasons: expect.arrayContaining(["kills_log_unavailable"]),
+    });
+    expect(match.analysis.damage).toMatchObject({
+      status: "partial",
+      exclusionReasons: expect.arrayContaining(["damage_inflictor_received_unavailable"]),
+    });
+    expect(match.analysis.objectives).toMatchObject({ status: "partial", excludedCount: 1 });
+    expect(match.analysis.teamfights).toMatchObject({
+      status: "partial",
+      exclusionReasons: expect.arrayContaining(["teamfight_player_count_mismatch"]),
+    });
+    expect(match.analysis.kills.events).toHaveLength(1);
+    expect(match.analysis.objectives.events).toHaveLength(1);
+    expect(match.analysis.teamfights.fights).toHaveLength(1);
+  });
+
+  it("marks every advanced section unavailable when parsed core detail carries no analysis keys", async () => {
+    const detail = structuredClone(matchDetailFixture) as unknown as Record<string, unknown>;
+    const players = detail.players as Array<Record<string, unknown>>;
+    for (const player of players) {
+      for (const key of [
+        "times",
+        "gold_t",
+        "xp_t",
+        "lh_t",
+        "dn_t",
+        "kills_log",
+        "damage",
+        "damage_taken",
+        "damage_inflictor",
+        "damage_inflictor_received",
+      ]) delete player[key];
+    }
+    delete detail.radiant_gold_adv;
+    delete detail.radiant_xp_adv;
+    delete detail.objectives;
+    delete detail.teamfights;
+
+    const match = await providerFor(detail).provider.getMatchDetail("9003");
+
+    for (const section of [
+      match.analysis.playerTimelines,
+      match.analysis.teamAdvantages,
+      match.analysis.kills,
+      match.analysis.damage,
+      match.analysis.objectives,
+      match.analysis.teamfights,
+    ]) {
+      expect(section).toMatchObject({ status: "unavailable", excludedCount: 0 });
+    }
+  });
+
   it("marks absent ability and purchase logs as unavailable without inferring events", async () => {
     const match = await providerFor(matchDetailFixture).provider.getMatchDetail("9003");
 

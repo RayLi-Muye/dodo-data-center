@@ -3,7 +3,7 @@ import type {
   HeroDetail,
   ItemDetail,
   MapVersion,
-  MatchDetail,
+  MatchCoreDetail,
   PatchSummary,
   PlayerHistorySync,
   PlayerProfile,
@@ -11,9 +11,9 @@ import type {
   UpdateReleaseDetail,
   UpdateReleaseSummary,
 } from "@dodo/contracts";
-import { heroDetailSchema, stratzEnrichmentStateSchema } from "@dodo/contracts";
+import { heroDetailSchema, matchCoreDetailSchema, stratzEnrichmentStateSchema } from "@dodo/contracts";
 
-import type { DodoRepository, StoredMatch } from "./types.js";
+import type { DodoRepository, StoredMatch, StoredMatchAnalysis } from "./types.js";
 import type {
   DataSource,
   PlayerSyncBatch,
@@ -21,7 +21,8 @@ import type {
   ProviderHealth,
   StaticDataSnapshot,
 } from "./types.js";
-import { mergeMatchDetails } from "./match-merge.js";
+import { mergeMatchDetails, withLegacyMatchDefaults } from "./match-merge.js";
+import { matchAnalysisQuality, mergeMatchAnalyses } from "./match-analysis.js";
 import {
   calculateMapContentHash,
   parseAuditedMapPayload,
@@ -51,7 +52,7 @@ const compareMatch = (left: StoredMatch, right: StoredMatch): number => {
   return byStartTime || compareDecimalIdDescending(left.detail.id, right.detail.id);
 };
 
-const includesAccount = (match: MatchDetail, accountId: string): boolean =>
+const includesAccount = (match: MatchCoreDetail, accountId: string): boolean =>
   match.players.some((player) => player.accountId === accountId);
 
 export class MemoryDodoRepository implements DodoRepository {
@@ -62,6 +63,7 @@ export class MemoryDodoRepository implements DodoRepository {
   #updateReleases = new Map<string, UpdateReleaseDetail>();
   readonly #players = new Map<string, PlayerProfile>();
   readonly #matches = new Map<string, StoredMatch>();
+  readonly #matchAnalyses = new Map<string, StoredMatchAnalysis>();
   readonly #playerMatchIds = new Map<string, Set<string>>();
   readonly #syncJobs = new Map<string, SyncJob>();
   readonly #syncBatches = new Map<string, PlayerSyncBatch>();
@@ -112,15 +114,34 @@ export class MemoryDodoRepository implements DodoRepository {
 
   async upsertMatch(match: StoredMatch): Promise<void> {
     const existing = this.#matches.get(match.detail.id);
+    const legacyNeutralSlots = new Set(
+      match.detail.players.flatMap((player) =>
+        Object.prototype.hasOwnProperty.call(player, "neutralItemEnhancementId")
+          ? []
+          : [player.playerSlot],
+      ),
+    );
     const incomingDetail = {
       ...match.detail,
+      players: match.detail.players.map((player) => ({
+        ...player,
+        neutralItemEnhancementId: player.neutralItemEnhancementId ?? null,
+      })),
       stratzEnrichment: stratzEnrichmentStateSchema.parse(
-        (match.detail as MatchDetail & { stratzEnrichment?: unknown }).stratzEnrichment,
+        (match.detail as MatchCoreDetail & { stratzEnrichment?: unknown }).stratzEnrichment,
       ),
     };
+    const parsedIncomingDetail = matchCoreDetailSchema.parse(
+      withLegacyMatchDefaults(incomingDetail),
+    );
+    for (const player of parsedIncomingDetail.players) {
+      if (legacyNeutralSlots.has(player.playerSlot)) {
+        delete (player as Partial<typeof player>).neutralItemEnhancementId;
+      }
+    }
     const stored = clone({
       ...match,
-      detail: mergeMatchDetails(existing?.detail, incomingDetail),
+      detail: mergeMatchDetails(existing?.detail, parsedIncomingDetail),
     });
     const contentChanged =
       !existing ||
@@ -136,6 +157,24 @@ export class MemoryDodoRepository implements DodoRepository {
     }
   }
 
+  async upsertMatchAnalysis(incoming: StoredMatchAnalysis): Promise<void> {
+    const existing = this.#matchAnalyses.get(incoming.matchId);
+    const analysis = mergeMatchAnalyses(existing?.analysis, incoming.analysis);
+    const analysisChanged = !existing ||
+      JSON.stringify(existing.analysis) !== JSON.stringify(analysis);
+    const stored = clone({
+      ...incoming,
+      analysis,
+      importedAt: analysisChanged ? incoming.importedAt : existing.importedAt,
+      quality: matchAnalysisQuality(analysis),
+    });
+    const contentChanged =
+      !existing ||
+      existing.quality !== stored.quality ||
+      analysisChanged;
+    if (contentChanged) this.#matchAnalyses.set(incoming.matchId, stored);
+  }
+
   async replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void> {
     const previousMatchIds = this.#playerMatchIds.get(accountId) ?? new Set<string>();
     const matchIds = new Set<string>();
@@ -149,7 +188,10 @@ export class MemoryDodoRepository implements DodoRepository {
       const stillReferenced = [...this.#playerMatchIds.values()].some((ids) =>
         ids.has(previousMatchId),
       );
-      if (!stillReferenced) this.#matches.delete(previousMatchId);
+      if (!stillReferenced) {
+        this.#matches.delete(previousMatchId);
+        this.#matchAnalyses.delete(previousMatchId);
+      }
     }
   }
 
@@ -437,6 +479,11 @@ export class MemoryDodoRepository implements DodoRepository {
   async getMatch(id: string): Promise<StoredMatch | undefined> {
     const match = this.#matches.get(id);
     return match ? clone(match) : undefined;
+  }
+
+  async getMatchAnalysis(id: string): Promise<StoredMatchAnalysis | undefined> {
+    const analysis = this.#matchAnalyses.get(id);
+    return analysis ? clone(analysis) : undefined;
   }
 
   async listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]> {

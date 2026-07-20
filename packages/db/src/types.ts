@@ -4,7 +4,8 @@ import type {
   HeroDetail,
   ItemDetail,
   MapVersion,
-  MatchDetail,
+  MatchAnalysis,
+  MatchCoreDetail,
   OperationMeta,
   PatchSummary,
   PlayerHistorySync,
@@ -18,9 +19,16 @@ export type DataSource = OperationMeta["sources"][number];
 export type DataQuality = OperationMeta["quality"];
 
 export type StoredMatch = {
-  detail: MatchDetail;
+  detail: MatchCoreDetail;
   importedAt: string;
   source: DataSource;
+  quality: DataQuality;
+};
+
+export type StoredMatchAnalysis = {
+  matchId: string;
+  analysis: MatchAnalysis;
+  importedAt: string;
   quality: DataQuality;
 };
 
@@ -74,6 +82,7 @@ export interface DodoRepository {
   invalidateCurrentMapForOfficialPatch(officialVersion: string): Promise<boolean>;
   upsertPlayer(profile: PlayerProfile): Promise<void>;
   upsertMatch(match: StoredMatch): Promise<void>;
+  upsertMatchAnalysis(analysis: StoredMatchAnalysis): Promise<void>;
   replacePlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
   upsertPlayerMatches(accountId: string, matches: StoredMatch[]): Promise<void>;
   commitPlayerHistoryPage(
@@ -135,6 +144,7 @@ export interface DodoRepository {
   getPlayerHistorySync(accountId: string): Promise<PlayerHistorySync | undefined>;
   getSyncJob(jobId: string): Promise<SyncJob | undefined>;
   getMatch(id: string): Promise<StoredMatch | undefined>;
+  getMatchAnalysis(id: string): Promise<StoredMatchAnalysis | undefined>;
   listMatchIdsMissingNeutralItemEnhancement(matchIds: string[]): Promise<string[]>;
   listPlayerMatches(accountId: string): Promise<StoredMatch[]>;
   getProviderHealth(source: DataSource): Promise<ProviderHealth | undefined>;

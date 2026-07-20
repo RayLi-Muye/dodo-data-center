@@ -8,6 +8,40 @@
 
 ## Active wave
 
+### Wave 18: Parsed match facts and single-match workbench
+
+本波把已解析公开比赛中稳定存在、但 Dodo 尚未消费的事实接入单局详情。第一阶段继续以 OpenDota 为比赛事实主源；STRATZ 保留加点与购买事件增强职责。胜率预测、MVP、完整死亡账本、死亡金钱损失、伤害类型和 Buff/Debuff 时间轴不在本波伪造，归入后续 replay/model 工作。
+
+| Task | Owner | Scope | Depends on | State |
+|---|---|---|---|---|
+| ROOT-030 advanced match contract | Root | `packages/contracts/**`、`docs/api/**`、`docs/orchestration/**`；字段、质量和兼容语义 | Wave 17 | ACCEPTED |
+| DATA-030 parsed OpenDota facts | Data Source Agent | `packages/dota-data/**`；时间轴、优势、击杀、伤害、目标与团战规范化 | ROOT-030 | ACCEPTED |
+| API-030 lossless persistence | Backend/API Agent | `apps/api/**`、`packages/db/**`；转换、legacy default、无损幂等合并 | ROOT-030, DATA-030 | ACCEPTED |
+| WEB-030 match workbench | Web Agent | `apps/web/**`、`packages/ui/**`；概览、发育、战斗、目标、构筑五页签与 390px | ROOT-030, DATA-030, API-030 | ACCEPTED |
+| QA-030 truthfulness and responsive gate | QA Agent | 只读；真实字段、缺失状态、无额外请求、桌面/390px 和键盘 | DATA-030, API-030, WEB-030 | ACCEPTED |
+| DEPLOY-030 overseas preview | Root | 全仓门禁、真实公开账号与 Vercel/Railway smoke | QA-030 | ACCEPTED |
+
+验收目标：
+
+- `GET /v1/matches/{matchId}` 可返回玩家经济/经验/补刀/反补分钟快照、天辉经济/经验优势、击杀、伤害对象/来源、目标事件和团战摘要。
+- 每个高级区块独立使用 `unavailable|partial|complete`；数组为空不能自行解释为“本场没有事件”，除非该区块明确为 complete。
+- 时间轴只使用上游真实 `times` 对齐；天辉优势的 `index * 60` 必须声明为 OpenDota 固定分钟轴推定，不与玩家真实时间轴混称。
+- 原始实体与伤害来源 key 保留可追溯性；第一阶段不推断物理/魔法/纯粹伤害，也不把 `null` 来源武断标记成普通攻击。
+- 团战玩家只通过上游玩家数组的同位置与 `player_slot` 关联；不能根据英雄或队伍猜测。
+- legacy JSONB 读取自动获得 unavailable 默认值；summary 或较弱刷新不得删除已保存的 richer parsed facts，重复导入保持幂等。
+- 单局页面使用五个紧凑页签，共享一个玩家选择状态；切换页签和玩家不触发新的 API 请求。
+- 390px 页面本身无横向溢出；页签栏和玩家选择器允许局部横向滚动，触控目标至少 44px。
+
+明确延期：
+
+- OpenDota benchmark 的总体样本口径不透明，暂不作为 Dodo 基准发布；后续必须返回 `sampleSize`、`eligibleCount`、`coverageRate`、`updatedAt`、`metricVersion` 和 `sources`。
+- 等级变化首轮先保留真实 XP 曲线；只有补齐对应 Patch 的版本化升级经验表或 replay 等级事件后才派生等级曲线。
+- 全部死亡时间、逐次助攻、死亡金钱损失、逐次治疗、伤害类型、modifier 持续时间、胜率预测和 MVP 需要 replay 事实或独立版本化模型。
+
+本地验收证据：OpenDota 公开账号 `224328273` 的已解析比赛 `8904600791` 经数据源规范化、Memory core/sidecar 持久化、Fastify HTTP GET 和公开合同解析完成全链路核对；10 名玩家与六个高级区块均为 complete，分别得到 10 条玩家时间轴、33 个阵营优势点、54 次击杀、10 份伤害汇总、25 个目标事件和 3 次团战。全仓 `pnpm typecheck`、`pnpm test`、`pnpm build`、46 项静态 schema 检查和 `git diff --check` 通过；测试共 419 项通过，19 项需要隔离 PostgreSQL 的集成测试因本机未配置 `TEST_DATABASE_URL` 而按设计跳过。独立 QA 无 P0/P1。
+
+部署证据：Supabase migration `20260720000100_match_analysis` 已应用且本地/远端 migration history 一致；Railway API deployment `d68057ec-77be-45a7-a76c-326c0b3844cd` 为 SUCCESS，readiness 为 200。Vercel Preview `web-f32tfo3q5-rays-projects-f956e95b.vercel.app` 为 READY。生产 API 中账号 `224328273` 的比赛 `8894967793` 经手动增强后保留 10 名玩家，六个 analysis section 均为 complete：10 份玩家时间轴、49 个阵营优势点、97 次击杀、10 份伤害汇总、34 个目标事件和 16 次团战；重复增强前后 `analysis.updatedAt` 均为 `2026-07-20T01:37:31.651Z`，证明相同内容没有重复写入。真实浏览器完成 1280px 与 390×844 冒烟：五页签和十人选择均可在不改变 URL的情况下切换，选择状态跨页签保持，页面无横向溢出且控制台无错误；390px 下页签栏和玩家选择器只在各自容器内横向滚动。
+
 ### Wave 17: In-memory item workbench and hero density calibration
 
 本波修复物品工作台把每次选择实现成服务端页面导航的问题，并按用户反馈重新校准英雄目录与详情密度。静态目录口径、物品可用性声明、英雄字段和移动端信息完整度保持不变。

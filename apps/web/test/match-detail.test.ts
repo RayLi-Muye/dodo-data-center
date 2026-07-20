@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import type { MatchDetail } from "@dodo/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,9 +11,57 @@ import {
   stratzEnrichmentPresentation,
   type AbilitiesByHeroId,
 } from "../lib/match-detail";
+import {
+  advancedSectionPresentation,
+  aggregatePlayerMetric,
+  aggregateTeamTimelines,
+  chartPolyline,
+  comparisonWidth,
+} from "../lib/match-analysis";
 
 const source = (relativePath: string): string =>
   readFileSync(new URL(relativePath, import.meta.url), "utf8");
+
+function timelineMatch({
+  direCount = 5,
+  radiantCount = 5,
+  status = "complete",
+  times = [60],
+  valueFor = (_side: "radiant" | "dire", index: number, gameTimeSeconds: number) => ({
+    gold: (index + 1) * 100 + gameTimeSeconds,
+    xp: (index + 1) * 10 + gameTimeSeconds,
+  }),
+}: {
+  direCount?: number;
+  radiantCount?: number;
+  status?: "complete" | "partial";
+  times?: number[];
+  valueFor?: (side: "radiant" | "dire", index: number, gameTimeSeconds: number) => { gold: number | null; xp: number | null };
+} = {}): MatchDetail {
+  const players = [
+    ...Array.from({ length: radiantCount }, (_, index) => ({ index, playerSlot: index, side: "radiant" as const })),
+    ...Array.from({ length: direCount }, (_, index) => ({ index, playerSlot: 128 + index, side: "dire" as const })),
+  ];
+  return {
+    players,
+    analysis: {
+      playerTimelines: {
+        excludedCount: status === "partial" ? 1 : 0,
+        exclusionReasons: status === "partial" ? ["fixture_missing_sample"] : [],
+        players: players.map((player) => ({
+          playerSlot: player.playerSlot,
+          samples: times.map((gameTimeSeconds) => ({
+            gameTimeSeconds,
+            ...valueFor(player.side, player.index, gameTimeSeconds),
+            denies: null,
+            lastHits: null,
+          })),
+        })),
+        status,
+      },
+    },
+  } as unknown as MatchDetail;
+}
 
 describe("match detail presentation", () => {
   it("never invents hero level or game time for ordered-only ability builds", () => {
@@ -28,6 +77,82 @@ describe("match detail presentation", () => {
     expect(itemTimelineNotice("partial", 0)).toContain("无法判断是否发生购买或出售");
     expect(itemTimelineNotice("partial", 2)).toContain("不能从未显示出售推断没有出售");
     expect(itemTimelineNotice("complete", 2)).toBeNull();
+  });
+
+  it("keeps advanced empty, partial, and unavailable states distinct", () => {
+    const base = { completeEmptyDetail: "确认无事件。", count: 0, excludedCount: 0, label: "事件" };
+    expect(advancedSectionPresentation({ ...base, status: "complete" })).toMatchObject({ detail: "确认无事件。", showData: false, tone: "complete" });
+    expect(advancedSectionPresentation({ ...base, count: 2, excludedCount: 1, status: "partial" })).toMatchObject({ showData: true, tone: "partial" });
+    expect(advancedSectionPresentation({ ...base, status: "unavailable" })).toMatchObject({ showData: false, tone: "unavailable" });
+  });
+
+  it("normalizes comparison bars and never bridges a null chart sample", () => {
+    expect(comparisonWidth(null, [10, null])).toBe(0);
+    expect(comparisonWidth(5, [5, 10])).toBe(50);
+    const segments = chartPolyline(
+      [{ t: 0, v: 1 }, { t: 1, v: 2 }, { t: 2, v: null }, { t: 3, v: 3 }, { t: 4, v: 4 }],
+      (sample) => sample.t,
+      (sample) => sample.v,
+    );
+    expect(segments).toHaveLength(2);
+  });
+
+  it("does not turn missing team metrics into zero-valued totals", () => {
+    const players = [100, 200, 300, 400, null].map((towerDamage) => ({ side: "radiant", towerDamage })) as unknown as MatchDetail["players"];
+    expect(aggregatePlayerMetric(players, "radiant", "towerDamage")).toEqual({
+      eligibleCount: 5,
+      observedCount: 4,
+      value: null,
+    });
+  });
+
+  it("aggregates team timelines only when both sides have five complete players", () => {
+    expect(aggregateTeamTimelines(timelineMatch())).toEqual({
+      excludedCount: 0,
+      samples: [{
+        direGold: 1800,
+        direXp: 450,
+        gameTimeSeconds: 60,
+        radiantGold: 1800,
+        radiantXp: 450,
+      }],
+    });
+  });
+
+  it("excludes every team sample when either roster has fewer than five players", () => {
+    expect(aggregateTeamTimelines(timelineMatch({ radiantCount: 4 }))).toEqual({
+      excludedCount: 1,
+      samples: [],
+    });
+  });
+
+  it("excludes a timepoint instead of replacing any player's null gold or xp with zero", () => {
+    const match = timelineMatch({
+      valueFor: (side, index, gameTimeSeconds) => ({
+        gold: side === "dire" && index === 2 ? null : (index + 1) * 100 + gameTimeSeconds,
+        xp: (index + 1) * 10 + gameTimeSeconds,
+      }),
+    });
+    expect(aggregateTeamTimelines(match)).toEqual({ excludedCount: 1, samples: [] });
+  });
+
+  it("keeps valid partial timepoints and counts invalid timepoints exactly", () => {
+    const result = aggregateTeamTimelines(timelineMatch({
+      status: "partial",
+      times: [60, 120],
+      valueFor: (side, index, gameTimeSeconds) => ({
+        gold: side === "radiant" && index === 0 && gameTimeSeconds === 120 ? null : (index + 1) * 100 + gameTimeSeconds,
+        xp: (index + 1) * 10 + gameTimeSeconds,
+      }),
+    }));
+    expect(result.excludedCount).toBe(1);
+    expect(result.samples).toEqual([{
+      direGold: 1800,
+      direXp: 450,
+      gameTimeSeconds: 60,
+      radiantGold: 1800,
+      radiantXp: 450,
+    }]);
   });
 
   it.each([
@@ -83,13 +208,13 @@ describe("match detail presentation", () => {
   it("renders all frozen scoreboard fields and gates complete-lineup language", () => {
     const page = source("../app/matches/[matchId]/page.tsx");
     const row = source("../components/match-player-row.tsx");
+    const workbench = source("../components/match-detail-workbench.tsx");
 
-    expect(page).toContain('match.data.detailStatus === "enriched"');
-    expect(page).toContain("radiant.length === 5 && dire.length === 5");
-    expect(page).toContain("完整详情后台补全中");
-    expect(page).toContain("完整阵容已载入");
-    expect(page).toContain("<MatchAnalyzer");
-    expect(page).toContain("<MatchEnrichmentStatus");
+    expect(workbench).toContain('match.detailStatus === "enriched"');
+    expect(workbench).toContain("radiant.length === 5 && dire.length === 5");
+    expect(workbench).toContain("双方完整阵容已载入");
+    expect(page).toContain("<MatchDetailWorkbench");
+    expect(workbench).toContain("<MatchEnrichmentStatus");
     expect(page).toContain("上游解析记录可用，不代表完整回放事件");
     expect(page).toContain("matchHeroIds.map");
     expect(page).toContain("abilitiesByHeroId={abilitiesByHeroId}");
@@ -112,9 +237,13 @@ describe("match detail presentation", () => {
 
   it("moves builds into one keyboard-accessible player analyzer", () => {
     const analyzer = source("../components/match-analyzer.tsx");
+    const workbench = source("../components/match-detail-workbench.tsx");
     const row = source("../components/match-player-row.tsx");
 
-    expect(analyzer).toContain('aria-pressed={selected}');
+    expect(workbench).toContain('aria-pressed={player.playerSlot === selectedSlot}');
+    expect(workbench).toContain("selectedPlayerSlot");
+    for (const label of ["概览", "发育", "战斗", "目标", "构筑"]) expect(workbench).toContain(`label: "${label}"`);
+    expect(analyzer).toContain("selectedPlayerSlot: number");
     expect(analyzer).toContain('role="tablist"');
     expect(analyzer).toContain('aria-selected={view === "abilities"}');
     expect(analyzer).toContain('aria-selected={view === "items"}');
